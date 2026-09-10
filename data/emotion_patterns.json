@@ -1,0 +1,270 @@
+[
+    {
+        "pattern": "\\b(ha){3,}\\b",
+        "tag": "haha"
+    },
+    {
+        "pattern": "\\bhaha\\b",
+        "tag": "haha"
+    },
+    {
+        "pattern": "\\b(he){3,}\\b",
+        "tag": "hehe"
+    },
+    {
+        "pattern": "\\bahem\\b",
+        "tag": "ahem"
+    },
+    {
+        "pattern": "\\*ahem\\*",
+        "tag": "ahem"
+    },
+    {
+        "pattern": "\\*gag(?:ing|e)?s?\\*",
+        "tag": "gag"
+    },
+    {
+        "pattern": "\\*kiss(?:ing|d)?s?\\*",
+        "tag": "kiss"
+    },
+    {
+        "pattern": "\\*chuckl(?:ing|e)?s?\\*",
+        "tag": "chuckles"
+    },
+    {
+        "pattern": "\\*laugh(?:ing|e)?s?\\*",
+        "tag": "laugh"
+    },
+    {
+        "pattern": "\\*giggl(?:ing|e)?es?\\*",
+        "tag": "giggle"
+    },
+    {
+        "pattern": "\\*sigh(?:ing|ed)?s?\\*",
+        "tag": "sigh"
+    },
+    {
+        "pattern": "\\*groan(?:ing|ed)?s?\\*",
+        "tag": "groan"
+    },
+    {
+        "pattern": "\\bgroan(?:ing|s)?\\b",
+        "tag": "groan"
+    },
+    {
+        "pattern": "\\*gasp(?:ing|ed)?s?\\*",
+        "tag": "gasp"
+    },
+    {
+        "pattern": "\\*yawn(?:ing|e)?s?\\*",
+        "tag": "yawn"
+    },
+    {
+        "pattern": "\\byawn(?:ing|s)?\\b",
+        "tag": "yawn"
+    },
+    {
+        "pattern": "\\*moan(?:ing|ed)?s?\\*",
+        "tag": "moan"
+    },
+    {
+        "pattern": "\\*cough(?:ing|s)?\\*",
+        "tag": "cough"
+    },
+    {
+        "pattern": "\\*chuckl(?:ing|e)?s?\\*",
+        "tag": "chuckles"
+    },
+    {
+        "pattern": "\\*pant(?:ing|e)?s?\\*",
+        "tag": "pants"
+    },
+    {
+        "pattern": "\\*slurp(?:ing|s)?\\*",
+        "tag": "slurp"
+    },
+    {
+        "pattern": "\\*knock(?:ing|ed)?s?\\*",
+        "tag": "knock"
+    },
+    {
+        "pattern": "\\*sniffl(?:ing|e)?es?\\*",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\bsigh(?:ing|ed)?s?\\b",
+        "tag": "sigh"
+    },
+    {
+        "pattern": "\\bmmm+\\b",
+        "tag": "mmmm"
+    },
+    {
+        "pattern": "\\*mmm+\\*",
+        "tag": "mmmm"
+    },
+    {
+        "pattern": "\\*ah\\*",
+        "tag": "ahhh"
+    },
+    {
+        "pattern": "\\*ahh+\\*",
+        "tag": "ahh"
+    },
+    {
+        "pattern": "\\bahh+\\b",
+        "tag": "ahh"
+    },
+    {
+        "pattern": "\\*argh\\*",
+        "tag": "argh"
+    },
+    {
+        "pattern": "\\*gulp(?:ing|ed)?s?\\*",
+        "tag": "gulp"
+    },
+    {
+        "pattern": "\\*he\\*",
+        "tag": "he"
+    },
+    {
+        "pattern": "\\*heartbeat\\*",
+        "tag": "heartbeat"
+    },
+    {
+        "pattern": "\\*huh\\*",
+        "tag": "huh"
+    },
+    {
+        "pattern": "\\*hic\\*",
+        "tag": "hic"
+    },
+    {
+        "pattern": "\\*mwha\\*",
+        "tag": "kiss"
+    },
+    {
+        "pattern": "\\bmwah\\b",
+        "tag": "kiss"
+    },
+    {
+        "pattern": "\\*ooh\\*",
+        "tag": "ooh"
+    },
+    {
+        "pattern": "\\*ugh\\*",
+        "tag": "ugh"
+    },
+    {
+        "pattern": "\\*suck(?:ing|ed)?s?\\*",
+        "tag": "suck"
+    },
+    {
+        "pattern": "\\bmmmmmmh\\b",
+        "tag": "moans"
+    },
+    {
+        "pattern": "\\bhnn+g\\b",
+        "tag": "mmmm"
+    },
+    {
+        "pattern": "\\bmwha\\b",
+        "tag": "kiss"
+    },
+    {
+        "pattern": "\\bhnnng\\b",
+        "tag": "moan"
+    },
+    {
+        "pattern": "\\*hmm\\*",
+        "tag": "hmm"
+    },
+    {
+        "pattern": "\\bhmm\\b",
+        "tag": "hmm"
+    },
+    {
+        "pattern": "\\bha\\b",
+        "tag": "ha"
+    },
+    {
+        "pattern": "\\*sh+\\*",
+        "tag": "shhh"
+    },
+    {
+        "pattern": "\\bsh+\\b",
+        "tag": "shhh"
+    },
+    {
+        "pattern": "\\bhmpf\\b",
+        "tag": "pfft"
+    },
+    {
+        "pattern": "\\bphew\\b",
+        "tag": "wistle"
+    },
+    {
+        "pattern": "\\bsobs\\b",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\*sobs\\*",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\bargh\\b",
+        "tag": "argh"
+    },
+    {
+        "pattern": "\\*argh\\*",
+        "tag": "argh"
+    },
+    {
+        "pattern": "\\bsniffs\\b",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\*sniffle\\*",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\bsniff\\b",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\*sniff\\*",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\*sniffs\\*",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\b[mn]{3,}[aouh][mngh]+\\b",
+        "tag": "moanb"
+    },
+    {
+        "pattern": "\\b[aou]+[mngh]+[aou]+\\b",
+        "tag": null
+    },
+    {
+        "pattern": "\\b([mngh]){3,}([aouh]{1}[mngh]*)+\\b",
+        "tag": "moanc"
+    },
+    {
+        "pattern": "\\b[mnhaeou]+[mngh][mnhaeou]{2,}\\b",
+        "tag": "moand"
+    },
+    {
+        "pattern": "\\b([mnh])\\1{2,}[aou]+[mgh]+\\b",
+        "tag": null
+    },
+    {
+        "pattern": "\\b([a-zA-Z])\\1{2,}\\b",
+        "tag": null
+    },
+    {
+        "pattern": "\\*[^*]+\\*",
+        "tag": null
+    }
+]

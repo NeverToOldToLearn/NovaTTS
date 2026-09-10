@@ -1,0 +1,23 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Settings": {
+      "name": "Settings",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

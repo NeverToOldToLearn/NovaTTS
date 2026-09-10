@@ -1,0 +1,11 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

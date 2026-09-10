@@ -1,0 +1,7 @@
+# CRLF line-endings voor Windows batch/cmd (cmd.exe vereist \r\n)
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.iss  text eol=crlf
+
+# Overig consistent Unix (behalve Windows-specifieke tooling)
+*.ps1 text eol=crlf

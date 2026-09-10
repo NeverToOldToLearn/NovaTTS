@@ -1,0 +1,203 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Adelardo": {
+      "name": "Adelardo",
+      "voice": "M - Comfyui-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Alexandra": {
+      "name": "Alexandra",
+      "voice": "F-Comfyui-0008",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Alyssa": {
+      "name": "Alyssa",
+      "voice": "F-Comfyui-0015 (2)",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Blakely": {
+      "name": "Blakely",
+      "voice": "F-Comfyui-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Buck": {
+      "name": "Buck",
+      "voice": "M - Comfyui-0007",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Cameron": {
+      "name": "Cameron",
+      "voice": "M - Comfyui-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Cherry": {
+      "name": "Cherry",
+      "voice": "F-Comfyui-0006",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "D-Scum": {
+      "name": "D-Scum",
+      "voice": "M - Comfyui-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Eliam": {
+      "name": "Eliam",
+      "voice": "M-HankKingofTheHill1",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Ellie": {
+      "name": "Ellie",
+      "voice": "F-Comfyui-0009",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Emma": {
+      "name": "Emma",
+      "voice": "F-Comfyui-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Ethan Vanderbilt": {
+      "name": "Ethan Vanderbilt",
+      "voice": "M-bruno_mars",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Genevieve": {
+      "name": "Genevieve",
+      "voice": "F-Comfyui-0014 (2)",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Isabella": {
+      "name": "Isabella",
+      "voice": "F-Comfyui-0005",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Kurt": {
+      "name": "Kurt",
+      "voice": "M - Comfyui-0007",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Latrell": {
+      "name": "Latrell",
+      "voice": "M - Comfyui-0007",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Lexie": {
+      "name": "Lexie",
+      "voice": "F-Comfyui-0012",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Luigi": {
+      "name": "Luigi",
+      "voice": "M - Comfyui-0007",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Magnus": {
+      "name": "Magnus",
+      "voice": "M-bruno_mars",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Mick": {
+      "name": "Mick",
+      "voice": "M - Comfyui-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Morris": {
+      "name": "Morris",
+      "voice": "M-Comfyui-0001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Morton Pierce": {
+      "name": "Morton Pierce",
+      "voice": "M - Comfyui-0007",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Officer Cooper": {
+      "name": "Officer Cooper",
+      "voice": "M-bruno_mars",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Percival": {
+      "name": "Percival",
+      "voice": "M-EldernNarator2",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Police Headquarters": {
+      "name": "Police Headquarters",
+      "voice": "M - Comfyui-0007",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Robert": {
+      "name": "Robert",
+      "voice": "Mark_Webber_m_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Samantha": {
+      "name": "Samantha",
+      "voice": "F-Comfyui-0006 (2)",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Savannah-Rose": {
+      "name": "Savannah-Rose",
+      "voice": "F-Comfyui-0013",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Skippy": {
+      "name": "Skippy",
+      "voice": "M-bruno_mars",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Tanner": {
+      "name": "Tanner",
+      "voice": "Mark_Webber_m_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Victoria": {
+      "name": "Victoria",
+      "voice": "F-Comfyui-0014.wav",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

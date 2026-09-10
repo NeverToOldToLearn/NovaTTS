@@ -1,0 +1,25 @@
+{
+  "name": "novatts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NovaTTS — universal local VN TTS (backend + Tauri GUI)",
+  "workspaces": ["gui"],
+  "scripts": {
+    "setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./setup.ps1",
+    "install:all": "npm run setup",
+    "setup:force": "powershell -NoProfile -ExecutionPolicy Bypass -File ./setup.ps1 -Force",
+    "backend:exe": "powershell -NoProfile -Command \"Set-Location backend; .\\.venv\\Scripts\\pyinstaller Novabackend.spec --noconfirm\"",
+    "installer": "powershell -NoProfile -ExecutionPolicy Bypass -File ./installer/Build-Installer.ps1",
+    "installer:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File ./installer/Build-Installer.ps1 -ZipOnly",
+    "installer:exe": "powershell -NoProfile -ExecutionPolicy Bypass -File ./installer/Build-Installer.ps1 -NoZip",
+    "dev": "npm run dev --workspace=gui",
+    "dev:tauri": "npm run tauri --workspace=gui -- dev",
+    "build": "npm run build --workspace=gui",
+    "build:tauri": "npm run tauri --workspace=gui -- build",
+    "lint": "npm run lint --workspaces --if-present & ruff check backend",
+    "clean": "powershell -NoProfile -Command \"Remove-Item -Recurse -Force gui/dist,gui/node_modules,backend/.venv,backend/.ruff_cache,backend/.mypy_cache -ErrorAction SilentlyContinue; Write-Host 'clean done'\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

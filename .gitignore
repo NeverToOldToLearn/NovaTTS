@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Env — alleen backend\.env is lokaal, voorbeeld wel mee
+# (backend\.env wordt niet mee-gecloned; kopieert automatisch uit .env.example)
+backend/.env
+
+# Audio output / cache
+*.wav
+data/cache/
+
+# Node / Tauri
+node_modules/
+dist/
+target/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Crush (opencode session data)
+.crush.json
+.crush/
+
+# Installer output
+NovaTTS-Setup-*.exe
+NovaTTS-Portable-*.zip
+installer/Output/
+*.log
+backend/dist/
+backend/build/

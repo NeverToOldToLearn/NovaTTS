@@ -1,0 +1,65 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Gwendolyn": {
+      "name": "Gwendolyn",
+      "voice": "id00419_00297_-_Copy_2-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Johnny": {
+      "name": "Johnny",
+      "voice": "M-Jeremy_Clarkson",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Kim": {
+      "name": "Kim",
+      "voice": "M-Neil_deGrasse_Tyson",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Mabel": {
+      "name": "Mabel",
+      "voice": "Brooke_Burke-Charvet_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Maddison": {
+      "name": "Maddison",
+      "voice": "id01228_00216_-_Copy-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Mr. Light": {
+      "name": "Mr. Light",
+      "voice": "M-Jordan_Peterson",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Skipping": {
+      "name": "Skipping",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "TheBigStep": {
+      "name": "TheBigStep",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Anna": {
+      "name": "Anna",
+      "voice": "Brooke_Burke-Charvet_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Brenda": {
+      "name": "Brenda",
+      "voice": "Lisa_Whelchel_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Ethan": {
+      "name": "Ethan",
+      "voice": "CharlySheen",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Girl": {
+      "name": "Girl",
+      "voice": "Kelli_Berglund_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Guy": {
+      "name": "Guy",
+      "voice": "Stewie - kopie",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Mia": {
+      "name": "Mia",
+      "voice": "id02445_00054_00001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Sasha": {
+      "name": "Sasha",
+      "voice": "id01224_00212_00001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Woman": {
+      "name": "Woman",
+      "voice": "Maria_Menounos_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

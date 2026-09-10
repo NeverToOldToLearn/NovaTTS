@@ -1,0 +1,113 @@
+{
+  "versions": 1,
+  "speakers": {
+    "ALEXANDRA": {
+      "name": "ALEXANDRA",
+      "voice": "Lisa_Whelchel_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "ANNOUNCER": {
+      "name": "ANNOUNCER",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "AUDIENCE": {
+      "name": "AUDIENCE",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "CHRIS": {
+      "name": "CHRIS",
+      "voice": "Charlie_Sheen",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "CONNOR": {
+      "name": "CONNOR",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "COURTNEY": {
+      "name": "COURTNEY",
+      "voice": "id02445_00054_00001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "DISCLAIMER": {
+      "name": "DISCLAIMER",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "FATIMAH": {
+      "name": "FATIMAH",
+      "voice": "id01460_00293_00001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "HALEY": {
+      "name": "HALEY",
+      "voice": "Yvette_Nicole_Brown_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "JENKINS": {
+      "name": "JENKINS",
+      "voice": "id07354_00018_00001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "KLAUS": {
+      "name": "KLAUS",
+      "voice": "M-Neil_deGrasse_Tyson",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "MAX": {
+      "name": "MAX",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "NERD": {
+      "name": "NERD",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "NICK": {
+      "name": "NICK",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "RYAN": {
+      "name": "RYAN",
+      "voice": "M-Jordan_Peterson",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Skipping": {
+      "name": "Skipping",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

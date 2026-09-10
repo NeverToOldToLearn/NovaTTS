@@ -1,0 +1,47 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Anna": {
+      "name": "Anna",
+      "voice": "Kelli_Berglund_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Brenda": {
+      "name": "Brenda",
+      "voice": "id01224_00212_00001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "D": {
+      "name": "D",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Lilya": {
+      "name": "Lilya",
+      "voice": "Lisa_Whelchel_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Woman": {
+      "name": "Woman",
+      "voice": "Brooke_Burke-Charvet_f_01",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}
