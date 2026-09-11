@@ -156,6 +156,10 @@ class NovaApp:
 
         with contextlib.suppress(Exception):
             self.qwen_mgr.stop()
+        with contextlib.suppress(Exception):
+            # Ephemeral audio cache: discard on clean shutdown so it can't
+            # grow unboundedly across sessions.
+            self.voices.clear_cache()
         self.registry.maybe_autosave()
 
     def _synth_emotion_aware(self, dialogue: Dialogue) -> list[Path]:
@@ -667,20 +671,23 @@ async def qwen_import_samples() -> dict[str, Any]:
 
 @app.post("/shutdown")
 async def shutdown() -> dict[str, Any]:
+    import asyncio
     import contextlib
     import os
     import threading
 
-    def _exit() -> None:
-        import time
-
-        time.sleep(0.3)
-        os._exit(0)
-
     rt = get_runtime()
+
+    def _graceful() -> None:
+        # Run events/worker teardown + cache clear on the running loop,
+        # then schedule uvicorn to exit so the lifespan "finally" does cleanup.
+        if rt._running:
+            rt.stop()
+        asyncio.get_event_loop().call_later(0.2, os._exit, 0)
+
     with contextlib.suppress(Exception):
         rt.qwen_mgr.stop()
-    threading.Thread(target=_exit, daemon=True).start()
+    threading.Thread(target=_graceful, daemon=True).start()
     return {"status": "shutting_down"}
 
 

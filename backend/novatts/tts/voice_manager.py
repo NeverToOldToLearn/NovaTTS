@@ -105,6 +105,28 @@ class VoiceManager:
         if callable(del_fn):
             del_fn(name)
 
+    def clear_cache(self) -> None:
+        """Remove all cached synthesis output.
+
+        The cache is an ephemeral, session-scoped dedup store: it exists to
+        avoid re-synthesizing a line that plays repeatedly within one run.
+        Clearing it on clean shutdown keeps it from growing unboundedly
+        across sessions (a voice mapping change would otherwise force a full
+        rebuild anyway).
+        """
+        if not self.cache_dir.exists():
+            return
+        try:
+            removed = 0
+            for p in self.cache_dir.iterdir():
+                if p.is_file():
+                    p.unlink()
+                    removed += 1
+            if removed:
+                log.info("Cache cleared: removed %d file(s) from %s", removed, self.cache_dir)
+        except Exception as exc:
+            log.warning("Failed to clear cache %s: %s", self.cache_dir, exc)
+
     def clean_dialogue(self, dialogue: Dialogue) -> Dialogue:
         cleaned = clean_emotion_text(dialogue.text)
         if cleaned == dialogue.text:

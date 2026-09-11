@@ -111,3 +111,27 @@ def test_voice_mapping_change_produces_fresh_audio(tmp_path):
     assert pa != pb
     assert backend.calls[0]["voice"] == "gpu1"
     assert backend.calls[1]["voice"] == "gpu2"
+
+
+def test_clear_cache_removes_all_files(tmp_path):
+    backend, registry, mgr = make_ctx(tmp_path)
+    mgr.synthesize(Dialogue(speaker="Rick", text="Hello", source="api"))
+    mgr.synthesize(Dialogue(speaker="Rick", text="Another", source="api"))
+    assert len(list(mgr.cache_dir.iterdir())) == 2
+
+    mgr.clear_cache()
+
+    assert len(list(mgr.cache_dir.iterdir())) == 0
+    # Cache hit no longer applies: synthesis runs again.
+    mgr.synthesize(Dialogue(speaker="Rick", text="Hello", source="api"))
+    assert len(backend.calls) == 3
+
+
+def test_clear_cache_absent_dir_is_noop(tmp_path):
+    backend, registry, mgr = make_ctx(tmp_path)
+    # Cache dir created on construct; drop it to emulate "nothing cached".
+    import shutil
+
+    shutil.rmtree(mgr.cache_dir, ignore_errors=True)
+    mgr.clear_cache()  # must not raise
+    assert not mgr.cache_dir.exists()
