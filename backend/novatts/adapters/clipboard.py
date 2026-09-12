@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Iterable
 
 import pyperclip
 
@@ -33,6 +34,10 @@ class ClipboardAdapter(InputAdapter):
     @property
     def name(self) -> str:
         return "clipboard"
+
+    def set_known_speakers(self, names: Iterable[str]) -> None:
+        """Sync the parser's registry-backed name set (case-insensitive)."""
+        self.parser.set_known_names(names)
 
     def start(self) -> None:
         if self._running:

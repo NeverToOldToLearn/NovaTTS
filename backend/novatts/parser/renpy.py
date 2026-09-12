@@ -14,6 +14,7 @@ Strict rules (all must hold):
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from ..models import Dialogue
 
@@ -84,7 +85,29 @@ def _word_passes(word: str) -> bool:
 
 
 class RenPyParser:
-    """Parses a single raw clipboard string into a Dialogue."""
+    """Parses a single raw clipboard string into a Dialogue.
+
+    A colon-prefix that case-insensitively matches an entry in
+    ``known_names`` is treated as that speaker even when it would fail the
+    strict heuristics (e.g. "Passenger 1" or a long multi-word name). This
+    lets user-registered speakers win over the heuristics while keeping the
+    strict rules for everything else.
+    """
+
+    def __init__(self, known_names: Iterable[str] = ()) -> None:
+        self.set_known_names(known_names)
+
+    def set_known_names(self, names: Iterable[str]) -> None:
+        """Replace the set of case-insensitive names treated as speakers.
+
+        Stores the canonical (registry) spelling per lowercased key so a
+        clipboard name matching case-insensitively maps back to the exact
+        registered name (e.g. "alex: ..." -> "Alex").
+        """
+        self._known: dict[str, str] = {}
+        for n in names:
+            if n and n.strip():
+                self._known[n.strip().lower()] = n.strip()
 
     def parse(self, raw: str, source: str = "renpy", instruct: str = "") -> Dialogue:
         text = _normalize_text(raw)
@@ -117,6 +140,11 @@ class RenPyParser:
                 # "Rick:" with no dialogue — keep the speaker, nothing to say.
                 speaker = self._clean_speaker(raw_name)
                 return Dialogue(speaker=speaker, text="", source=source, instruct=instruct)
+            # A user-registered name always wins over the strict heuristics,
+            # and maps to its canonical spelling so the registry matches.
+            canonical = self._known.get(raw_name.lower())
+            if canonical is not None:
+                return Dialogue(speaker=canonical, text=raw_line, source=source, instruct=instruct)
             speaker = self._clean_speaker(raw_name)
             if speaker is not None:
                 return Dialogue(speaker=speaker, text=raw_line, source=source, instruct=instruct)

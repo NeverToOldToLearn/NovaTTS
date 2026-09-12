@@ -134,6 +134,7 @@ class NovaApp:
         self._worker = threading.Thread(target=self._dialogue_worker, name="dialogue-worker", daemon=True)
         self._worker.start()
         self.clipboard = ClipboardAdapter(on_dialogue=self.on_dialogue)
+        self.clipboard.set_known_speakers(self.registry.names())
         self.clipboard.start()
         log.info("NovaTTS started (qwen_online=%s)", self.qwen.is_available())
 
@@ -315,6 +316,8 @@ class NovaApp:
         new_path = self.games.speakers_path(safe)
         self.registry = SpeakerRegistry(new_path)
         self.voices.registry = self.registry
+        if self.clipboard:
+            self.clipboard.set_known_speakers(self.registry.names())
         self._emit(Event("game_switched", {"game": safe, "speakers": len(self.registry.names())}))
         return {"game": safe, "speakers": self.registry.to_dict(), "path": str(new_path)}
 
@@ -522,6 +525,8 @@ async def create_speaker(body: SpeakerCreateBody) -> dict[str, Any]:
     rt = get_runtime()
     speaker = rt.registry.register(body.name)
     rt.registry.save()
+    if rt.clipboard:
+        rt.clipboard.set_known_speakers(rt.registry.names())
     return speaker.to_dict()
 
 
