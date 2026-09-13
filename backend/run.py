@@ -23,10 +23,17 @@ if str(BACKEND_DIR) not in sys.path:
 
 from novatts.config import settings  # noqa: E402
 
+
 def _run() -> None:
     import argparse
 
+    from novatts.logconf import setup_logging
     from novatts.main import app as _app
+
+    # Uvicorn's default log config only wires up its OWN loggers; the
+    # app loggers (novatts.*) would stay at WARNING. Enable them at the
+    # configured level so log.info(...)/log.debug(...) reach the console.
+    setup_logging()
 
     p = argparse.ArgumentParser()
     p.add_argument("--host", default=None)

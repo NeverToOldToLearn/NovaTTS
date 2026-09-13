@@ -17,6 +17,7 @@ from ..blacklist import is_renpy_exception
 from ..config import settings
 from ..parser.renpy import RenPyParser
 from .base import DialogueCallback, InputAdapter
+from .rawclipboard import RawClipboardLogger
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ class ClipboardAdapter(InputAdapter):
         self._running = False
         self._last_clipboard: str = ""
         self.parser = RenPyParser()
+        self.raw_log = RawClipboardLogger(
+            settings.clipboard_raw_log,
+            enabled=settings.log_raw_clipboard,
+        )
 
     @property
     def name(self) -> str:
@@ -70,28 +75,35 @@ class ClipboardAdapter(InputAdapter):
             time.sleep(settings.poll_interval)
 
     def _tick(self) -> None:
-        current = pyperclip.paste().strip()
-        if not current or current == self._last_clipboard:
-            return
-        self._last_clipboard = current
-        if is_renpy_exception(current):
-            log.debug("Skipping RenPy exception dump: %r", current[:80])
-            return
+            current = pyperclip.paste().strip()
+            if not current or current == self._last_clipboard:
+                return
+            self._last_clipboard = current
+            # Raw capture logged before ANY preprocessing so the exact source
+            # text is available for regex/filter tuning.
+            if is_renpy_exception(current):
+                self.raw_log.log_entry(current, "BLOCKED:renpy_exception")
+                log.debug("Skipping RenPy exception dump: %r", current[:80])
+                return
 
-        if len(current) < settings.min_text_length:
-            return
-        if self._is_garbage(current):
-            log.debug("Skipping non-dialogue clipboard: %r", current[:60])
-            return
+            if len(current) < settings.min_text_length:
+                self.raw_log.log_entry(current, "BLOCKED:too_short")
+                return
+            if self._is_garbage(current):
+                self.raw_log.log_entry(current, "BLOCKED:garbage")
+                log.debug("Skipping non-dialogue clipboard: %r", current[:60])
+                return
 
-        dialogue = self.parser.parse(current, source=self.name)
-        if not dialogue.is_voiceable:
-            return
-        log.debug("Clipboard -> %s: %s", dialogue.speaker, dialogue.text[:60])
-        try:
-            self.on_dialogue(dialogue)
-        except Exception:
-            log.exception("on_dialogue callback failed (swallowed)")
+            dialogue = self.parser.parse(current, source=self.name)
+            if not dialogue.is_voiceable:
+                self.raw_log.log_entry(current, "BLOCKED:not_voiceable")
+                return
+            self.raw_log.log_entry(current, "OK")
+            log.debug("Clipboard -> %s: %s", dialogue.speaker, dialogue.text[:60])
+            try:
+                self.on_dialogue(dialogue)
+            except Exception:
+                log.exception("on_dialogue callback failed (swallowed)")
 
     @staticmethod
     def _is_garbage(text: str) -> bool:

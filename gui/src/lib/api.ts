@@ -100,4 +100,8 @@ export const api = {
       body: JSON.stringify(body),
     }),
   testTts: () => req<{ status: string; file: string; size: number }>("/test-tts", { method: "POST" }),
+  openClipboardLog: () =>
+    req<{ status: string; path: string }>("/clipboard-log/open", { method: "POST" }),
+  clearClipboardLog: () =>
+    req<{ status: string }>("/clipboard-log/clear", { method: "POST" }),
 };

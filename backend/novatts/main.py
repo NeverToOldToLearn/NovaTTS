@@ -161,6 +161,10 @@ class NovaApp:
             # Ephemeral audio cache: discard on clean shutdown so it can't
             # grow unboundedly across sessions.
             self.voices.clear_cache()
+        with contextlib.suppress(Exception):
+            # Ephemeral raw clipboard log: same policy — nothing persists.
+            if self.clipboard:
+                self.clipboard.raw_log.clear()
         self.registry.maybe_autosave()
 
     def _synth_emotion_aware(self, dialogue: Dialogue) -> list[Path]:
@@ -711,6 +715,39 @@ async def preview_voice(name: str, body: SpeakBody) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.post("/clipboard-log/open")
+async def open_clipboard_log() -> dict[str, Any]:
+    """Open the raw clipboard log file in the OS default viewer."""
+    import os
+    import subprocess
+    import sys
+
+    rt = get_runtime()
+    if not rt.clipboard:
+        return {"status": "noop", "path": ""}
+    log_path = rt.clipboard.raw_log.path
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail=f"No clipboard log yet at {log_path}")
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(log_path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", str(log_path)])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to open log: {exc}") from exc
+    return {"status": "ok", "path": str(log_path)}
+
+
+@app.post("/clipboard-log/clear")
+async def clear_clipboard_log() -> dict[str, Any]:
+    """Delete the raw clipboard log (GUI action, no server shutdown needed)."""
+    rt = get_runtime()
+    if not rt.clipboard:
+        return {"status": "noop"}
+    rt.clipboard.raw_log.clear()
+    return {"status": "cleared"}
+
+
 # ----------------------------------------------------------------------
 # Settings (paths configurable from GUI)
 # ----------------------------------------------------------------------
@@ -832,4 +869,7 @@ async def update_settings(body: SettingsBody) -> dict[str, Any]:
 if __name__ == "__main__":
     import uvicorn
 
+    from novatts.logconf import setup_logging
+
+    setup_logging()
     uvicorn.run("novatts.main:app", host=settings.host, port=settings.port)

@@ -46,6 +46,26 @@
     testing = false;
   };
 
+  const openLog = async () => {
+    err = "";
+    try {
+      const r = await api.openClipboardLog();
+      info = `Opened raw clipboard log: ${r.path}`;
+    } catch (e) {
+      err = (e as Error).message;
+    }
+  };
+
+  const clearLog = async () => {
+    err = "";
+    try {
+      await api.clearClipboardLog();
+      info = "Raw clipboard log cleared.";
+    } catch (e) {
+      err = (e as Error).message;
+    }
+  };
+
   const exists = (key: string) => pathStatus[key]?.exists ?? false;
 
   onMount(load);
@@ -144,6 +164,15 @@
     <button onclick={save} disabled={saving}>{saving ? "Saving…" : "Save to .env"}</button>
     <button class="ghost" onclick={testTts} disabled={testing}>{testing ? "Testing…" : "Test TTS"}</button>
     <button class="ghost" onclick={load} disabled={saving || testing}>Reload</button>
+  </div>
+
+  <div class="section">
+    <h3>Clipboard raw log</h3>
+    <p class="muted small">Every clipboard capture is written verbatim before any filtering, so you can copy the exact source text when tuning regex/filters (e.g. variable-length “aaaah”).</p>
+    <div class="actions">
+      <button onclick={openLog}>Open log</button>
+      <button class="ghost" onclick={clearLog}>Clear</button>
+    </div>
   </div>
 </section>
 

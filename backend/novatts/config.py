@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     # --- Clipboard adapter ---
     poll_interval: float = 0.25
     min_text_length: int = 3
+    # Log every raw clipboard capture (before any filtering) to a file so
+    # regex/filter tuning can copy the exact source texts.
+    log_raw_clipboard: bool = True
+    clipboard_raw_log: Path = DATA_DIR / "logs" / "clipboard_raw.log"
 
     # --- Audio ---
     audio_sample_rate: int = 22050
