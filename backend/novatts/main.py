@@ -92,6 +92,23 @@ class SettingsBody(BaseModel):
     poll_interval: float | None = None
 
 
+class OpenAISpeechBody(BaseModel):
+    """OpenAI-compatible /v1/audio/speech request."""
+
+    model: str = Field(..., min_length=1)
+    """Model identifier (nova-fast, nova-balanced, nova-expressive)."""
+    input: str = Field(..., min_length=1, max_length=4096)
+    """Text to synthesize."""
+    voice: str = Field(..., min_length=1)
+    """Voice name."""
+    response_format: str = "mp3"
+    """Output format: mp3, opus, aac, flac, wav, pcm."""
+    speed: float = 1.0
+    """Playback speed (0.25–4.0)."""
+    instructions: str = ""
+    """Voice design instructions."""
+
+
 # ----------------------------------------------------------------------
 # Application runtime
 # ----------------------------------------------------------------------
@@ -746,6 +763,103 @@ async def clear_clipboard_log() -> dict[str, Any]:
         return {"status": "noop"}
     rt.clipboard.raw_log.clear()
     return {"status": "cleared"}
+
+
+# ----------------------------------------------------------------------
+# OpenAI-compatible TTS endpoint (for Open-WebUI integration)
+# ----------------------------------------------------------------------
+
+# Model→profiel mapping: model name → (emotion, instruct_hint)
+_OPENAI_MODEL_PROFILES = {
+    "nova-fast": {"emotion": "neutral", "instruct": ""},
+    "nova-balanced": {"emotion": "neutral", "instruct": "Speak naturally and clearly."},
+    "nova-expressive": {"emotion": "default", "instruct": "Speak with emotion and expression."},
+}
+
+
+def _resolve_openai_profile(model: str) -> dict[str, str]:
+    """Map OpenAI model name to emotion/instruct profile."""
+    profile = _OPENAI_MODEL_PROFILES.get(model.lower(), _OPENAI_MODEL_PROFILES["nova-balanced"])
+    return profile
+
+
+@app.post("/v1/audio/speech")
+async def openai_speech(body: OpenAISpeechBody) -> Any:
+    """OpenAI-compatible text-to-speech endpoint.
+
+    Accepts the same request format as OpenAI's /v1/audio/speech API.
+    Returns audio data in the requested format (mp3, opus, aac, flac, wav, pcm).
+
+    Example:
+        POST /v1/audio/speech
+        {
+            "model": "nova-balanced",
+            "input": "Hello, world!",
+            "voice": "default",
+            "response_format": "mp3"
+        }
+    """
+    from fastapi.responses import StreamingResponse
+
+    from .audio_convert import convert_audio, get_mime_type
+
+    rt = get_runtime()
+
+    # Validate text length
+    text = body.input.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="input cannot be empty")
+    if len(text) > 4096:
+        raise HTTPException(status_code=400, detail="input exceeds 4096 characters")
+
+    # Validate response format
+    format_name = body.response_format.lower().strip()
+    supported_formats = ["mp3", "opus", "aac", "flac", "wav", "pcm"]
+    if format_name not in supported_formats:
+        raise HTTPException(
+            status_code=400,
+            detail=f"response_format '{format_name}' not supported. Supported: {', '.join(supported_formats)}",
+        )
+
+    # Validate speed
+    if not 0.25 <= body.speed <= 4.0:
+        raise HTTPException(status_code=400, detail="speed must be between 0.25 and 4.0")
+
+    # Resolve model profile (emotion, instruct hint)
+    profile = _resolve_openai_profile(body.model)
+    instruct = body.instructions or profile["instruct"]
+
+    # Synthesize
+    try:
+        dialogue = Dialogue(
+            speaker=None,
+            text=text,
+            source="openai-api",
+            instruct=instruct,
+        )
+        # Synthesize with the voice override
+        path = rt.voices.synthesize(dialogue, voice_override=body.voice)
+    except Exception as exc:
+        log.error("OpenAI TTS synthesis failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Synthesis failed: {exc}") from exc
+
+    # Convert to requested format if not WAV
+    try:
+        if format_name == "wav":
+            audio_data = path.read_bytes()
+        else:
+            audio_data = convert_audio(path, format_name)
+    except Exception as exc:
+        log.error("Audio format conversion failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Format conversion failed: {exc}") from exc
+
+    # Return audio stream
+    mime_type = get_mime_type(format_name)
+    return StreamingResponse(
+        iter([audio_data]),
+        media_type=mime_type,
+        headers={"Content-Disposition": f"attachment; filename=speech.{format_name}"},
+    )
 
 
 # ----------------------------------------------------------------------
