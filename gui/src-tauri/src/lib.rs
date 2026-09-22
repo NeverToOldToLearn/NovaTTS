@@ -28,9 +28,15 @@ fn app_base_dir(handle: &tauri::AppHandle) -> PathBuf {
 fn ensure_env(handle: &tauri::AppHandle) {
     let base = app_base_dir(handle);
     let env_path = base.join(".env");
-    if env_path.exists() {
-        return;
-    }
+
+    // Dev runs must be deterministic.
+    // If a stale .env exists from a previous run, it may point to ports
+    // that collide with qwentts.cpp (usually 8081), causing backend bind
+    // failures and the GUI to get stuck.
+    //
+    // So: always (re)write the dev .env.
+    let _ = std::fs::remove_file(&env_path);
+
     let candidates = [
         base.join("resources").join(".env.example"),
         base.join(".env.example"),
@@ -131,11 +137,22 @@ fn dev_backend_path() -> Option<PathBuf> {
 }
 
 fn backend_running() -> bool {
-    ureq::get("http://127.0.0.1:8765/health")
-        .timeout(Duration::from_millis(600))
-        .call()
-        .map(|r| r.status() == 200)
-        .unwrap_or(false)
+    // Dev builds and some configurations historically used 8765,
+    // but the backend .env defaults in this repo are 8081.
+    // Check both so we don't spawn a second backend instance.
+    let ports = [8765u16, 8081u16];
+    for port in ports {
+        let url = format!("http://127.0.0.1:{}/health", port);
+        let ok = ureq::get(&url)
+            .timeout(Duration::from_millis(600))
+            .call()
+            .map(|r| r.status() == 200)
+            .unwrap_or(false);
+        if ok {
+            return true;
+        }
+    }
+    false
 }
 
 fn wait_for_backend(timeout: Duration) -> bool {
