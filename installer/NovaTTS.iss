@@ -48,7 +48,7 @@ Name: "runsetup"; Description: "Direct setup draaien (.venv + npm install)"; Gro
 [Files]
 ; Alles behalve gegenereerde/build artefacts — zie Build script voor exacte file list
 ; (ISCC kan ook met wildcards; Build-Installer.ps1 doet filtering)
-Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".git\*,.venv\*,venv\*,node_modules\*,target\*,__pycache__\*,*.pyc,.mypy_cache\*,.ruff_cache\*,.pytest_cache\*,data\cache\*,installer\Output\*,*.log,backend.log,gui.log,backend\.env,NovaTTS-Portable-*.zip,NovaTTS-Setup-*.exe"
+Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".git\*,.venv\*,venv\*,node_modules\*,target\*,__pycache__\*,*.pyc,.mypy_cache\*,.ruff_cache\*,.pytest_cache\*,data\cache\*,installer\Output\*,*.log,backend.log,gui.log,backend\.env,NovaTTS-Portable-*.zip,NovaTTS-Setup-*.exe,nul"
 Source: "..\backend\.env.example"; DestDir: "{app}\backend"; DestName: ".env.example"; Flags: ignoreversion
 
 [Icons]
