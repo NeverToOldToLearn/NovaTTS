@@ -50,8 +50,15 @@ if (-not $NoZip) {
     }
   } finally { Pop-Location }
 
-  $tmpStage = Join-Path $env:TEMP "novatts-stage-$([Guid]::NewGuid().ToString('N').Substring(0,8))"
+  # Some environments (or PowerShell quoting issues) can leave $env:TEMP empty,
+  # which makes Join-Path produce an invalid ':' path and breaks ZipFile.
+  $tmpRoot = [System.IO.Path]::GetTempPath()
+  $tmpStage = Join-Path $tmpRoot "novatts-stage-$([Guid]::NewGuid().ToString('N').Substring(0,8))"
   New-Item -ItemType Directory -Force -Path $tmpStage | Out-Null
+  # Ensure ZipFile can write: stage path must not contain unsupported drive mappings.
+  # Also, use .NET's zip directly after verifying tmpStage exists.
+  if (-not (Test-Path $tmpStage)) { throw "tmpStage missing: $tmpStage" }
+
   try {
     # Robocopy with exclusions (fast + correct hidden/system)
     $xd = ($excludeDirs | ForEach-Object { "`"$_`"" }) -join " "
@@ -59,7 +66,7 @@ if (-not $NoZip) {
     $roboArgs = @($ROOT, $tmpStage, "/E", "/NFL", "/NDL", "/NJH", "/NJS")
     foreach ($d in $excludeDirs) { $roboArgs += "/XD"; $roboArgs += $d }
     # Exclude specific files via /XF
-    $roboArgs += "/XF"; $roboArgs += "backend.log"; $roboArgs += "gui.log"; $roboArgs += "*.pyc"
+    $roboArgs += "/XF"; $roboArgs += "backend.log"; $roboArgs += "gui.log"; $roboArgs += "*.pyc"; $roboArgs += "nul"
     if (-not $WithVenv) {
       # Extra: never include backend .env (user config)
       # copy .env.example as .env.example only
@@ -73,7 +80,25 @@ if (-not $NoZip) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     # Remove old zip if exists, then create
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpStage, $zipPath)
+
+    # Prefer explicit zip path creation; also ensure tmpStage is a real local path.
+    $tmpStageResolved = (Resolve-Path -Path $tmpStage).Path
+
+    # Debug (kept short): if env/paths are weird, this makes failures actionable.
+    Write-Host "[installer] zipping: $tmpStageResolved -> $zipPath" -ForegroundColor DarkGray
+
+    if (Get-Command Compress-Archive -ErrorAction SilentlyContinue) {
+      # Compress-Archive is more forgiving than ZipFile::CreateFromDirectory on
+      # some systems/drives.
+      if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+      $files = Get-ChildItem -Path $tmpStageResolved -Recurse -Force
+      # Compress-Archive can't ignore individual files reliably, so we build a
+      # simple explicit include list and let robocopy exclusions do the heavy lifting.
+      Compress-Archive -Path (Get-ChildItem -Path $tmpStageResolved -Force -ErrorAction Stop | ForEach-Object { $_.FullName }) -DestinationPath $zipPath -Force
+    } else {
+      [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpStageResolved, $zipPath)
+    }
+
     $sz = (Get-Item $zipPath).Length
     Write-Host "[installer] ZIP klaar: $zipName ($([math]::Round($sz/1MB,1)) MB)" -ForegroundColor Green
     Write-Host "  Gebruik: uitpakken -> Install.cmd of setup.ps1 -> start_all.cmd" -ForegroundColor DarkGray
