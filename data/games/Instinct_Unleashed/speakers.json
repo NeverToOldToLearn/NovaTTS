@@ -1,0 +1,29 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Blair": {
+      "name": "Blair",
+      "voice": "F-NovaTTS-0049",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Fransisca": {
+      "name": "Fransisca",
+      "voice": "F-N0vaTTS-0009",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Skipping": {
+      "name": "Skipping",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

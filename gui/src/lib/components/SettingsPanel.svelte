@@ -13,12 +13,24 @@
 
   const load = async () => {
     try {
-      data = await api.settings();
+      const raw = await api.settings();
+      // Robust fallback: settings response structure may vary
+      const response = raw as any;
+      data = {
+        settings: response?.settings || response || {},
+        path_status: response?.path_status || {},
+        env_file: response?.env_file || "unknown",
+      };
       form = { ...data.settings };
-      pathStatus = data.path_status;
+      pathStatus = data.path_status || {};
       err = "";
     } catch (e) {
-      err = (e as Error).message;
+      err = `Failed to load settings: ${(e as Error).message}`;
+      console.error("Settings load error:", e);
+      data = null;
+      // Provide empty fallback so UI doesn't break
+      form = {};
+      pathStatus = {};
     }
   };
 

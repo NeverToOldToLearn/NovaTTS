@@ -1,0 +1,155 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Amelia": {
+      "name": "Amelia",
+      "voice": "F-N0vaTTS-0004",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Bar": {
+      "name": "Bar",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Barbara": {
+      "name": "Barbara",
+      "voice": "F-N0vaTTS-0007",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Captain": {
+      "name": "Captain",
+      "voice": "M-HankKingofTheHill",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Catherine": {
+      "name": "Catherine",
+      "voice": "F-N0vaTTS-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Classroom": {
+      "name": "Classroom",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Club Owner": {
+      "name": "Club Owner",
+      "voice": "M-David_Attenborough",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Dancefloor": {
+      "name": "Dancefloor",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Deck": {
+      "name": "Deck",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Female Voice": {
+      "name": "Female Voice",
+      "voice": "F-N0vaTTS-0001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Jacuzzi": {
+      "name": "Jacuzzi",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Kayla": {
+      "name": "Kayla",
+      "voice": "F-NovaTTS-0044",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Lana": {
+      "name": "Lana",
+      "voice": "F-N0vaTTS-0010",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Lia": {
+      "name": "Lia",
+      "voice": "F-NovaTTS-0033",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Lounge": {
+      "name": "Lounge",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Male Voice": {
+      "name": "Male Voice",
+      "voice": "M-Ricky Garvais",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Mei": {
+      "name": "Mei",
+      "voice": "F-N0vaTTS-0009",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Pharaoh": {
+      "name": "Pharaoh",
+      "voice": "M-HankKingofTheHill",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Pool": {
+      "name": "Pool",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Principal": {
+      "name": "Principal",
+      "voice": "M-All Peter Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Skipping": {
+      "name": "Skipping",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Trish": {
+      "name": "Trish",
+      "voice": "F-NovaTTS-0049",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "You": {
+      "name": "You",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

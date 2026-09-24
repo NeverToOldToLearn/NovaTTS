@@ -50,6 +50,14 @@
 </main>
 
 <style>
+  :global(:root) {
+    --background: #14151a;
+    --foreground: #e8e8ec;
+    --muted-foreground: #8b8e9a;
+    --card: #1e2027;
+    --border: #2a2d36;
+    --accent: #3b4b8f;
+  }
   .app {
     display: flex;
     height: 100vh;

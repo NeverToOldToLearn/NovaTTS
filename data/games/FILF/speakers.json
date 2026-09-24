@@ -1,0 +1,77 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Aunt": {
+      "name": "Aunt",
+      "voice": "F-N0vaTTS-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Courtney": {
+      "name": "Courtney",
+      "voice": "F-NovaTTS-0039",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "D": {
+      "name": "D",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Douche": {
+      "name": "Douche",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Fransisca": {
+      "name": "Fransisca",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Keith": {
+      "name": "Keith",
+      "voice": "M-Mark_Webber_m_01",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Melissa": {
+      "name": "Melissa",
+      "voice": "F-N0vaTTS-0001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Mom": {
+      "name": "Mom",
+      "voice": "F-N0vaTTS-0001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Samantha": {
+      "name": "Samantha",
+      "voice": "F-NovaTTS-0049",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Skipping": {
+      "name": "Skipping",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

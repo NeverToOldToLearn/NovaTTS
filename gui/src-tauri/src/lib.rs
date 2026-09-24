@@ -1,11 +1,15 @@
 use std::path::PathBuf;
-use std::process::Child;
+use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::Manager;
 
 type BackendHandle = Arc<Mutex<Option<Child>>>;
+
+/// Managed tauri state wrappers — distinct types so both can be registered.
+struct BackendState(BackendHandle);
+struct FrontendState(BackendHandle);
 
 fn app_base_dir(handle: &tauri::AppHandle) -> PathBuf {
     if let Ok(d) = handle.path().resource_dir() {
@@ -155,6 +159,81 @@ fn backend_running() -> bool {
     false
 }
 
+const DEV_FRONTEND_URL: &str = "http://localhost:1420";
+
+fn dev_frontend_up() -> bool {
+    ureq::get(DEV_FRONTEND_URL)
+        .timeout(Duration::from_millis(700))
+        .call()
+        .map(|r| r.status() == 200)
+        .unwrap_or(false)
+}
+
+/// Plain `cargo build`/`cargo run` compiles in Tauri dev mode, which loads
+/// `devUrl` (the Vite dev server) from tauri.conf.json. When that server is
+/// not running — the common case for `cargo run` without `npx tauri dev` —
+/// WebView2 shows a "This page cannot be reached" error and the GUI stays
+/// empty. This starts the Vite dev server (npm run dev in ../gui) and then
+/// points the window at it, so `cargo run` works standalone. Under
+/// `npx tauri dev` / `start_all.cmd` the dev server is already up and this
+/// is a no-op.
+fn ensure_frontend(handle: &tauri::AppHandle, state: BackendHandle) {
+    let handle = handle.clone();
+    std::thread::spawn(move || {
+        // Grace period: let a dev server started by `tauri dev` come up
+        // before we take over anything.
+        for _ in 0..6 {
+            std::thread::sleep(Duration::from_millis(2000));
+            if dev_frontend_up() {
+                return;
+            }
+        }
+
+        let gui_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        eprintln!(
+            "[NovaTTS] frontend dev server not found on {DEV_FRONTEND_URL} — starting it in {}",
+            gui_dir.display()
+        );
+
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C");
+        cmd.arg("npm run dev");
+        cmd.current_dir(&gui_dir);
+
+        let Ok(child) = cmd.spawn() else {
+            eprintln!("[NovaTTS] failed to start `npm run dev`");
+            return;
+        };
+        // Track it so the exit handler can kill it again when the app closes.
+        *state.lock().unwrap() = Some(child);
+
+        let deadline = Instant::now() + Duration::from_secs(45);
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1000));
+            if dev_frontend_up() {
+                eprintln!("[NovaTTS] frontend dev server ready on {DEV_FRONTEND_URL}");
+                if let Some(win) = handle.get_webview_window("main") {
+                    if let Ok(url) = DEV_FRONTEND_URL.parse() {
+                        let _ = win.navigate(url);
+                    }
+                }
+                return;
+            }
+            let exited = state
+                .lock()
+                .unwrap()
+                .as_mut()
+                .map(|c| c.try_wait().ok().flatten().is_some())
+                .unwrap_or(false);
+            if exited {
+                eprintln!("[NovaTTS] `npm run dev` exited before becoming ready");
+                return;
+            }
+        }
+        eprintln!("[NovaTTS] frontend dev server did not become ready in time");
+    });
+}
+
 fn wait_for_backend(timeout: Duration) -> bool {
     let start = std::time::Instant::now();
     while start.elapsed() < timeout {
@@ -216,36 +295,105 @@ fn shutdown_backend() -> Result<(), String> {
         .map_err(|e| format!("shutdown request failed: {e}"))
 }
 
-fn kill_managed(state: &BackendHandle) {
-    let mut guard = state.lock().unwrap();
-    if let Some(mut child) = guard.take() {
-        let _ = shutdown_backend();
-        std::thread::sleep(Duration::from_millis(400));
-        match child.try_wait() {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
+/// Kill a PID and its whole child tree (taskkill /T /F). PyInstaller onefile
+/// runs the real code in a child process, so killing just the parent PID can
+/// leave the listening process behind.
+fn taskkill_tree(pid: u32) -> bool {
+    std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// PID of the process currently listening on 127.0.0.1:8765, if any.
+fn backend_listener_pid() -> Option<u32> {
+    let out = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    for line in text.lines() {
+        if line.contains("127.0.0.1:8765") && line.contains("LISTENING") {
+            if let Some(pid) = line.split_whitespace().last().and_then(|s| s.parse::<u32>().ok()) {
+                return Some(pid);
             }
-            Err(_) => {}
         }
-    } else {
-        let _ = shutdown_backend();
+    }
+    None
+}
+
+fn kill_managed(state: &BackendHandle) {
+    let managed = {
+        let mut guard = state.lock().unwrap();
+        guard.take()
+    };
+
+    // 1) Graceful: ask the backend to stop itself (it clears caches first).
+    let _ = shutdown_backend();
+
+    // 2) App-spawned backend: give it ~2s to exit cleanly, otherwise kill the
+    //    whole process tree (covers the PyInstaller child process too).
+    if let Some(mut child) = managed {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                _ => {
+                    let _ = taskkill_tree(child.id());
+                    let _ = child.wait();
+                    break;
+                }
+            }
+        }
+    }
+
+    // 3) Fallback: if anything still listens on :8765 (e.g. a backend that was
+    //    started outside this app, or a PyInstaller sub-tree), force-kill it.
+    for _ in 0..3 {
+        match backend_listener_pid() {
+            Some(pid) => {
+                let _ = taskkill_tree(pid);
+                std::thread::sleep(Duration::from_millis(300));
+                if backend_listener_pid() == Some(pid) {
+                    break; // could not force it down; don't loop forever
+                }
+            }
+            None => break,
+        }
+    }
+}
+
+/// Kill the Vite dev server this app started itself (cmd /C npm run dev →
+/// node) when it was launched standalone via `cargo run`. It must not
+/// survive the app, otherwise node/vite linger after closing the window.
+fn kill_frontend(state: &BackendHandle) {
+    if let Some(mut child) = state.lock().unwrap().take() {
+        let _ = taskkill_tree(child.id());
+        let _ = child.wait();
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend_state: BackendHandle = Arc::new(Mutex::new(None));
+    let frontend_state: BackendHandle = Arc::new(Mutex::new(None));
     let backend_state_setup = backend_state.clone();
     let backend_state_events = backend_state.clone();
+    let frontend_state_setup = frontend_state.clone();
 
     let app = tauri::Builder::default()
-        .manage(backend_state.clone())
+        .manage(BackendState(backend_state.clone()))
+        .manage(FrontendState(frontend_state.clone()))
         .setup(move |app| {
             let handle = app.handle().clone();
+            let backend_handle = handle.clone();
             let state = backend_state_setup.clone();
-            std::thread::spawn(move || spawn_backend(&handle, state));
+            std::thread::spawn(move || spawn_backend(&backend_handle, state));
+            ensure_frontend(&handle, frontend_state_setup);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -253,10 +401,13 @@ pub fn run() {
 
     app.run(move |app_handle, event| match event {
         tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
-            if let Some(state) = app_handle.try_state::<BackendHandle>() {
-                kill_managed(&state);
-            } else {
-                kill_managed(&backend_state_events);
+            let backend = app_handle
+                .try_state::<BackendState>()
+                .map(|s| s.0.clone())
+                .unwrap_or_else(|| backend_state_events.clone());
+            kill_managed(&backend);
+            if let Some(fs) = app_handle.try_state::<FrontendState>() {
+                kill_frontend(&fs.0);
             }
         }
         _ => {}

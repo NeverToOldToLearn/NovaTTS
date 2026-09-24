@@ -15,7 +15,7 @@
     "dev": "npm run dev --workspace=gui",
     "dev:tauri": "npm run tauri --workspace=gui -- dev",
     "build": "npm run build --workspace=gui",
-    "build:tauri": "npm run tauri --workspace=gui -- build",
+    "build:tauri": "npm run backend:exe && npm run tauri --workspace=gui -- build",
     "lint": "npm run lint --workspaces --if-present & ruff check backend",
     "clean": "powershell -NoProfile -Command \"Remove-Item -Recurse -Force gui/dist,gui/node_modules,backend/.venv,backend/.ruff_cache,backend/.mypy_cache -ErrorAction SilentlyContinue; Write-Host 'clean done'\""
   },

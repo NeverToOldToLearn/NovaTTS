@@ -1,0 +1,83 @@
+{
+  "versions": 1,
+  "speakers": {
+    "Candy": {
+      "name": "Candy",
+      "voice": "F-N0vaTTS-0002",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Cecilia": {
+      "name": "Cecilia",
+      "voice": "F-N0vaTTS-0009",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Ellen": {
+      "name": "Ellen",
+      "voice": "F-N0vaTTS-0001",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Fern": {
+      "name": "Fern",
+      "voice": "F-NovaTTS-0042",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Ivy": {
+      "name": "Ivy",
+      "voice": "F-NovaTTS-0033",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Jasmine": {
+      "name": "Jasmine",
+      "voice": "F-N0vaTTS-0004",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Jessica": {
+      "name": "Jessica",
+      "voice": "F-NovaTTS-0049",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Megan": {
+      "name": "Megan",
+      "voice": "F-NovaTTS-0044",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Narrator": {
+      "name": "Narrator",
+      "voice": "M-EldernNaratorToLateNow",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Navigating": {
+      "name": "Navigating",
+      "voice": "",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Rick": {
+      "name": "Rick",
+      "voice": "M-Brian_Griffin",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Scarlet": {
+      "name": "Scarlet",
+      "voice": "F-N0vaTTS-0010",
+      "instruct": "",
+      "emotion": "neutral"
+    },
+    "Theo": {
+      "name": "Theo",
+      "voice": "M-HankKingofTheHill",
+      "instruct": "",
+      "emotion": "neutral"
+    }
+  }
+}

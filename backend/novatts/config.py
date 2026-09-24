@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -9,8 +10,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _base_dir() -> Path:
+    # Explicit override (launcher/diagnostics).
+    if env_base := os.environ.get("NOVATTS_BASE_DIR"):
+        return Path(env_base).resolve()
+
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
+        # Dev layout: the exe lives under <repo>\gui\src-tauri\target\...\resources
+        # (or backend\dist). Walk up until we find the repo root (a directory
+        # containing both `data` and `backend`). That keeps the frozen exe and
+        # the `start_all.cmd` python backend on the SAME data dir, so speakers
+        # and games never "split" across a second location depending on which
+        # launch method was used.
+        cur = exe_dir
+        for _ in range(6):
+            if (cur / "data").is_dir() and (cur / "backend").is_dir():
+                return cur
+            parent = cur.parent
+            if parent == cur:
+                break
+            cur = parent
+        # Installed-layout fallbacks (no repo root around).
         if exe_dir.name.lower() == "resources":
             return exe_dir.parent
         if (exe_dir / "data").exists() or (exe_dir / "backend").exists():
@@ -19,6 +39,7 @@ def _base_dir() -> Path:
         if (parent / "data").exists():
             return parent
         return exe_dir
+    # Source layout (python run.py in backend/): repo root.
     return Path(__file__).resolve().parent.parent.parent
 
 

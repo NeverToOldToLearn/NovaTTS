@@ -697,22 +697,27 @@ async def qwen_import_samples() -> dict[str, Any]:
 
 @app.post("/shutdown")
 async def shutdown() -> dict[str, Any]:
-    import asyncio
     import contextlib
     import os
     import threading
+    import time
 
     rt = get_runtime()
 
     def _graceful() -> None:
-        # Run events/worker teardown + cache clear on the running loop,
-        # then schedule uvicorn to exit so the lifespan "finally" does cleanup.
+        # Events/worker teardown + cache clear, then hard-exit.
+        # (This ran in a worker thread and called asyncio.get_event_loop(),
+        #  which raises "no current event loop in thread" on py>=3.12, so
+        #  os._exit never fired and the process stayed alive after the GUI
+        #  closed. Teardown first, a short grace period so the HTTP response
+        #  can flush, then os._exit guarantees the process dies.)
+        with contextlib.suppress(Exception):
+            rt.qwen_mgr.stop()
         if rt._running:
             rt.stop()
-        asyncio.get_event_loop().call_later(0.2, os._exit, 0)
+        time.sleep(0.3)
+        os._exit(0)
 
-    with contextlib.suppress(Exception):
-        rt.qwen_mgr.stop()
     threading.Thread(target=_graceful, daemon=True).start()
     return {"status": "shutting_down"}
 

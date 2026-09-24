@@ -23,8 +23,8 @@ function Test-Venv($py) {
   if (Test-Path $cfg) {
     $homeLine = (Select-String -Path $cfg -Pattern "^home\s*=" -ErrorAction SilentlyContinue)
     if ($homeLine) {
-      $home = ($homeLine.Line -split "=",2)[1].Trim().Trim('"')
-      if ($home -and -not (Test-Path $home)) { return $false }
+      $homeVal = ($homeLine.Line -split "=",2)[1].Trim().Trim('"')
+      if ($homeVal -and -not (Test-Path $homeVal)) { return $false }
     }
   }
   return $true
@@ -178,7 +178,8 @@ if ($Shortcuts) {
       $lnk.TargetPath = $it.Target
       $lnk.Arguments = $it.Args
       $lnk.WorkingDirectory = $it.Dir
-      $lnk.Description = "NovaTTS — $($it.Name)"
+      # Use ASCII chars + avoid subexpression parsing issues on some encodings
+      $lnk.Description = ('NovaTTS - ' + $it.Name)
       $lnk.Save()
     }
     $dlnk = $wsh.CreateShortcut((Join-Path $desk "NovaTTS.lnk"))
