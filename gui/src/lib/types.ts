@@ -12,6 +12,10 @@ export interface ImportStatus {
   active: boolean;
   error: string | null;
   dir: string;
+  /** Wavs with a complete pre-extracted .spk/.rvq pair. */
+  pairs?: number;
+  /** Wavs without a pair yet (need server-side extraction). */
+  unpaired?: number;
 }
 export interface ServerStatus {
   server: string;
@@ -76,6 +80,7 @@ export interface SettingsData {
   qwen_bin: string;
   qwen_model: string;
   qwen_codec: string;
+  qwen_codec_bin: string;
   qwen_url: string;
   qwen_default_voice: string;
   qwen_samples_dir: string;

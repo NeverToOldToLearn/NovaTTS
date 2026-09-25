@@ -96,9 +96,24 @@ class VoiceManager:
         """Voices the GUI can pick from, prefixed with an explicit default."""
         return self.backend.list_voices()
 
-    def register_voice(self, name: str, wav_bytes: bytes, *, ref_text: str = "") -> None:
-        """Clone a voice on the TTS backend from a WAV sample."""
-        self.backend.register_voice(name, wav_bytes, ref_text=ref_text)
+    def register_voice(
+        self,
+        name: str,
+        wav_bytes: bytes | None = None,
+        *,
+        ref_text: str = "",
+        spk_bytes: bytes | None = None,
+        rvq_bytes: bytes | None = None,
+    ) -> None:
+        """Clone a voice on the TTS backend from a WAV sample or a
+        pre-extracted .spk/.rvq pair (see ``Qwen3Backend.register_voice``)."""
+        self.backend.register_voice(
+            name,
+            wav_bytes,
+            ref_text=ref_text,
+            spk_bytes=spk_bytes,
+            rvq_bytes=rvq_bytes,
+        )
 
     def delete_voice(self, name: str) -> None:
         del_fn = getattr(self.backend, "delete_voice", None)

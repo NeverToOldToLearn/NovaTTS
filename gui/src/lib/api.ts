@@ -1,4 +1,4 @@
-import type { EventEntry, Health, ServerStatus, SettingsResponse, Speaker, SpeakBody } from "./types";
+import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, Speaker, SpeakBody } from "./types";
 
 const BASE = "http://127.0.0.1:8765";
 
@@ -63,6 +63,15 @@ export const api = {
   qwenStatus: () => req<QwenStatus>("/qwen/status"),
   qwenStart: () => req<{ status: string; pid?: number }>("/qwen/start", { method: "POST" }),
   qwenStop: () => req<{ status: string }>("/qwen/stop", { method: "POST" }),
+  convertSamples: (force = false) =>
+    req<{
+      converted: number;
+      skipped: number;
+      failed: number;
+      total: number;
+      errors: string[];
+      import_status?: ImportStatus;
+    }>(`/qwen/convert-samples${force ? "?force=1" : ""}`, { method: "POST" }),
 
   voices: () => req<{ voices: string[]; qwen_online: boolean }>("/voices"),
   cloneVoice: (name: string, wavB64: string, refText = "") =>

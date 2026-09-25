@@ -10,6 +10,8 @@
   let info = $state("");
   let saving = $state(false);
   let testing = $state(false);
+  let converting = $state(false);
+  let convertForce = $state(false);
 
   const load = async () => {
     try {
@@ -78,6 +80,20 @@
     }
   };
 
+  const convertSamples = async () => {
+    converting = true; err = ""; info = "";
+    try {
+      const r = await api.convertSamples(convertForce);
+      if (r.failed > 0) {
+        err = `${r.failed} conversion(s) failed: ${(r.errors ?? []).slice(0, 3).join(" | ")}`;
+      }
+      info = `Converted ${r.converted}/${r.total} wav(s), skipped ${r.skipped}. Pairs available: ${r.import_status?.pairs ?? "?"} (unpaired: ${r.import_status?.unpaired ?? "?"}). Restart Qwen engine to register them.`;
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    converting = false;
+  };
+
   const exists = (key: string) => pathStatus[key]?.exists ?? false;
 
   onMount(load);
@@ -120,6 +136,13 @@
         </div>
       </label>
       <label class="field-row">
+        <span class="fk">qwen-codec binary</span>
+        <div class="fv">
+          <input class="field" bind:value={form.qwen_codec_bin} placeholder="auto = next to tts-server.exe" />
+          <span class="dot" class:ok={exists("qwen_codec_bin")}>{exists("qwen_codec_bin") ? "✓" : "✗"}</span>
+        </div>
+      </label>
+      <label class="field-row">
         <span class="fk">Server URL</span>
         <input class="field" bind:value={form.qwen_url} placeholder="http://127.0.0.1:8080" />
       </label>
@@ -152,6 +175,13 @@
         <span class="fk">Extra dirs (comma-sep)</span>
         <input class="field" bind:value={form.qwen_samples_dirs_extra} placeholder="optional, comma separated" />
       </label>
+    </div>
+    <p class="muted small">Pre-extract <code>.spk</code>/<code>.rvq</code> pairs with qwen-codec.exe: importeert sneller bij elke Qwen-start (geen GPU-extractie per stem meer). Wavs zonder pair vallen terug op server-side extractie.</p>
+    <div class="actions">
+      <button class="ghost" onclick={convertSamples} disabled={converting}>
+        {converting ? "Converting…" : "Pre-extract .spk/.rvq"}
+      </button>
+      <label class="chk"><input type="checkbox" bind:checked={convertForce} disabled={converting} /> force (alle, ook bestaande)</label>
     </div>
   </div>
 
@@ -195,6 +225,9 @@
   .pill{ align-self:center; background:#1e2027; border:1px solid #2a2d36; border-radius:999px; padding:0.35rem 0.75rem; font-size:0.72rem; font-family:ui-monospace,monospace; color:#8b8e9a; white-space:nowrap; max-width:340px; overflow:hidden; text-overflow:ellipsis; }
   .callout{ margin:0; border-radius:10px; padding:0.6rem 0.8rem; font-size:0.85rem; word-break:break-word; }
   .callout.error{ background:#2a1f24; border:1px solid #3a2a2e; color:#ffb4b4; } .callout.info{ background:#1c2330; border:1px solid #2a3550; color:#a8b8e6; }
+  .muted{ color:#8b8e9a; } .small{ font-size:0.8rem; }
+  .chk{ display:flex; align-items:center; gap:0.4rem; font-size:0.82rem; color:#8b8e9a; cursor:pointer; }
+  .chk input{ accent-color:#3b4b8f; }
   .section{ background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:1rem 1.1rem; display:flex; flex-direction:column; gap:0.75rem; }
   .section h3{ margin:0; font-size:0.95rem; letter-spacing:-0.01em; color:#e8e8ec; }
   .form-grid{ display:flex; flex-direction:column; gap:0.65rem; }

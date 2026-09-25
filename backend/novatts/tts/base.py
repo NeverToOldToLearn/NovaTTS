@@ -25,11 +25,17 @@ class TTSBackend(abc.ABC):
     def register_voice(
         self,
         name: str,
-        wav_bytes: bytes,
+        wav_bytes: bytes | None = None,
         *,
         ref_text: str = "",
+        spk_bytes: bytes | None = None,
+        rvq_bytes: bytes | None = None,
     ) -> None:
-        """Clone a voice on the backend from a WAV sample (no-op by default)."""
+        """Clone a voice on the backend (no-op by default).
+
+        Either ``wav_bytes`` (server-side extraction) or the pre-extracted
+        ``spk_bytes`` + ``rvq_bytes`` pair must be provided.
+        """
         raise NotImplementedError(f"{type(self).__name__} does not support voice cloning")
 
     @abc.abstractmethod

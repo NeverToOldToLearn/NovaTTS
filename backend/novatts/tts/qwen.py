@@ -70,20 +70,30 @@ class Qwen3Backend(TTSBackend):
     def register_voice(
         self,
         name: str,
-        wav_bytes: bytes,
+        wav_bytes: bytes | None = None,
         *,
         ref_text: str = "",
+        spk_bytes: bytes | None = None,
+        rvq_bytes: bytes | None = None,
     ) -> None:
-        """Clone a voice on the qwentts.cpp server from a WAV sample.
+        """Clone a voice on the qwentts.cpp server.
 
-        The sample is sent as base64 in ``wav_b64`` (per tts-server.h).
+        The server accepts either a raw WAV sample (``wav_b64`` — the
+        reference latents are extracted server side on the GPU) or the
+        pre-extracted pair (``spk_b64`` + ``rvq_b64`` — taken verbatim,
+        no GPU work at registration). Pass exactly one form; ``ref_text``
+        enables ICL clone mode when present (per tts-server.h).
         """
         import base64
 
-        payload: dict[str, Any] = {
-            "name": name,
-            "wav_b64": base64.b64encode(wav_bytes).decode("ascii"),
-        }
+        payload: dict[str, Any] = {"name": name}
+        if spk_bytes is not None and rvq_bytes is not None:
+            payload["spk_b64"] = base64.b64encode(spk_bytes).decode("ascii")
+            payload["rvq_b64"] = base64.b64encode(rvq_bytes).decode("ascii")
+        elif wav_bytes is not None:
+            payload["wav_b64"] = base64.b64encode(wav_bytes).decode("ascii")
+        else:
+            raise ValueError("register_voice requires wav_bytes or the spk_bytes+rvq_bytes pair")
         if ref_text:
             payload["ref_text"] = ref_text
         r = self._session.post(

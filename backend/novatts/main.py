@@ -86,6 +86,7 @@ class SettingsBody(BaseModel):
     qwen_default_voice: str | None = None
     qwen_samples_dir: str | None = None
     qwen_samples_dirs_extra: str | None = None
+    qwen_codec_bin: str | None = None
     emotion_sounds_dir: str | None = None
     qwen_timeout: float | None = None
     qwen_extra_args: str | None = None
@@ -667,32 +668,45 @@ async def qwen_import_samples() -> dict[str, Any]:
 
     from .config import settings as _s
     from .tts.qwen import Qwen3Backend as _QB
+    from .tts.spk_rvq import collect_wavs, register_sample
 
     src = Path(_s.qwen_samples_dir)
     if not src.exists():
         raise HTTPException(status_code=404, detail=f"Samples dir not found: {src}")
     qb = _QB()
     existing = set(qb.list_voices())
-    wavs = sorted(src.glob("*.wav"), key=lambda p: p.name.lower())
+    wavs = [w for w in collect_wavs(src) if w.stem not in existing]
     ok = 0
-    skipped = 0
+    skipped = len(collect_wavs(src)) - len(wavs)
     failed: list[str] = []
     for wav in wavs:
-        if wav.name == "output_quick_test.wav" or wav.stat().st_size > 5_000_000:
-            skipped += 1
-            continue
-        name = wav.stem
-        if name in existing:
-            skipped += 1
-            continue
-        ref = wav.with_suffix(".txt")
-        ref_text = ref.read_text(encoding="utf-8", errors="replace").strip() if ref.exists() else ""
         try:
-            qb.register_voice(name, wav.read_bytes(), ref_text=ref_text)
+            register_sample(qb, wav)
             ok += 1
         except Exception as exc:
-            failed.append(f"{name}: {exc}")
-    return {"imported": ok, "skipped": skipped, "failed": failed, "total": len(wavs)}
+            failed.append(f"{wav.stem}: {exc}")
+    return {"imported": ok, "skipped": skipped, "failed": failed, "total": len(wavs) + skipped}
+
+
+@app.post("/qwen/convert-samples")
+async def qwen_convert_samples(force: bool = False) -> dict[str, Any]:
+    """Pre-extract .spk/.rvq voice references for the samples dir.
+
+    Runs qwen-codec.exe for every wav that lacks a complete pair (or all
+    wavs with ``?force=1``). Registration at the next engine start then
+    uploads the latents verbatim instead of re-extracting them on the GPU.
+    """
+    from .tts.spk_rvq import convert_samples_dir
+
+    src = Path(settings.qwen_samples_dir)
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"Samples dir not found: {src}")
+    summary = convert_samples_dir(src, force=force)
+    summary["dir"] = str(src)
+    if summary["errors"]:
+        log.warning("qwen/convert-samples errors: %s", summary["errors"])
+    summary["import_status"] = get_runtime().qwen_mgr.import_status()
+    return summary
 
 
 @app.post("/shutdown")
@@ -876,6 +890,7 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "qwen_bin": "NOVATTS_QWEN_BIN",
     "qwen_model": "NOVATTS_QWEN_MODEL",
     "qwen_codec": "NOVATTS_QWEN_CODEC",
+    "qwen_codec_bin": "NOVATTS_QWEN_CODEC_BIN",
     "qwen_url": "NOVATTS_QWEN_URL",
     "qwen_default_voice": "NOVATTS_QWEN_DEFAULT_VOICE",
     "qwen_samples_dir": "NOVATTS_QWEN_SAMPLES_DIR",
@@ -897,6 +912,7 @@ def _settings_snapshot() -> dict[str, Any]:
         "qwen_bin": settings.qwen_bin,
         "qwen_model": settings.qwen_model,
         "qwen_codec": settings.qwen_codec,
+        "qwen_codec_bin": settings.qwen_codec_bin,
         "qwen_url": settings.qwen_url,
         "qwen_default_voice": settings.qwen_default_voice,
         "qwen_samples_dir": settings.qwen_samples_dir,
@@ -911,10 +927,13 @@ def _settings_snapshot() -> dict[str, Any]:
 
 
 def _settings_path_status() -> dict[str, dict[str, Any]]:
+    from .tts.spk_rvq import codec_bin_path
+
     checks: dict[str, Path | str] = {
         "qwen_bin": Path(settings.qwen_bin) if settings.qwen_bin else Path(),
         "qwen_model": Path(settings.qwen_model) if settings.qwen_model else Path(),
         "qwen_codec": Path(settings.qwen_codec) if settings.qwen_codec else Path(),
+        "qwen_codec_bin": codec_bin_path() if settings.qwen_bin else Path(),
         "qwen_samples_dir": Path(settings.qwen_samples_dir) if settings.qwen_samples_dir else Path(),
         "emotion_sounds_dir": Path(settings.emotion_sounds_dir) if settings.emotion_sounds_dir else Path(),
     }

@@ -57,9 +57,25 @@ NOVATTS_QWEN_BIN=D:\Projects\qwentts.cpp\build\Release\tts-server.exe
 NOVATTS_QWEN_MODEL=E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf
 NOVATTS_QWEN_CODEC=E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf
 NOVATTS_QWEN_SAMPLES_DIR=D:\!!Scripts!!\Samples_Clone
+# qwen-codec.exe voor pre-extractie van .spk/.rvq stemrefs (leeg = naast tts-server.exe)
+NOVATTS_QWEN_CODEC_BIN=D:\Projects\qwentts.cpp\build\Release\qwen-codec.exe
 ```
 
 Zonder Qwen draait de server gewoon; `/health` geeft `"qwen": false`.
+
+## .spk/.rvq pre-extractie (snelle stemimport)
+
+NovaTTS importeert de samples-map bij elke Qwen-start. Stemmen met een
+pre-geëxtraheerd `.spk`+`.rvq` paar worden via `spk_b64`/`rvq_b64` verbatim
+geregistreerd — **geen GPU-extractie per stem**, enkel base64 upload. Wavs
+zónder paar vallen terug op `wav_b64` (server-side extractie), dus alles
+blijft werken.
+
+Via GUI **Settings → Voice Samples → "Pre-extract .spk/.rvq"** (of
+`POST /qwen/convert-samples`, `?force=1` voor her-extractie) draait de app
+zelf `qwen-codec.exe` voor de overige wavs — dezelfde output als
+`Convert-WavToSpkRvq.ps1`. `import_status.pairs` / `.unpaired` tonen de
+vooruitgang.
 
 ## Build checks
 

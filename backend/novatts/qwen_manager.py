@@ -48,15 +48,23 @@ class QwenManager:
 
     def import_status(self) -> dict[str, object]:
         src = Path(settings.qwen_samples_dir)
+        wavs: list[Path] = []
+        pairs = 0
         try:
-            found = len(self._collect_candidates(src)) if src.exists() else 0
+            if src.exists():
+                from .tts.spk_rvq import collect_wavs, voice_ref_for
+
+                wavs = collect_wavs(src)
+                pairs = sum(1 for w in wavs if voice_ref_for(w) is not None)
         except Exception:
-            found = self._import_found
+            pass
         with self._lock:
             return {
-                "found": found or self._import_found,
+                "found": len(wavs) or self._import_found,
+                "pairs": pairs,
+                "unpaired": max(len(wavs) - pairs, 0),
                 "loaded": self._import_loaded,
-                "total": self._import_total or found,
+                "total": self._import_total or len(wavs),
                 "active": self._import_active,
                 "error": self._import_error,
                 "dir": str(src),
@@ -185,9 +193,10 @@ class QwenManager:
         except Exception as exc:
             log.warning("Qwen autostart failed: %s", exc)
 
-    def _collect_candidates(self, src: Path) -> list[tuple[Path, str]]:
-        wavs = sorted(src.glob("*.wav"), key=lambda p: p.name.lower())
-        return [(w, w.stem) for w in wavs if w.is_file() and w.name != "output_quick_test.wav" and w.stat().st_size < 5_000_000]
+    def _collect_candidates(self, src: Path) -> list[Path]:
+        from .tts.spk_rvq import collect_wavs
+
+        return collect_wavs(src)
 
     def _auto_import_samples(self) -> None:
         if not settings.qwen_auto_import_samples:
@@ -197,11 +206,12 @@ class QwenManager:
             return
         try:
             from .tts.qwen import Qwen3Backend
+            from .tts.spk_rvq import register_sample
 
             backend = Qwen3Backend()
             existing = set(backend.list_voices())
             all_cands = self._collect_candidates(src)
-            candidates = [(w, n) for w, n in all_cands if n not in existing]
+            candidates = [w for w in all_cands if w.stem not in existing]
             with self._lock:
                 self._import_found = len(all_cands)
                 self._import_total = len(candidates)
@@ -216,17 +226,18 @@ class QwenManager:
             log.info("Auto-import %d new voice(s) from %s", len(candidates), src)
             imported = 0
             failed = 0
-            for idx, (wav, name) in enumerate(candidates, 1):
-                txt = wav.with_suffix(".txt")
-                ref = txt.read_text(encoding="utf-8", errors="replace").strip() if txt.exists() else ""
+            for idx, wav in enumerate(candidates, 1):
+                # Pre-extracted .spk/.rvq pairs register verbatim (no GPU
+                # work); wavs without a pair fall back to server-side
+                # extraction via wav_b64.
                 try:
-                    backend.register_voice(name, wav.read_bytes(), ref_text=ref)
+                    register_sample(backend, wav)
                     imported += 1
                     with self._lock:
                         self._import_loaded = imported
                 except Exception as exc:
                     failed += 1
-                    log.warning("Auto-import voice %s failed: %s", name, exc)
+                    log.warning("Auto-import voice %s failed: %s", wav.stem, exc)
                 if idx % 25 == 0 or idx == len(candidates):
                     log.info("Auto-import progress %d/%d", idx, len(candidates))
                     time.sleep(0.05)

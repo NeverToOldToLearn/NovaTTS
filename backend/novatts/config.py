@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     qwen_auto_import_samples: bool = True
     qwen_samples_dir: str = r"D:\!!Scripts!!\Samples_Clone"
     qwen_samples_dirs_extra: str = r""
+    # qwen-codec.exe binary for pre-extracting .spk/.rvq voice references.
+    # Leeg = auto-detect als sibling van NOVATTS_QWEN_BIN.
+    qwen_codec_bin: str = ""
     blacklist_file: Path = DATA_DIR / "blacklist.json"
 
     # --- Clipboard adapter ---
