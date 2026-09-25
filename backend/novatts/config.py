@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     emotion_sounds_dir: str = r"C:\Piper\emotion_sounds"
     emotion_sound_map_file: Path = DATA_DIR / "emotion_sound_map.json"
     emotion_aliases_file: Path = DATA_DIR / "emotion_aliases.json"
+    # Perfect Cut tool (separate window) — batch dirs + external binaries.
+    perfect_cut_config: Path = DATA_DIR / "perfect_cut.json"
 
     # --- Logging ---
     log_level: str = "INFO"

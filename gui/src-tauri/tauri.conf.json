@@ -12,11 +12,23 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "NovaTTS",
         "width": 1200,
         "height": 800,
         "minWidth": 880,
         "minHeight": 560
+      },
+      {
+        "label": "cutter",
+        "title": "Perfect Cut — NovaTTS Sample Cutter",
+        "url": "index.html#/cutter",
+        "width": 1180,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 620,
+        "center": true,
+        "visible": false
       }
     ],
     "security": {

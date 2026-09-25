@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api } from "../api";
+  import { openCutter } from "../cutter/tauri";
   import type { PathStatus, SettingsData, SettingsResponse } from "../types";
 
   let data: SettingsResponse | null = $state(null);
@@ -92,6 +93,18 @@
       err = (e as Error).message;
     }
     converting = false;
+  };
+
+  const openPerfectCut = async () => {
+    err = ""; info = "";
+    try {
+      const wasOpen = await openCutter();
+      info = wasOpen
+        ? "Perfect Cut was already open — brought to the front."
+        : "Perfect Cut opened in its own window.";
+    } catch (e) {
+      err = (e as Error).message;
+    }
   };
 
   const exists = (key: string) => pathStatus[key]?.exists ?? false;
@@ -206,6 +219,14 @@
     <button onclick={save} disabled={saving}>{saving ? "Saving…" : "Save to .env"}</button>
     <button class="ghost" onclick={testTts} disabled={testing}>{testing ? "Testing…" : "Test TTS"}</button>
     <button class="ghost" onclick={load} disabled={saving || testing}>Reload</button>
+  </div>
+
+  <div class="section">
+    <h3>Tools</h3>
+    <p class="muted small">Perfect Cut is a separate window — it is deliberately not in the sidebar, so it stays out of the way until you are prepping samples.</p>
+    <div class="actions">
+      <button class="ghost" onclick={openPerfectCut}>Open Perfect Cut</button>
+    </div>
   </div>
 
   <div class="section">

@@ -77,6 +77,41 @@ zelf `qwen-codec.exe` voor de overige wavs — dezelfde output als
 `Convert-WavToSpkRvq.ps1`. `import_status.pairs` / `.unpaired` tonen de
 vooruitgang.
 
+## Perfect Cut (sample cutter)
+
+GUI → **Settings → Tools → "Open Perfect Cut"**. De tkinter/matplotlib tool is
+vervangen door een eigen Tauri-venster (`index.html#/cutter`) in dezelfde
+Svelte-app, zodat thema, fonts en controls identiek zijn. **Geen sidebar-item**:
+het is een tool die je openzet als je samples klaarzet, geen permanently view.
+
+Twee tabs:
+
+- **Sample Cutter** — waveform + dBFS-weergave met selectie, sleep-to-select,
+  playhead, keyboard-transport, en export via ffmpeg naar WAV.
+  Uitvoermodi: `qwen` (24 kHz mono PCM16 + loudnorm), `native` (24 kHz mono),
+  `keep` (originele sample rate). Zonder ffmpeg valt de export terug op een
+  stdlib `wave`-cutter.
+- **Dataset Prep** — de oude VoiceClonePrep-TTS: batch `silenceremove+loudnorm`
+  over een map wavs, daarna `whisper-cli` per bestand, plus het transcript.
+  Draait server-side op een daemon thread, dus de voortgang overleeft het
+  sluiten van het venster (`GET /cutter/batch/status`).
+
+**Auto-select utterance** is een port van `edgelock_snap.py` (in de tkinter
+versie dood code). De detector (50 ms/25 ms windowed RMS, Otsu-drempel,
+gap-merge, hangover, zero-cross + stilte-align) draait nu in TypeScript in
+`gui/src/lib/cutter/edgelock.ts` — geen extra Python-dependencies, geen
+bestandsupload, en de `← Previous` / `Auto-select next utterance` /
+`Snap to quiet frame` knoppen werken direct op de gedetecteerde utterances.
+De Whisper/Qwen-zware stappen blijven server-side.
+
+Instellingen staan in `data/perfect_cut.json` (gescheiden van `.env`), met
+auto-detectie voor `ffmpeg`, `whisper-cli` en het model. Backend-routes:
+`/cutter/*` in `backend/novatts/cutter_api.py`.
+
+> De Python `Perfect Cut v2/`-map is de oude tkinter-versie en wordt nergens
+> meer geïmporteerd; de backend leest de oude `cutter_config.json` **niet** en
+> migreert die niet.
+
 ## Build checks
 
 ```powershell

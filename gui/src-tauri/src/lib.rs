@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 
 use tauri::Manager;
 
+mod perfect_cut;
+
 type BackendHandle = Arc<Mutex<Option<Child>>>;
 
 /// Managed tauri state wrappers — distinct types so both can be registered.
@@ -140,23 +142,30 @@ fn dev_backend_path() -> Option<PathBuf> {
     None
 }
 
+/// Is a NovaTTS backend answering on `port`?
+///
+/// A bare `200` is not enough to identify it: qwentts.cpp's `tts-server`
+/// also listens on 8081 and answers `/health` with `{"status":"ok"}`. Only
+/// the NovaTTS backend reports the `qwen` field, so require that marker —
+/// otherwise a stray (or still-running) tts-server makes us believe the
+/// backend is up and we never spawn one, leaving the whole API — including
+/// the Perfect Cut window — unreachable.
+fn backend_healthy(port: u16) -> bool {
+    let url = format!("http://127.0.0.1:{port}/health");
+    ureq::get(&url)
+        .timeout(Duration::from_millis(600))
+        .call()
+        .ok()
+        .filter(|r| r.status() == 200)
+        .and_then(|r| r.into_string().ok())
+        .is_some_and(|body| body.contains("\"qwen\""))
+}
+
 fn backend_running() -> bool {
     // Dev builds and some configurations historically used 8765,
     // but the backend .env defaults in this repo are 8081.
     // Check both so we don't spawn a second backend instance.
-    let ports = [8765u16, 8081u16];
-    for port in ports {
-        let url = format!("http://127.0.0.1:{}/health", port);
-        let ok = ureq::get(&url)
-            .timeout(Duration::from_millis(600))
-            .call()
-            .map(|r| r.status() == 200)
-            .unwrap_or(false);
-        if ok {
-            return true;
-        }
-    }
-    false
+    [8765u16, 8081u16].into_iter().any(backend_healthy)
 }
 
 const DEV_FRONTEND_URL: &str = "http://localhost:1420";
@@ -386,8 +395,19 @@ pub fn run() {
     let frontend_state_setup = frontend_state.clone();
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(BackendState(backend_state.clone()))
         .manage(FrontendState(frontend_state.clone()))
+        .invoke_handler(tauri::generate_handler![
+            perfect_cut::open_cutter,
+            perfect_cut::read_audio_file,
+            perfect_cut::pick_wav,
+            perfect_cut::pick_dir,
+            perfect_cut::pick_save_wav,
+            perfect_cut::pick_exe,
+            perfect_cut::pick_model,
+            perfect_cut::open_path,
+        ])
         .setup(move |app| {
             let handle = app.handle().clone();
             let backend_handle = handle.clone();

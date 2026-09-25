@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from .adapters import ClipboardAdapter
 from .blacklist import Blacklist, is_renpy_exception
 from .config import settings
+from .cutter_api import router as cutter_router
 from .emotions import EmotionSounds
 from .games import GameManager
 from .models import Dialogue, Event, SpeakRequest
@@ -404,6 +405,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="NovaTTS", version="0.1.0", lifespan=lifespan)
+app.include_router(cutter_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost", "https://tauri.localhost"],
