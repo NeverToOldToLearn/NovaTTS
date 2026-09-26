@@ -29,6 +29,11 @@ Thumbs.db
 .crush.json
 .crush/
 
+# Persoonlijke runtime-data — niet pushen
+# Per-game stem-casting en Perfect Cut instellingen zijn lokaal
+data/games/*/speakers.json
+data/perfect_cut.json
+
 # Installer output
 NovaTTS-Setup-*.exe
 NovaTTS-Portable-*.zip
