@@ -67,9 +67,10 @@ Zonder Qwen draait de server gewoon; `/health` geeft `"qwen": false`.
 
 NovaTTS importeert de samples-map bij elke Qwen-start. Stemmen met een
 pre-geëxtraheerd `.spk`+`.rvq` paar worden via `spk_b64`/`rvq_b64` verbatim
-geregistreerd — **geen GPU-extractie per stem**, enkel base64 upload. Wavs
-zónder paar vallen terug op `wav_b64` (server-side extractie), dus alles
-blijft werken.
+geregistreerd — **geen GPU-extractie per stem**, enkel base64 upload. Paren
+worden op `.spk`/`.rvq` zelf gevonden, dus de bron-`.wav` mag verwijderd
+worden zodra het paar bestaat. Wavs zónder paar vallen terug op `wav_b64`
+(server-side extractie), dus alles blijft werken.
 
 Via GUI **Settings → Voice Samples → "Pre-extract .spk/.rvq"** (of
 `POST /qwen/convert-samples`, `?force=1` voor her-extractie) draait de app

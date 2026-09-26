@@ -670,24 +670,38 @@ async def qwen_import_samples() -> dict[str, Any]:
 
     from .config import settings as _s
     from .tts.qwen import Qwen3Backend as _QB
-    from .tts.spk_rvq import collect_wavs, register_sample
+    from .tts.spk_rvq import collect_pairs, collect_wavs, register_pair, register_sample
 
     src = Path(_s.qwen_samples_dir)
     if not src.exists():
         raise HTTPException(status_code=404, detail=f"Samples dir not found: {src}")
     qb = _QB()
     existing = set(qb.list_voices())
+    # Pairs register verbatim even when the source .wav is gone; wavs
+    # without a pair fall back to server-side extraction.
+    pairs = [ref for ref in collect_pairs(src) if ref.name not in existing]
     wavs = [w for w in collect_wavs(src) if w.stem not in existing]
     ok = 0
-    skipped = len(collect_wavs(src)) - len(wavs)
     failed: list[str] = []
+    for ref in pairs:
+        try:
+            register_pair(qb, ref)
+            ok += 1
+        except Exception as exc:
+            failed.append(f"{ref.name}: {exc}")
     for wav in wavs:
         try:
             register_sample(qb, wav)
             ok += 1
         except Exception as exc:
             failed.append(f"{wav.stem}: {exc}")
-    return {"imported": ok, "skipped": skipped, "failed": failed, "total": len(wavs) + skipped}
+    return {
+        "imported": ok,
+        "pairs": len(pairs),
+        "wavs": len(wavs),
+        "failed": failed,
+        "total": len(pairs) + len(wavs),
+    }
 
 
 @app.post("/qwen/convert-samples")

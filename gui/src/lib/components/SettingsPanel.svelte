@@ -189,7 +189,7 @@
         <input class="field" bind:value={form.qwen_samples_dirs_extra} placeholder="optional, comma separated" />
       </label>
     </div>
-    <p class="muted small">Pre-extract <code>.spk</code>/<code>.rvq</code> pairs with qwen-codec.exe: importeert sneller bij elke Qwen-start (geen GPU-extractie per stem meer). Wavs zonder pair vallen terug op server-side extractie.</p>
+    <p class="muted small">Pre-extract <code>.spk</code>/<code>.rvq</code> pairs met qwen-codec.exe: importeert sneller bij elke Qwen-start (geen GPU-extractie per stem meer). Wavs zonder pair vallen terug op server-side extractie. Eenmaal omgezet mag de <code>.wav</code> zelfs weg — het paar alleen volstaat.</p>
     <div class="actions">
       <button class="ghost" onclick={convertSamples} disabled={converting}>
         {converting ? "Converting…" : "Pre-extract .spk/.rvq"}

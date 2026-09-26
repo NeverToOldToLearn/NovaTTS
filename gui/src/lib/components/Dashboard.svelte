@@ -11,6 +11,7 @@
   let qwenBusy = $state(false);
   let qwenMsg = $state("");
   let newGame = $state("");
+  let importing = $state(false);
 
   const levelOf = (t: string) => t === "error" ? "error" : t === "queued" ? "info" : t === "speaker_discovered" || t === "unassigned_speaker" ? "warn" : "muted";
 
@@ -24,6 +25,7 @@
   };
   const qwenStart = async () => { qwenBusy = true; qwenMsg = ""; try { const r = await api.qwenStart(); qwenMsg = `Started pid ${r.pid ?? "?"}`; } catch (e) { qwenMsg = `Failed: ${(e as Error).message}`; } qwenBusy = false; await poll(); };
   const qwenStop = async () => { qwenBusy = true; qwenMsg = ""; try { const r = await api.qwenStop(); qwenMsg = r.status; } catch (e) { qwenMsg = (e as Error).message; } qwenBusy = false; await poll(); };
+  const importNow = async () => { importing = true; qwenMsg = ""; try { const r = await api.importSamples(); qwenMsg = `Imported ${r.imported}/${r.total} voice(s) (${r.pairs} pairs, ${r.wavs} wavs${r.failed.length ? `, ${r.failed.length} failed` : ""})`; } catch (e) { qwenMsg = `Import failed: ${(e as Error).message}`; } importing = false; await poll(); };
   const createGame = async () => { const n = newGame.trim(); if (!n) return; await api.createGame(n); newGame = ""; await poll(); };
   const switchGame = async (name: string) => { await api.setActiveGame(name); await poll(); };
   onMount(() => { poll(); const id = setInterval(poll, 2500); return () => clearInterval(id); });
@@ -77,13 +79,18 @@
     </div>
   </div>
 
-  {#if (status as unknown as { import_status?: { found:number; loaded:number; total:number; active:boolean; dir:string } })?.import_status}
-    {@const imp = (status as unknown as { import_status: { found:number; loaded:number; total:number; active:boolean; dir:string; error:string|null } }).import_status}
+  {#if (status as unknown as { import_status?: { found:number; loaded:number; total:number; active:boolean; dir:string; pairs?:number; unpaired?:number } })?.import_status}
+    {@const imp = (status as unknown as { import_status: { found:number; loaded:number; total:number; active:boolean; dir:string; error:string|null; pairs?:number; unpaired?:number } }).import_status}
     <div class="panel">
       <h3>Voices import</h3>
-      <div class="mono small wrap">{imp.dir} — {imp.found} .wav found, {imp.loaded}/{imp.total || imp.found} loaded {imp.active ? "… importing" : "✓ done"}</div>
+      <div class="mono small wrap">{imp.dir}</div>
+      <div class="mono small wrap">{imp.found} stem(men) gevonden — {imp.pairs} pairs, {imp.unpaired} wavs zonder pair · {imp.loaded}/{imp.total || imp.found} geladen {imp.active ? "… aan het importeren" : "✓ klaar"}</div>
       {#if imp.active}<div class="bar"><div class="fill" style="width:{imp.total?Math.round(imp.loaded/imp.total*100):0}%"></div></div>{/if}
       {#if imp.error}<p class="err">{imp.error}</p>{/if}
+      <div class="row">
+        <button class="ghost" onclick={importNow} disabled={importing || !qwen?.online}>{importing ? "Importing…" : "Import now"}</button>
+        <span class="hint">Registreert .spk/.rvq paren verbatim — ook als de .wav al verwijderd is.</span>
+      </div>
     </div>
   {/if}
 

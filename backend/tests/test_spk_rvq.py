@@ -4,8 +4,10 @@ from pathlib import Path
 
 from novatts.tts import spk_rvq
 from novatts.tts.spk_rvq import (
+    collect_pairs,
     collect_wavs,
     convert_samples_dir,
+    register_pair,
     register_sample,
     unpaired_wavs,
     voice_ref_for,
@@ -68,18 +70,6 @@ def test_voice_ref_for_no_txt(tmp_path):
     assert ref.ref_text() == ""
 
 
-def test_register_sample_prefers_pair(tmp_path):
-    backend = FakeRegister()
-    wav = make_sample(tmp_path, "erin")
-    register_sample(backend, wav)
-    (call,) = backend.calls
-    assert call["name"] == "erin"
-    assert call["wav"] is None
-    assert call["spk"] == b"\x00\x00" * 8
-    assert call["rvq"] == b"\x01\x02\x03"
-    assert call["ref_text"] == "The reference line."
-
-
 def test_register_sample_falls_back_to_wav(tmp_path):
     backend = FakeRegister()
     wav = make_sample(tmp_path, "frank", with_pair=False)
@@ -89,6 +79,44 @@ def test_register_sample_falls_back_to_wav(tmp_path):
     assert call["spk"] is None
     assert call["rvq"] is None
     assert call["wav"] == wav.read_bytes()
+
+
+def test_collect_pairs_finds_pairs_without_wav(tmp_path):
+    """A pair must import even when its source .wav was deleted."""
+    make_sample(tmp_path, "george", with_pair=True, with_txt=True)
+    (tmp_path / "george.wav").unlink()
+    pairs = collect_pairs(tmp_path)
+    assert len(pairs) == 1
+    assert pairs[0].name == "george"
+    assert pairs[0].ref_text() == "The reference line."
+
+
+def test_collect_pairs_skips_incomplete(tmp_path):
+    make_sample(tmp_path, "a", with_pair=True)
+    (tmp_path / "b.spk").write_bytes(b"\x00\x00" * 8)  # no b.rvq
+    assert [ref.name for ref in collect_pairs(tmp_path)] == ["a"]
+
+
+def test_register_pair_registers_latents_verbatim(tmp_path):
+    backend = FakeRegister()
+    make_sample(tmp_path, "carol")
+    (ref,) = collect_pairs(tmp_path)
+    register_pair(backend, ref)
+    (call,) = backend.calls
+    assert call["name"] == "carol"
+    assert call["wav"] is None
+    assert call["spk"] == b"\x00\x00" * 8
+    assert call["rvq"] == b"\x01\x02\x03"
+    assert call["ref_text"] == "The reference line."
+
+
+def test_collect_wavs_returns_only_unpaired(tmp_path):
+    make_sample(tmp_path, "paired", with_pair=True)
+    make_sample(tmp_path, "unpaired", with_pair=False)
+    wavs = collect_wavs(tmp_path)
+    assert [w.stem for w in wavs] == ["unpaired"]
+    all_wavs = collect_wavs(tmp_path, include_paired=True)
+    assert {w.stem for w in all_wavs} == {"paired", "unpaired"}
 
 
 def test_convert_samples_dir_skips_paired(tmp_path):

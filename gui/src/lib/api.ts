@@ -63,6 +63,14 @@ export const api = {
   qwenStatus: () => req<QwenStatus>("/qwen/status"),
   qwenStart: () => req<{ status: string; pid?: number }>("/qwen/start", { method: "POST" }),
   qwenStop: () => req<{ status: string }>("/qwen/stop", { method: "POST" }),
+  importSamples: () =>
+    req<{
+      imported: number;
+      pairs: number;
+      wavs: number;
+      failed: string[];
+      total: number;
+    }>("/qwen/import-samples", { method: "POST" }),
   convertSamples: (force = false) =>
     req<{
       converted: number;
