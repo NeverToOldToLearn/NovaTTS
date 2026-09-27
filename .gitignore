@@ -13,7 +13,13 @@ venv/
 backend/.env
 
 # Audio output / cache
+# Let op: NovaTTS levert zelf GEEN audio mee. Alle emotion fragments, TTS
+# output en caches zijn lokaal. Zet je eigen bestanden in de map die je bij
+# Instellingen > Emotion sounds instelt.
 *.wav
+*.ogg
+*.opus
+*.mp3
 data/cache/
 
 # Node / Tauri
@@ -33,6 +39,10 @@ Thumbs.db
 # Per-game stem-casting en Perfect Cut instellingen zijn lokaal
 data/games/*/speakers.json
 data/perfect_cut.json
+# Emotion mapping is per bibliotheek: de map met audio is lokaal en het map-bestand
+# is een cache van die map. De app maakt ze zelf aan; zie de *.json.example ernaast.
+data/emotion_sound_map.json
+data/emotion_aliases.json
 
 # Installer output
 NovaTTS-Setup-*.exe

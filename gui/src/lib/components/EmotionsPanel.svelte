@@ -49,6 +49,7 @@
     <div>
       <h2>Emotion Sounds</h2>
       <p class="subtitle">Link words/phrases to sound effects from <code class="inline">{dir || "—"}</code></p>
+      <p class="note">NovaTTS ships no audio of its own — drop your own <code class="inline">.wav</code>/<code class="inline">.ogg</code>/<code class="inline">.opus</code>/<code class="inline">.mp3</code> files in that folder; the filename becomes the tag. Config format: <code class="inline">data/emotion_sound_map.json.example</code> and <code class="inline">data/emotion_aliases.json.example</code>.</p>
     </div>
     <button onclick={reload}>Reload from disk</button>
   </header>
@@ -132,6 +133,7 @@
   header div { flex:1; }
   header h2 { margin:0 0 0.25rem; }
   header .subtitle { margin:0; font-size:0.875rem; color:var(--muted-foreground); }
+  header .note { margin:0.35rem 0 0; font-size:0.8rem; line-height:1.45; color:var(--muted-foreground); opacity:0.85; max-width:62ch; }
   button { padding:0.5rem 1rem; background:var(--accent); color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:500; }
   button:disabled { opacity:0.5; cursor:not-allowed; }
   button:hover:not(:disabled) { opacity:0.9; }

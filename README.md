@@ -126,6 +126,12 @@ backend\.venv\Scripts\python -m mypy --strict backend/novatts
 ```
 backend/   Python 3.11 + FastAPI → dist/novatts-backend.exe (PyInstaller)
 gui/       Svelte 5 + Vite + Tauri 2 (bundle met backend + data)
-data/      speakers.json, games/, blacklist, emotions, cache
+data/      speakers.json, games/, blacklist, emotions, cache — zie data/README.md
 installer/ Inno Setup fallback + Build-Installer.ps1 (ZIP)
 ```
+
+`data/` bevat geen audio. De emotion fragments lever je zelf aan: zet je eigen
+bestanden in de map die je bij Instellingen → Emotion sounds instelt. Alles wat
+jouw bibliotheek of jouw game beschrijft staat local-only en wordt niet meegebouwd;
+de app maakt die bestanden zelf aan. De formaatvoorbeelden staan in
+`data/*.json.example`.

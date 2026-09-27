@@ -67,6 +67,9 @@ if (-not $NoZip) {
     foreach ($d in $excludeDirs) { $roboArgs += "/XD"; $roboArgs += $d }
     # Exclude specific files via /XF
     $roboArgs += "/XF"; $roboArgs += "backend.log"; $roboArgs += "gui.log"; $roboArgs += "*.pyc"; $roboArgs += "nul"
+    # Persoonlijke runtime-data: per bibliotheek / per game. De app maakt deze zelf aan.
+    $roboArgs += "/XF"; $roboArgs += "emotion_sound_map.json"; $roboArgs += "emotion_aliases.json"; $roboArgs += "perfect_cut.json"
+    if (-not $WithVenv) { $roboArgs += "/XD"; $roboArgs += "data\games" }
     if (-not $WithVenv) {
       # Extra: never include backend .env (user config)
       # copy .env.example as .env.example only

@@ -7,16 +7,33 @@ import PyInstaller.config
 BACKEND_DIR = Path(os.path.abspath(SPEC)).parent.resolve()
 ROOT_DIR = BACKEND_DIR.parent
 
+# Only the shared defaults belong in the bundle. Anything describing the local
+# audio library or a local game is left out on purpose: emotion_sound_map.json,
+# emotion_aliases.json, perfect_cut.json and games/*/speakers.json are personal
+# runtime data, gitignored, and the app recreates them on first run. Bundling
+# data/ wholesale would bake the build machine's library into the release.
+DATA_DEFAULTS = [
+    "active_game.json",
+    "blacklist.json",
+    "emotion_patterns.json",
+    "speakers.json",
+    "emotion_sound_map.json.example",
+    "emotion_aliases.json.example",
+    "README.md",
+]
+data_datas = [
+    (str(ROOT_DIR / "data" / name), "data")
+    for name in DATA_DEFAULTS
+    if (ROOT_DIR / "data" / name).is_file()
+]
+
 block_cipher = None
 
 a = Analysis(
     [str(BACKEND_DIR / "run.py")],
     pathex=[str(BACKEND_DIR)],
     binaries=[],
-    datas=[
-        (str(ROOT_DIR / "data"), "data"),
-        (str(BACKEND_DIR / ".env.example"), "."),
-    ],
+    datas=data_datas + [(str(BACKEND_DIR / ".env.example"), ".")],
     hiddenimports=[
         "uvicorn.logging",
         "uvicorn.loops",
