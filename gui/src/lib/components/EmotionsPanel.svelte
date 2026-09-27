@@ -4,6 +4,7 @@
 
   let dir = $state("");
   let count = $state(0);
+  let onDisk = $state(0);
   let map: Record<string, string> = $state({});
   let aliases: Record<string, string> = $state({});
   let aliasExpr = $state("");
@@ -13,9 +14,22 @@
 
   const load = async () => {
     const d = await api.emotions();
-    dir = d.dir; count = d.sounds; map = d.map; aliases = d.aliases;
+    dir = d.dir; count = d.sounds; onDisk = d.on_disk; map = d.map; aliases = d.aliases;
   };
-  const reload = async () => { await api.reloadEmotions(); await load(); msg = "Reloaded from disk — discovered sounds updated."; setTimeout(() => (msg = ""), 2500); };
+  const reload = async () => {
+    const before = count;
+    const d = await api.reloadEmotions();
+    await load();
+    const diff = count - before;
+    msg = diff === 0
+      ? `Reloaded — ${count} sounds, folder unchanged.`
+      : diff > 0
+        ? `Reloaded — ${diff} new sound${diff === 1 ? "" : "s"} added (${count} total).`
+        : `Reloaded — ${-diff} sound${diff === -1 ? "" : "s"} removed (${count} total).`;
+    if (count < onDisk) msg += ` ${onDisk - count} file(s) on disk could not be mapped.`;
+    setTimeout(() => (msg = ""), 4000);
+    void d;
+  };
   const addAlias = async () => { 
     const e = aliasExpr.trim(), t = aliasTag.trim(); 
     if (!e || !t) return;
@@ -92,7 +106,7 @@
     <button class="card-head toggle" onclick={() => showSounds = !showSounds}>
       <span>
         <h3>Available Sounds</h3>
-        <span class="count">{count} discovered {showSounds ? '▼' : '▶'}</span>
+        <span class="count">{count} of {onDisk} file{onDisk === 1 ? "" : "s"} loaded {showSounds ? '▼' : '▶'}</span>
       </span>
     </button>
     {#if showSounds}

@@ -105,8 +105,8 @@ export const api = {
   blacklist: () => req<{ custom_words: string[]; enabled_presets: string[]; presets: string[] }>("/blacklist"),
   setBlacklist: (custom_words: string[] | null, enabled_presets: string[] | null) =>
     req<{ custom_words: string[]; enabled_presets: string[] }>("/blacklist", { method: "POST", body: JSON.stringify({ custom_words, enabled_presets }) }),
-  emotions: () => req<{ dir: string; sounds: number; map: Record<string, string>; aliases: Record<string, string>; patterns: number }>("/emotions"),
-  reloadEmotions: () => req<{ dir: string; sounds: number; map: Record<string, string> }>("/emotions/reload", { method: "POST" }),
+  emotions: () => req<{ dir: string; sounds: number; on_disk: number; map: Record<string, string>; aliases: Record<string, string>; patterns: number }>("/emotions"),
+  reloadEmotions: () => req<{ dir: string; sounds: number; on_disk: number; map: Record<string, string> }>("/emotions/reload", { method: "POST" }),
   addEmotionAlias: (expr: string, tag: string) => req<unknown>("/emotions/alias", { method: "POST", body: JSON.stringify({ expr, tag }) }),
   deleteEmotionAlias: (expr: string) => req<unknown>(`/emotions/alias/${encodeURIComponent(expr)}`, { method: "DELETE" }),
 

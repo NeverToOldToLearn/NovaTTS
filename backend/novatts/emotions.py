@@ -10,6 +10,13 @@ import pygame
 
 from .config import settings
 
+_EXTENSIONS: tuple[str, ...] = (".wav", ".ogg", ".opus", ".mp3")
+
+
+def _slug(value: str) -> str:
+    """Lowercase alphanumeric key used for fuzzy tag matching."""
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
 
 class EmotionSounds:
     def __init__(self, player: object | None = None) -> None:
@@ -23,13 +30,25 @@ class EmotionSounds:
         self.pattern_defs: list[dict[str, object]] = []
         self.compiled: list[tuple[re.Pattern[str], str | None]] = []
         self.aliases: dict[str, str] = {}
+        self._on_disk: dict[str, str] = {}
+        self._slug_index: dict[str, str] = {}
         self._reload()
 
+    # ------------------------------------------------------------------
+    # Disk discovery
+    # ------------------------------------------------------------------
     def _discover(self) -> dict[str, str]:
+        """Every playable file in the folder, keyed by lowercase stem."""
         if not self.dir.exists():
             return {}
         out: dict[str, str] = {}
-        for p in list(self.dir.glob("*.wav")) + list(self.dir.glob("*.ogg")) + list(self.dir.glob("*.opus")) + list(self.dir.glob("*.mp3")):
+        try:
+            entries = list(self.dir.iterdir())
+        except OSError:
+            return {}
+        for p in entries:
+            if not p.is_file() or p.suffix.lower() not in _EXTENSIONS:
+                continue
             try:
                 if p.stat().st_size > 0:
                     out[p.stem.lower()] = p.name
@@ -37,23 +56,66 @@ class EmotionSounds:
                 continue
         return out
 
+    def _resolve_file(self, fname: str) -> Path | None:
+        """Turn a map value (filename) into a real path, tolerating ext changes."""
+        if not fname:
+            return None
+        base = Path(fname).stem if Path(fname).suffix else fname
+        for ext in (*_EXTENSIONS, ""):
+            p = self.dir / (base + ext) if ext else self.dir / fname
+            if p.exists():
+                return p
+        return None
+
+    def _read_map(self) -> dict[str, str]:
+        if not self.map_file.exists():
+            return {}
+        try:
+            raw = json.loads(self.map_file.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {str(k).lower().strip(): str(v).strip() for k, v in raw.items() if str(k).strip() and str(v).strip()}
+
+    def _write_map(self, data: dict[str, str]) -> None:
+        try:
+            self.map_file.parent.mkdir(parents=True, exist_ok=True)
+            self.map_file.write_text(json.dumps(dict(sorted(data.items())), indent=4), encoding="utf-8")
+        except Exception:
+            pass
+
     def _reload(self) -> None:
         avail = self._discover()
-        if not self.map_file.exists():
-            self.sound_map = avail
-            try:
-                self.map_file.parent.mkdir(parents=True, exist_ok=True)
-                self.map_file.write_text(json.dumps(self.sound_map, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-        else:
-            try:
-                raw = json.loads(self.map_file.read_text(encoding="utf-8"))
-                parsed = {str(k).lower().strip(): str(v).strip() for k, v in raw.items() if str(k).strip()}
-                cleaned = {k: v for k, v in parsed.items() if k in avail}
-                self.sound_map = cleaned or avail
-            except Exception:
-                self.sound_map = avail
+        saved = self._read_map()
+
+        # The folder is the source of truth; the map file is a cache of it plus
+        # optional custom keys. A saved entry only survives while the file it
+        # points at still exists, so new/renamed/removed files are picked up.
+        merged = dict(avail)
+        for key, fname in saved.items():
+            if key in avail:
+                # Tag is discovered too: keep the real filename unless the map
+                # deliberately points it at a different existing file.
+                if fname.lower() == avail[key].lower():
+                    continue
+                resolved = self._resolve_file(fname)
+                if resolved is not None and resolved.name.lower() != avail[key].lower():
+                    merged[key] = fname
+                continue
+            if self._resolve_file(fname) is not None:
+                merged[key] = fname
+
+        self._on_disk = avail
+        self.sound_map = merged
+        if merged != saved:
+            self._write_map(merged)
+
+        self._slug_index = {}
+        for key in merged:
+            slug = _slug(key)
+            if slug and slug not in self._slug_index:
+                self._slug_index[slug] = key
         try:
             if self.patterns_file.exists():
                 data = json.loads(self.patterns_file.read_text(encoding="utf-8"))
@@ -90,17 +152,25 @@ class EmotionSounds:
         self._reload()
 
     def normalize_tag(self, tag: str) -> str:
-        base = re.sub(r"[^a-z]", "", tag.lower())
+        raw = tag.lower().strip()
+        if not raw:
+            return ""
+        if raw in self.sound_map:
+            return raw
+        base = _slug(raw)
         if not base:
             return ""
         if base in self.sound_map:
             return base
+        if base in self._slug_index:
+            return self._slug_index[base]
         for cand in [re.sub(r"(.)\1{2,}", r"\1\1", base), base.rstrip("m"), base.rstrip("s"), base.rstrip("ms")]:
-            if cand and cand in self.sound_map:
-                return cand
-        for k in sorted(self.sound_map.keys(), key=len, reverse=True):
-            if base.startswith(k):
-                return k
+            hit = self._slug_index.get(cand) if cand else None
+            if hit:
+                return hit
+        for slug in sorted(self._slug_index, key=len, reverse=True):
+            if slug and base.startswith(slug):
+                return self._slug_index[slug]
         return base
 
     def extract(self, text: str) -> tuple[str, list[tuple[int, str]]]:
@@ -136,15 +206,7 @@ class EmotionSounds:
         fname = self.sound_map.get(norm)
         if not fname:
             return None
-        base = Path(fname).stem if Path(fname).suffix else fname
-        for ext in [".wav", ".ogg", ".opus", ".mp3", ""]:
-            p = self.dir / (base + ext) if ext else self.dir / fname
-            if p.exists():
-                return p
-        cand2 = self.dir / fname
-        if cand2.exists():
-            return cand2
-        return None
+        return self._resolve_file(fname)
 
     def play(self, tag: str) -> bool:
         cand = self.resolve_path(tag)
@@ -182,4 +244,11 @@ class EmotionSounds:
         return self.play(tag)
 
     def to_dict(self) -> dict[str, object]:
-        return {"dir": str(self.dir), "sounds": len(self.sound_map), "map": self.sound_map, "aliases": self.aliases, "patterns": len(self.pattern_defs)}
+        return {
+            "dir": str(self.dir),
+            "sounds": len(self.sound_map),
+            "on_disk": len(self._on_disk),
+            "map": self.sound_map,
+            "aliases": self.aliases,
+            "patterns": len(self.pattern_defs),
+        }
