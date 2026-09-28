@@ -16,6 +16,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 IN_DIR = Path(r"D:\Temp\voxceleb\wav")
@@ -66,15 +67,15 @@ def main() -> int:
         for s,d in todo[:20]: print(f"  {s.parent.name}/{s.name} -> {d.name} ({s.stat().st_size} -> 24k)")
         if len(todo) > 20: print(f"  ... +{len(todo)-20}")
         return 0
-    ok = skip = fail = 0
+    ok = fail = 0
     for src, dst in todo:
         txt_src = src.with_suffix(".txt")
         txt_dst = dst.with_suffix(".txt")
         if convert(src, dst):
             ok += 1
             if txt_src.exists() and txt_src.stat().st_size > 0:
-                try: txt_dst.write_text(txt_src.read_text(encoding="utf-8", errors="replace").strip(), encoding="utf-8")
-                except: pass
+                with suppress(OSError):
+                    txt_dst.write_text(txt_src.read_text(encoding="utf-8", errors="replace").strip(), encoding="utf-8")
             elif not txt_dst.exists():
                 txt_dst.write_text("", encoding="utf-8")
             if ok % 100 == 0: print(f"  ... {ok}/{len(todo)}")

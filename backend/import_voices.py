@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import base64
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 import requests
@@ -109,10 +110,8 @@ def main() -> int:
         txt = wav.with_suffix(".txt")
         ref_text = ""
         if txt.exists():
-            try:
+            with suppress(OSError):
                 ref_text = txt.read_text(encoding="utf-8", errors="replace").strip()
-            except OSError:
-                pass
 
         raw = wav.read_bytes()
         if len(raw) > 5_000_000:

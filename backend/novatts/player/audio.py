@@ -11,6 +11,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 
 import pygame
@@ -72,29 +73,23 @@ class AudioPlayer:
             return
         with self._condition:
             self._queue.clear()
-            try:
+            with suppress(Exception):
                 pygame.mixer.music.stop()
-            except Exception:
-                pass
             self._queue.append(path)
             self._condition.notify_all()
         log.debug("Audio interrupt queued: %s", path.name)
 
     def stop_current(self) -> None:
-        try:
+        with suppress(Exception):
             pygame.mixer.music.stop()
-        except Exception:
-            pass
         with self._condition:
             self._queue.clear()
 
     def clear(self) -> None:
         with self._condition:
             self._queue.clear()
-            try:
+            with suppress(Exception):
                 pygame.mixer.music.stop()
-            except Exception:
-                pass
 
     def queue_size(self) -> int:
         with self._lock:

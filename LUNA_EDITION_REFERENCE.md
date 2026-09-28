@@ -111,9 +111,13 @@ zie commit `e48c8ef` "Keep the personal emotion mapping out of the repo and the 
 
 ### 3.8 Dood gewicht in Main
 
-- `backend/vntts/` (~1.400 regels Rust/WASM) — **Tauri+Sycamore `tauri init`-template, nooit gebouwd**
+- `backend/vntts/` — **Tauri+Sycamore `tauri init`-template, nooit gebouwd**
   (geen `Cargo.lock`, geen `target/`), nul verwijzingen buiten zichzelf om, `description = "A Tauri App"`,
   `Trunk.toml` claimt poort 1420 (botsing met Vite). **Veilig te verwijderen** —zie F9.
+  *Gecorrigeerd in F0:* de eerdere schatting "~1.400 regels" telde binaire iconen als tekst.
+  Werkelijk: **35 bestanden, 171 KB, ~475 tekstregels** — waarvan 23 van de 35 bestanden icons/
+  metadata zijn. `src/app.rs` (58) + `src-tauri/src/lib.rs` (13) is de enige echte code.
+  **Verwijderd in F0.**
 - `backend/.mypy_cache` / `.ruff_cache` — op schijf aanwezig, correct ge-gitignored.
 
 ---
@@ -249,16 +253,17 @@ Als je B blind port, mis je functionaliteit die `VN_Suite.py` wél heeft:
 
 | # | Fout | Locatie |
 |---|---|---|
-| G5.1 | `stop_all.cmd` schiet op **poort 8081** (Qwen) terwijl de comment zegt *"kill anything on port 8765"* — en de backend draait op 8765. `POST /shutdown` gaat dus naar de verkeerde poort. | `stop_all.cmd:4` + `:7` |
-| G5.2 | `2>nul` in PowerShell breekt de pipe; moet `2>&1 1>nul` of `2>&1 \| Out-Null`. | `stop_all.cmd:4,8,12,14` — precies de bug uit `V2_ROADMAP.md` §1.1 |
-| G5.3 | `stop_all.cmd` doodt `novatts-gui.exe` nooit, terwijl `App.svelte` de sidebar de user *naar* `stop_all.cmd` verwijst. | `stop_all.cmd` |
+| G5.1 ✅ | `stop_all.cmd` schiet op **poort 8081** (Qwen) terwijl de comment zegt *"kill anything on port 8765"* — en de backend draait op 8765. `POST /shutdown` gaat dus naar de verkeerde poort. Bevestigd: `start_all.cmd:63` en `lib.rs:299` gebruiken allebei 8765; alleen `stop_all.cmd:4,7` wijkt af. **→ Opgelost in F0.** | `stop_all.cmd:4` + `:7` |
+| ~~G5.2~~ | ~~`2>nul` breekt~~ **Ingetrokken na verificatie.** `2>nul` is geldige *cmd*-syntaxis en werkt hier. De `V2_ROADMAP.md` §1.1-waarschuwing geldt voor PowerShell-invocaties; de Rust-sidecar gebruikt helemaal geen PowerShell meer (`lib.rs:310 taskkill_tree`, `:320 netstat`). | — |
+| G5.3 ✅ | `stop_all.cmd` doodt `novatts-gui.exe` nooit, terwijl `App.svelte` de sidebar de user *naar* `stop_all.cmd` verwijst. **→ Opgelost in F0.** | `stop_all.cmd` |
 | G5.4 | `_synth_emotion_aware` hardcodt `"source": "clipboard"` in de `Event("error", …)`-calls — wordt onjuist zodra de bron `luna`/`file` is. | `main.py:209, 221, 227, 261` |
 | G5.5 | `SpeakerRegistry.update(…, instruct=…)` accepteert `instruct` maar **wijst het nooit toe**. Stille no-op. | `registry/speakers.py` |
 | G5.6 | `registry.update()` is keyword-only; `registry.update(name, "voice")` (B-stijl) zou `TypeError` geven. Bij het toevoegen van Luna-code een afwijking voor beide moeten dragen. | idem |
 | G5.7 | `main.py:451-453` losse regel tussen functie en import (ruff E303). | `main.py:451-453` |
-| G5.8 | `.env.example` zegt `NOVATTS_QWEN_TIMEOUT=120.0`; `config.py:79` zegt `300.0`. | `backend/.env.example:11` |
-| G5.9 | `pyproject.toml` mist `[build-system]` — `pip install -e backend` werkt niet. | `backend/pyproject.toml` |
-| G5.10 | `pytest` ontbreekt in `requirements-dev.txt` terwijl er 7 testsuites zijn. | `backend/requirements-dev.txt` |
+| G5.8 ✅ | `.env.example` zegt `NOVATTS_QWEN_TIMEOUT=120.0`; `config.py:79` zegt `300.0`. **→ Opgelost in F0.** | `backend/.env.example:11` |
+| G5.9 ✅ | `pyproject.toml` mist `[build-system]` — `pip install -e backend` werkt niet. **→ Opgelost in F0** (setuptools + `packages.find`; `pip install -e .` geverifieerd). | `backend/pyproject.toml` |
+| G5.10 | `requirements-dev.txt` is **onvolledig**: `pytest` ontbreekt (terwijl er 7 testsuites zijn), `httpx2` ontbreekt (zonder het faalt `starlette.testclient` → `test_cutter.py` + `test_openai_speech.py` breken tijdens collectie), `types-pyperclip` ontbreekt (de enige `import-untyped`-fout). **Gevolg: de testsuite is vanaf een schone `setup.cmd` nooit draaibaar geweest.** Bevestigd in de nulmeting. **→ Opgelost in F0.** | `backend/requirements-dev.txt` |
+| G5.11 ✅ | **De Makefile-gates konden niet falen.** `lint` en `test` eindigden allebei op `|| true`, dus `make lint`/`make test` printten "✓" en exitten 0 bij 27 ruff-errors en 2 mypy-errors. **De ergste vondst van F0** — de hele vangnet-garantie uit het plan steunde op deze targets. **→ Opgelost in F0:** `|| true` verwijderd, nieuw `gate`-target, alle 29 fouten gerepareerd. | `Makefile:126, 128, 133` |
 
 ### G6 — Docs/data-drift
 
@@ -281,21 +286,40 @@ Als je B blind port, mis je functionaliteit die `VN_Suite.py` wél heeft:
 
 ---
 
-### ✅ F0 — Baseline & veiligheidsnet *(voor de handhaving)*
+### ✅ F0 — Baseline & veiligheidsnet *(gereed 2026-09-29)*
 
-Doel: een nulmeting zodat je later kunt bewijzen dat je niets hebt kapotgemaakt.
+Doel: vóór er één regel Luna-code bijkomt, vaststellen *hoe* de huidige build er nou voor staat
+en de gates echt laten falen als er iets mis is.
 
-> ⚠️ **Deze worktree is nog niet gebouwd.** Geen `backend\.venv`, geen `gui\node_modules`,
-> geen `gui\dist`. De nulmeting is dus nog niet vastgelegd en de gates kunnen nog niet draaien.
-> Eerste stap is dus `.\setup.cmd` (of `setup.ps1 -Shortcuts`), en dat duurt enkele minuten
-> (venv + deps + `npm install` + `vite build`).
+- [x] Vangnet: tag `pre-luna` op `e48c8ef`, branch `Luna-Hook` schoon.
+- [x] `setup.cmd` gedraaid: venv 3.11.9, deps, `npm install` (50 pkg), `vite build` OK.
+- [x] **Nulmeting** (§10.1) — en de nulmeting was slechter dan dit verslag suggereerde.
+- [x] **G5.11 — de gates konden niet falen.** `|| true` weg uit `Makefile` `lint` + `test`; nieuw
+  `gate`-target draait beide. Dit was de belangrijkste vondst van F0: het hele plan steunde op
+  targets die per definitie groen waren.
+- [x] **G5.10 — dev-deps incompleet.** `pytest`, `httpx2` (starlette 1.7 `TestClient`) en
+  `types-pyperclip` toegevoegd aan `requirements-dev.txt`. De suite was vanaf een schone setup
+  nog nooit draaibaar geweest.
+- [x] **27 ruff-errors → 0.** 7 in `novatts/` (`SIM105`/`SIM108` → `contextlib.suppress`/ternary),
+  4 in `tests/`, 14 in `convert_vox_to_clone.py`, 1 in `import_voices.py`. De echte fouten
+  (`E722` bare except, `F841` dode `skip`) zijn gerepareerd, niet uitgehaald. Alleen de
+  bewust compacte one-liner-stijl van `convert_vox_to_clone.py` is gedocumenteerd genegeerd
+  (`per-file-ignores`, precies `E701`/`E702`, precies dat ene bestand).
+- [x] **2 mypy-errors → 0.** `types-pyperclip` geïnstalleerd; `main.py:785` krijgt
+  `# type: ignore[attr-defined, unused-ignore]` zodat de ignore zowel op Windows (stubs bekend)
+  als elders correct is.
+- [x] **G5.1 + G5.3 — `stop_all.cmd`.** Poort 8081 → 8765 (de backend draait op 8765; `start_all.cmd:63`
+  en `lib.rs:299` bevestigden dat). `taskkill /T` + PID-0/4-guard toegevoegd. `novatts-gui.exe`
+  wordt nu gedood — de sidebar verwijst de gebruiker hiernaar als "stop alles".
+- [x] **G5.8** — `.env.example` timeout 120.0 → 300.0, gelijk aan `config.py:79`.
+- [x] **G5.9** — `[build-system]` + setuptools-package-discovery toegevoegd aan `pyproject.toml`;
+  `pip install -e .` werkt nu (geverifieerd).
+- [x] **`backend/vntts/` verwijderd** — 35 bestanden, nul verwijzingen (D11: eigen commit).
+- [x] **Eindmeting: `ruff` 0 · `mypy --strict` 0 · `pytest` 105 ✅ · `vite build` ✅.**
 
-- [ ] `git branch backup/pre-luna e48c8ef` (of tag `pre-luna`)
-- [ ] `.\setup.cmd` — venv, deps, `node_modules`, `vite build` (eenmalig, vóór de meting)
-- [ ] Baseline vastleggen: `pytest -q` (aantal tests + uitkomst), `ruff check backend`, `mypy --strict backend/novatts`, `npm run build` — **output in dit document zetten, onder §10**
-- [ ] Handmatige functionele smoke: RenPy-game → `Name: Text` → stem, onbekende speaker → Narrator, `start_all.cmd --min` + `stop_all.cmd`
-- [ ] `backend/vntts/` verwijderen (F9) — één commit, geen functionele impact
-- [ ] G5.1–G5.3 (`stop_all.cmd`) fixen — **lost meteen de `App.svelte`-sidebarbelofte in**
+**Bewust niet gedaan:** de handmatige functionele smoke (echt RenPy-game → `Name: Text` → stem)
+vereist een GPU, qwentts én een geïnstalleerd spel. Die hoort bij **F8**, waar de ws-route
+daadwerkelijk naast RenPy wordt gezet — niet in F0, waar er nog niets te smoke-ten valt.
 
 ---
 
@@ -427,10 +451,12 @@ ws-route bewezen stabiel is.
 
 ### ⬜ F9 — Opruimen (kan tussendoor of aan het einde)
 
-- [ ] `backend/vntts/` verwijderen (1.400 regels dode Rust/WASM-template, nooit gebouwd, nul verwijzingen)
-- [ ] G5.5 (`update(instruct=)` no-op), G5.6 (kw-only), G5.7 (ruff E303), G5.8 (`.env.example` timeout) fixen
+- [x] `backend/vntts/` verwijderen — **gedaan in F0** (niet hier; nul functionele impact, makkelijk terug te draaien)
+- [ ] G5.5 (`update(instruct=)` no-op), G5.6 (kw-only), G5.7 (ruff E303) fixen
+- [x] G5.8 (`.env.example` timeout) — **gedaan in F0**
 - [ ] G6.2: persoonlijke speakers uit `data/speakers.json` naar `data/games/` verplaatsen + gitignore
 - [ ] `[project] description` in `pyproject.toml` van `"…(RenPy/Qwen3)"` naar `"…(LunaHook/Qwen3)"`
+- [ ] Ruff-uitsluitingen herevalueren zodra de persoonlijke hulpscripts zijn opgeschoond
 
 ---
 
@@ -485,15 +511,72 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 |---|---|---|
 | **D9** | Krijgt de hook-route een eigen `/status`-veld voor de *laatste ontvangen raw_text* (handig om de ws-verbinding zonder game te debuggen)? | F3 — goed moment om het in te bouwen |
 | **D10** | Moet `qwen_autostart` in de toekomst `both`-aware zijn? Met `hook_mode=websocket` start de Qwen-server soms terwijl er niets op de ws komt. | F7 — niet blokkerend voor de port |
-| **D11** | Wordt `backend/vntts/` verwijderd in een eigen commit, of mee in F9? | F0 (eigen commit is netter: nul functionele impact, makkelijk terug te draaien) |
+| **D11** ✅ | **Uitgevoerd in F0:** `backend/vntts/` verwijderd in een eigen commit. Reden: nul functionele impact, 35 bestanden, nul verwijzingen — makkelijk terug te draaien als het toch nodig blijkt. De "eigen commit"-vorm is bovendien waardevoller dan de inhoud: het bevestigt dat er in deze repo een dode 171 KB template lag die drie jaar niemand had opgemerkt. | F9 hoeft dit niet meer te doen. |
+
+### 9.3 Uit F0 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D12** ✅ | **De Makefile-gates worden afnemend gemaakt vóór enige productiecode wijzigt.** | F0. `|| true` weg, nieuw `gate`-target. Nu permanente anti-regressieregel §12.8. |
+| **D13** ✅ | **Ruff-uitsluitingen worden per-bestand en per-regelcode gegeven, nooit globaal.** | Alleen `convert_vox_to_clone.py` → `["E701", "E702"]`, met comment. De echte fouten in dat bestand (`E722`, `F841`) zijn gerepareerd, niet uitgehaald — als er iets wordt genegeerd, moet de rest van dat bestand wel schoon zijn. |
+| **D14** ✅ | **De RenPy-functionele smoke verhuist van F0 naar F8.** | F0 heeft geen game, geen GPU en geen qwentts; een smoke zonder spel zou een no-op zijn die groen lijkt. F8 is waar de ws-route daadwerkelijk naast RenPy komt te staan. |
 
 ---
 
-## 10. Baseline-logboek *(vullen tijdens F0 en daarna)*
+## 10. Baseline-logboek
 
-| Datum | Fase | Commit(s) | `pytest` | `ruff` | `mypy` | `npm run build` | Opmerking |
+### 10.1 Nulmeting — gemeten op 2026-09-29, commit `38f2a57` (vóór enige codewijziging)
+
+| Gate | Uitkomst | Detail |
+|---|---|---|
+| `setup.cmd` | ✅ | node 22.23.2 · npm 12.0.2 · Python 3.11.9 · ruff 0.16.9 · mypy 2.3.1 |
+| `pytest` (7 suites) | ✅ **105 passed** in 54.8 s | ⚠️ **alleen na handmatig installeren van 2 ontbrekende dev-deps** — zie G5.10 |
+| `ruff check backend` | ❌ **27 errors** (4 auto-fixable) | 15 `convert_vox_to_clone.py` · 1 `import_voices.py` · 7 `novatts/` · 4 `tests/test_openai_speech.py`. **Geen enkele is een correctness-bug** — allemaal `SIM105`/`SIM108`/`E701`/`E702`/`F401`/`I001`/`W293` |
+| `mypy --strict backend/novatts` | ❌ **2 errors** | 1× ontbrekende `pyperclip`-stubs (`types-pyperclip` niet geïnstalleerd) · 1× `main.py:785` *unused type: ignore* — mypy-2.3.1-artifact, want `os.startfile` is nu bekend |
+| `npm run build` (vite) | ✅ | 50 packages, build OK |
+| **`make lint`** | ⚠️ **exit 0, altijd** | zie **G5.11** |
+| **`make test`** | ⚠️ **exit 0, altijd** | zie **G5.11** |
+
+### 10.2 De headline-vondst van F0: de gates zijn decoratief
+
+```makefile
+lint:
+	$(PYTHON) -m ruff check backend || true            # ← faalt nooit
+	$(PYTHON) -m mypy --strict backend/novatts || true # ← faalt nooit
+
+test:
+	$(PYTHON) -m pytest backend/tests/ -v || true      # ← faalt nooit
+```
+
+`|| true` schakelt de exitcode uit. `make lint` print "✓ Linting complete" en `make test`
+print "✓ Tests complete" **ongeacht de uitkomst**. Daarom konden 27 ruff-errors en 2
+mypy-errors blijven staan in een repo waarvan de README zegt dat die gates groen zijn.
+
+**Gevolg voor het hele plan:** de regel *"elke fase is gated op pytest + ruff + mypy + build"*
+is waardeloos zolang de gate `|| true` is. **F0 repareert dit vóór er één regel productiecode
+verandert.** Anders bouwen we acht fasen op een vangnet van gips.
+
+**Wat wél echt gezond was:** 105 tests groen. De testsuite-inhoud is degelijk — alleen de
+verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
+
+### 10.3 Logboek
+
+| Datum | Fase | Commit(s) | `pytest` | `ruff` | `mypy` | `build` | Opmerking |
 |---|---|---|---|---|---|---|---|
-| 2026-09-28 | inspectie | — | — | — | — | — | Beide repos gelezen, `VN_Suite.py` als referentie geverifieerd. Nog niets gewijzigd. |
+| 2026-09-28 | inspectie | — | — | — | — | — | Beide repos gelezen, `VN_Suite.py` als referentie geverifieerd. |
+| 2026-09-29 | F0 | `38f2a57` | **105 ✅** | **27 ❌** | **2 ❌** | ✅ | **Nulmeting.** Gates niet-afnemend → §10.2. |
+| 2026-09-29 | F0 | *"F0: make the gates real…"* | **105 ✅** | **0 ✅** | **0 ✅** | ✅ | **Eindmeting F0.** Gates nu afnemend. `pytest` onveranderd 105 → de 27+2 fixes hebben geen test geraakt, wat bewijst dat het om stijl ging en niet om gedrag. |
+
+> **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
+> commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
+> Zoek de commit op met `git log --oneline --grep="make the gates real"`.
+> De hash van het *eerdere* F0-nulmeting-document (`38f2a57`) staat hier wel, want dat
+> was al vastgezet vóór deze commit bestond.
+
+> De regel `pytest 105 → 105` over twee metingen is het belangrijkste gegeven in deze tabel.
+> Zou het aantal gewijzigd zijn, dan had een van de `contextlib.suppress`-/ternary-hervormingen
+> gedrag aangeraakt. Dat is nu meetbaar uitgesloten — **vanaf nu is 105 het getal dat niet mag
+> veranderen zonder dat het in de commit-message staat waarom.**
 
 ---
 
@@ -501,7 +584,7 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 
 | Fase | Status | Bijzonderheden |
 |---|---|---|
-| F0 Baseline & veiligheid | ⬜ | |
+| F0 Baseline & veiligheid | ✅ | Gates konden niet falen (`|| true`) → gerepareerd. 27 ruff → 0, 2 mypy → 0, dev-deps compleet, `vntts/` weg, `stop_all.cmd` op poort 8765. Eindstand **105 ✅ / 0 / 0 / ✅**. |
 | F1 Foundation | ⬜ | |
 | F2 `parser/luna.py` | ⬜ | |
 | F3 `adapters/luna.py` | ⬜ | |
@@ -509,8 +592,8 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | F5 `file_monitor.py` | ⬜ | |
 | F6 GUI | ⬜ | |
 | F7 Lifecycle & docs | ⬜ | |
-| F8 Cutover RenPy→LunaHook | ⬜ | |
-| F9 Opruimen | ⬜ | |
+| F8 Cutover RenPy→LunaHook | ⬜ | Bevat de handmatige RenPy-smoke die uit F0 is gehaald. |
+| F9 Opruimen | ⬜ | `vntts/` en G5.8 zijn al afgehandeld in F0. |
 
 ---
 
@@ -523,3 +606,5 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 5. **Nooit de clip-`:`-prefix in de TTS laten.** `blacklist.filter_text` spaart hem; daarna moet hij eraf vóór synthese (B doet dit met een regex in `app.py:157`; Main heeft `VoiceManager.clean_dialogue` niet meer — dus expliciet implementeren).
 6. **Nooit `itertools`/`asyncio` mixen zonder de shutdown-volgorde te testen.** `NovaApp.stop()` moet altijd: adapters → worker → player → qwen → cache-clear → registry-autosave.
 7. **Nooit een `.wav`/`.spk`/`.rvq`/persoonlijke mapping committen.** Zoals `e48c8ef` al besloot voor de emotion-map.
+8. **Nooit `|| true` (of een andere exitcode-demping) op een gate zetten.** Dat is de koorts van dit project: `Makefile` deed precies dat, waardoor `make lint`/`make test` 27 ruff-errors en 2 mypy-errors als "✓" afvinkten. **Een gate die niet kan falen is geen gate.** Als een gate hinderlijk is, is de oplossing *repareren wat hij vindt*, niet hem dempen.
+9. **Nooit de baseline-testcount als toevalligheid behandelen.** `105` is het getal. Verandert het, dan staat in de commit-message welke test is toegevoegd of weggevallen en waarom.

@@ -1,8 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "novatts"
 version = "0.1.0"
 description = "Universal local Visual Novel Text-to-Speech server (RenPy/Qwen3)."
 requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["novatts*"]
+namespaces = false
 
 [tool.ruff]
 line-length = 100
@@ -11,6 +23,14 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# One-off maintenance script for a personal voice library (hardcoded
+# D:\ paths, ffmpeg on PATH, not part of the shipped package). Its dense
+# one-liner style is deliberate. Every *correctness* rule still applies
+# here -- a bare `except:` (E722) and an unused local (F841) were real
+# findings and were fixed, not exempted. Keep this list to E701/E702.
+"convert_vox_to_clone.py" = ["E701", "E702"]
 
 [tool.mypy]
 python_version = "3.11"

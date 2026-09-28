@@ -123,15 +123,23 @@ backend-build: backend-venv
 lint:
 	@echo Running linters...
 	@echo [Python] ruff check...
-	$(PYTHON) -m ruff check backend || true
+	$(PYTHON) -m ruff check backend
 	@echo [Python] mypy...
-	$(PYTHON) -m mypy --strict backend/novatts || true
+	$(PYTHON) -m mypy --strict backend/novatts
 	@echo ✓ Linting complete
 
 test:
 	@echo Running tests...
-	$(PYTHON) -m pytest backend/tests/ -v || true
+	$(PYTHON) -m pytest backend/tests/ -v
 	@echo ✓ Tests complete (see output above)
+
+# Hard gate for CI / pre-commit: everything must pass, no exceptions.
+# The `lint` and `test` targets used to end in `|| true`, which made them
+# incapable of failing (G5.11). Do not reintroduce that.
+gate:
+	$(MAKE) lint
+	$(MAKE) test
+	@echo ✓ All gates passed
 
 # ============================================================================
 # Cleaning

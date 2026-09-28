@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -161,26 +161,20 @@ class NovaApp:
         if self.clipboard:
             self.clipboard.stop()
         self._running = False
-        try:
+        with suppress(Exception):
             self._wake.set()
-        except Exception:
-            pass
         if self._worker:
-            try:
+            with suppress(Exception):
                 self._worker.join(timeout=2.0)
-            except Exception:
-                pass
             self._worker = None
         self.player.stop()
-        import contextlib
-
-        with contextlib.suppress(Exception):
+        with suppress(Exception):
             self.qwen_mgr.stop()
-        with contextlib.suppress(Exception):
+        with suppress(Exception):
             # Ephemeral audio cache: discard on clean shutdown so it can't
             # grow unboundedly across sessions.
             self.voices.clear_cache()
-        with contextlib.suppress(Exception):
+        with suppress(Exception):
             # Ephemeral raw clipboard log: same policy — nothing persists.
             if self.clipboard:
                 self.clipboard.raw_log.clear()
@@ -309,10 +303,8 @@ class NovaApp:
         with self._pending_lock:
             self._pending_seq += 1
             self._pending_dialogue = dialogue
-        try:
+        with suppress(Exception):
             self.player.stop_current()
-        except Exception:
-            pass
         self._wake.set()
 
     # -- API helpers ----------------------------------------------------
@@ -782,7 +774,7 @@ async def open_clipboard_log() -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"No clipboard log yet at {log_path}")
     try:
         if sys.platform == "win32":
-            os.startfile(str(log_path))  # type: ignore[attr-defined]
+            os.startfile(str(log_path))  # type: ignore[attr-defined, unused-ignore]
         else:
             subprocess.Popen(["xdg-open", str(log_path)])
     except Exception as exc:
@@ -880,10 +872,7 @@ async def openai_speech(body: OpenAISpeechBody) -> Any:
 
     # Convert to requested format if not WAV
     try:
-        if format_name == "wav":
-            audio_data = path.read_bytes()
-        else:
-            audio_data = convert_audio(path, format_name)
+        audio_data = path.read_bytes() if format_name == "wav" else convert_audio(path, format_name)
     except Exception as exc:
         log.error("Audio format conversion failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Format conversion failed: {exc}") from exc
