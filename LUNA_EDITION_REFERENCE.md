@@ -272,7 +272,7 @@ Als je B blind port, mis je functionaliteit die `VN_Suite.py` wél heeft:
 | G6.1 | `data/emotion_sound_map.json` + `emotion_aliases.json` bestaan **niet** in Main (bewust uitgehaald in `e48c8ef`) | `emotions.py` bouwt ze op uit de schijf. **Geen actie** — moet zo blijven. |
 | G6.2 | `data/speakers.json` bevat game-lokale namen (`where_the_heart_is`, `Anna`, `Brenda`, `D`, `Lilya`) | Persoonlijke data in de repo. Net als `e48c8ef` voor de emotion-map: overwegen om naar `data/games/` te verplaatsen + `.gitignore` (zie D5). |
 | G6.3 | `brand-sub` in de GUI zegt nog `"Qwen3 · RenPy clipboard"` | → `"Qwen3 · LunaHook + clipboard"`. |
-| G6.4 | Geen `.env`-documentatie voor de 9 hook-sleutels | Toevoegen aan `README.md` + `backend/.env.example` + `INSTALL.md`. |
+| G6.4 ✅ | Geen `.env`-documentatie voor de 9 hook-sleutels | **→ Opgelost in F1**: tabel in `README.md` + volledige uitleg in `backend/.env.example`, inclusief de proxy-diagnose. |
 
 ---
 
@@ -337,6 +337,48 @@ Doel: alles wat de Luna-laag nodig heeft bestaat, maar doet nog niets.
 - [ ] `logger`-regel: `logging.getLogger("websockets.server").setLevel(logging.CRITICAL)` (uit `VN_Suite.py:3813`)
 
 **Gate:** alle 4 gates groen, geen gedragsverandering.
+
+---
+
+### ✅ F1 — Foundation (config, model, deps, barrels) *(gereed 2026-09-29)*
+
+Doel: alles wat de Luna-laag nodig heeft bestaat, maar doet nog niets. **Geen gedragsverandering.**
+
+- [x] `requirements.txt`: `websockets>=12.0` expliciet. Was er al als transitieve dep van
+  `uvicorn[standard]` (geïnstalleerd: **17.1**), maar we importeren het zelf — dus een eigen
+  regel is eerlijker dan leunen op andermans pin. *(Let op bij F3: de 13+ reeks liet de
+  legacy `websockets.serve` shim vallen.)*
+- [x] `pyproject.toml`: `[build-system]` + dev-deps — **al gedaan in F0**, dubbelde item geschrapt.
+- [x] `models.py`: `Dialogue.raw: str = ""`. Alle 30 `Dialogue(...)`-calls in Main zijn
+  keyword-based, dus plaatsing is veilig. `source` en `instruct` onaangeroerd.
+- [x] `config.py`: 9 velden met Main-conventie (`NOVATTS_`-prefix, pydantic `Settings`).
+- [x] `config.py`: **validator op `hook_mode`** die terugvalt op `both` i.p.v. te crashen.
+  Zonder dit zou `NOVATTS_HOOK_MODE=websockets` een `ValidationError` geven *bij import* —
+  de backend zou dan nooit opstarten. B deed dezelfde fallback met de hand.
+- [x] `main.py`: `SettingsBody` (+8 velden), `_SETTINGS_ENV_MAP` (+8), `_SETTINGS_FIELD_TYPES`,
+  `_settings_snapshot` (+9, inclusief de niet-schrijfbare `hook_host`).
+- [x] **`_env_bool()`** — zie hieronder, dit was de echte valkuil van deze fase.
+- [x] `.env.example` + `README.md`: de 9 sleutels gedocumenteerd (G6.4), inclusief de
+  proxy-diagnose (`netsh winhttp show proxy`) uit `VN_Suite.py:3786-3814`.
+- [x] `logconf.py`: `websockets.server` op `CRITICAL` (uit `VN_Suite.py:3813`). Hier i.p.v. in
+  `adapters/luna.py` omdat het een logging-kwestie is die geldt voor élk entrypoint.
+- [x] **`tests/test_hook_config.py`** — 48 nieuwe tests, 105 → **153**.
+
+**De valkuil die deze fase onderweg vond:** `update_settings` deed `setattr(settings, f, str_val)`.
+Voor een `bool`-veld wordt dat de *string* `"False"` — en `"False"` is **truthy**. Elke
+boolean-toggle in de GUI zou de gebruiker negeren. Het bestaande veldset bevatte geen enkele
+bool (de twee Qwen-bools staan niet in `_SETTINGS_ENV_MAP`), dus dit kon nog nooit kloppen.
+`_env_bool()` lost het op: van 13 falsey-waarden leest de ingebouwde `bool()` er **5 verkeerd**.
+
+**Bewijs dat de tests bijten (mutatiecheck, alle 3 gevangen):**
+
+| Mutant | Uitkomst |
+|---|---|
+| `_env_bool` → `bool(value)` | `test_env_bool_reads_falsey_values[false]` faalt |
+| `hook_mode`-fallback → `return value` | `test_bad_hook_mode_falls_back_to_both[websockets]` faalt |
+| default `hook_mode` → `"websocket"` (D2 overtreden) | `test_hook_defaults_match_the_agreed_topology` faalt |
+
+**Gate:** `ruff` 0 · `mypy --strict` 0 · `pytest` **153** ✅ · `vite build` ✅
 
 ---
 
@@ -566,6 +608,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-28 | inspectie | — | — | — | — | — | Beide repos gelezen, `VN_Suite.py` als referentie geverifieerd. |
 | 2026-09-29 | F0 | `38f2a57` | **105 ✅** | **27 ❌** | **2 ❌** | ✅ | **Nulmeting.** Gates niet-afnemend → §10.2. |
 | 2026-09-29 | F0 | *"F0: make the gates real…"* | **105 ✅** | **0 ✅** | **0 ✅** | ✅ | **Eindmeting F0.** Gates nu afnemend. `pytest` onveranderd 105 → de 27+2 fixes hebben geen test geraakt, wat bewijst dat het om stijl ging en niet om gedrag. |
+| 2026-09-29 | F1 | *"F1: foundation…"* | **153 ✅** | **0 ✅** | **0 ✅** | ✅ | 105 → 153: 48 tests voor de nieuwe logica. **Stijging is gedocumenteerd, per anti-regressieregel §12.9.** |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -585,7 +628,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | Fase | Status | Bijzonderheden |
 |---|---|---|
 | F0 Baseline & veiligheid | ✅ | Gates konden niet falen (`|| true`) → gerepareerd. 27 ruff → 0, 2 mypy → 0, dev-deps compleet, `vntts/` weg, `stop_all.cmd` op poort 8765. Eindstand **105 ✅ / 0 / 0 / ✅**. |
-| F1 Foundation | ⬜ | |
+| F1 Foundation | ✅ | 9 hook-velden + `Dialogue.raw` + `_env_bool` (een echte valkuil: `bool("False")` is `True`). 105 → **153 tests**, alle 3 mutanten gevangen. Nog 0 runtime-impact. |
 | F2 `parser/luna.py` | ⬜ | |
 | F3 `adapters/luna.py` | ⬜ | |
 | F4 `NovaApp`-bedrading | ⬜ | |

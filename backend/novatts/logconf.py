@@ -28,3 +28,11 @@ def setup_logging(*, level: str | None = None, format_: str = _DEFAULT_FORMAT) -
     resolved = getattr(logging, level_name, logging.INFO)
     logging.basicConfig(level=resolved, format=format_, force=True)
     logging.getLogger("novatts").setLevel(resolved)
+    # The hook websocket server (adapters/luna.py, F3) lives under the
+    # `websockets` package, not `novatts`, so it is not covered by the
+    # line above and would log every connection at INFO/DEBUG straight
+    # into the user's console. Silence it to only the errors. Mirrors
+    # VN_Suite.py:3813, where the same line keeps the library from
+    # dumping a full traceback when a WinHTTP proxy hijacks the loopback
+    # CONNECT.
+    logging.getLogger("websockets.server").setLevel(logging.CRITICAL)

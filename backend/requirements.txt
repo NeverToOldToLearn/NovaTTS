@@ -5,3 +5,8 @@ pydantic-settings>=2.6
 pyperclip>=1.9
 pygame>=2.6
 requests>=2.32
+# LunaHook/Textractor websocket server. Already arrives transitively via
+# uvicorn[standard], but we import it directly, so it gets its own line
+# rather than depending on someone else's pin. (Installed: 17.1 -- note
+# that the 13+ series dropped the legacy `websockets.serve` shim.)
+websockets>=12.0

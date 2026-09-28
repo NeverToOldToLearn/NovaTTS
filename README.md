@@ -113,13 +113,61 @@ auto-detectie voor `ffmpeg`, `whisper-cli` en het model. Backend-routes:
 > meer geïmporteerd; de backend leest de oude `cutter_config.json` **niet** en
 > migreert die niet.
 
+## Hook input (LunaTranslator / Textractor)
+
+NovaTTS can take its raw text from three sources. Which one is active is set
+with `NOVATTS_HOOK_MODE` in `backend/.env`:
+
+| Value | Route | Notes |
+|---|---|---|
+| `clipboard` | RenPy `copy_voice_to_clipboard` | the legacy/default route |
+| `websocket` | LunaHook / Textractor | the replacement route |
+| `both` | both side by side, first yield wins | **the current default** |
+
+An unrecognised value falls back to `both` with a logged warning rather than
+refusing to start, so a typo cannot lock you out of the app.
+
+### Setting up LunaHook
+
+1. Start NovaTTS. It **serves** the websocket on `127.0.0.1:6677`.
+2. In LunaTranslator: `Extensions` → `Add` → `textractor_websocket_x64.xdll`.
+3. Point it at `ws://127.0.0.1:6677` and start Textractor on your game.
+4. Leave **translation off** — NovaTTS only wants the raw text.
+
+If the connection fails, a WinHTTP proxy on Windows will intercept even
+loopback traffic. Check with `netsh winhttp show proxy`; the fix is
+`netsh winhttp reset proxy` (admin).
+
+### Hook settings
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NOVATTS_HOOK_MODE` | `both` | `clipboard` / `websocket` / `both` |
+| `NOVATTS_HOOK_HOST` | `127.0.0.1` | websocket bind address — keep on loopback |
+| `NOVATTS_HOOK_PORT` | `6677` | websocket port |
+| `NOVATTS_HOOK_SPACE_FORM` | `1` | Textractor sends `Rick It's 2 parts.` (space form). Set to `0` only for `Rick:`-style games — the RenPy parser is tried first regardless. |
+| `NOVATTS_HOOK_DUAL_HOOK` | `0` | attach the hook twice; some games need it, but it doubles traffic |
+| `NOVATTS_LUNA_WS_URL` | *(empty)* | empty = serve; non-empty (e.g. `ws://127.0.0.1:6678`) = connect to that instead |
+| `NOVATTS_FILE_WATCH` | `0` | tertiary route: tail a Textractor output file |
+| `NOVATTS_FILE_WATCH_PATH` | `textractor_output.txt` | path for that file route |
+| `NOVATTS_DEDUP_WINDOW_MS` | `500` | drop an identical line repeated within this window (Textractor re-emits on window change and re-focus) |
+
+> `hook_host` is shown in the settings view but is **not** editable there:
+> it is the websocket bind address, and changing it live would need the
+> server restarted to take effect.
+
 ## Build checks
 
 ```powershell
-npm run build
+backend\.venv\Scripts\python -m pytest backend\tests\ -q
 backend\.venv\Scripts\python -m ruff check backend
 backend\.venv\Scripts\python -m mypy --strict backend/novatts
+npm run build
 ```
+
+All four must be clean, and they are set up to fail: `make gate` runs lint
+and test without exit-code suppression, so a regression stops the build
+rather than scrolling past in the output.
 
 ## Layout
 

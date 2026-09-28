@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
+from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+log = logging.getLogger(__name__)
+
+_HOOK_MODES = ("clipboard", "websocket", "both")
 
 
 def _base_dir() -> Path:
@@ -102,6 +109,35 @@ class Settings(BaseSettings):
     log_raw_clipboard: bool = True
     clipboard_raw_log: Path = DATA_DIR / "logs" / "clipboard_raw.log"
 
+    # --- Hook input (LunaTranslator / Textractor) ---
+    # Which raw_text source is active. "clipboard" is the RenPy route,
+    # "websocket" is the LunaHook route, "both" runs them side by side.
+    # Default stays "both" until the websocket route has proven itself
+    # (D2) -- the cutover to "websocket" is the final step of F8.
+    hook_mode: Literal["clipboard", "websocket", "both"] = "both"
+    # NovaTTS *serves* the websocket; LunaTranslator connects to it via
+    # Extensions -> Add -> textractor_websocket_x64.xdll, pointed at
+    # ws://<hook_host>:<hook_port>. Loopback only, never 0.0.0.0.
+    hook_host: str = "127.0.0.1"
+    hook_port: int = 6677
+    # Textractor sends "Rick It's 2 parts." (space-separated speaker);
+    # some games send "Rick: It's 2 parts." (RenPy-style colon).
+    # True = space form, which is the Textractor default.
+    hook_space_form: bool = True
+    # Some games need the hook attached twice (e.g. per-frame hooks) to
+    # capture every line. Doubles traffic; off by default.
+    hook_dual_hook: bool = False
+    # Optional outbound ws client instead of the built-in server.
+    # Empty = serve. Non-empty (e.g. ws://127.0.0.1:6678) = connect.
+    luna_ws_url: str = ""
+    # Tertiary route: tail a Textractor output file. Off by default --
+    # only useful when neither clipboard nor ws is reachable.
+    file_watch: bool = False
+    file_watch_path: str = "textractor_output.txt"
+    # Ignore an identical line arriving within this window, in ms.
+    # Textractor re-emits the same line on window change and on re-focus.
+    dedup_window_ms: int = 500
+
     # --- Audio ---
     audio_sample_rate: int = 22050
 
@@ -120,6 +156,29 @@ class Settings(BaseSettings):
 
     # --- Logging ---
     log_level: str = "INFO"
+
+    @field_validator("hook_mode", mode="before")
+    @classmethod
+    def _coerce_hook_mode(cls, value: object) -> str:
+        """Fall back to "both" on an unrecognised hook_mode.
+
+        Without this, a typo like NOVATTS_HOOK_MODE=websockets makes
+        pydantic raise at import time and the backend dies with a
+        ValidationError instead of starting. The donor project (B) did
+        the same fallback by hand in `_apply_env_overrides`; here the
+        type does it. Failing soft is deliberate, but we warn, so the
+        typo is still visible in the log rather than silently ignored.
+        """
+        if isinstance(value, str):
+            normalised = value.strip().lower()
+            if normalised in _HOOK_MODES:
+                return normalised
+        log.warning(
+            "NOVATTS_HOOK_MODE=%r is not one of %s; falling back to 'both'",
+            value,
+            "/".join(_HOOK_MODES),
+        )
+        return "both"
 
 
 settings = Settings()

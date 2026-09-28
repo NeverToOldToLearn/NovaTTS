@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
@@ -92,6 +92,19 @@ class SettingsBody(BaseModel):
     qwen_timeout: float | None = None
     qwen_extra_args: str | None = None
     poll_interval: float | None = None
+    # Hook input (LunaHook/Textractor).
+    hook_mode: str | None = None
+    """One of: clipboard, websocket, both. Unrecognised values fall back
+    to "both" via the Settings validator, not via an HTTP 422."""
+    hook_port: int | None = None
+    hook_space_form: bool | None = None
+    hook_dual_hook: bool | None = None
+    luna_ws_url: str | None = None
+    file_watch: bool | None = None
+    file_watch_path: str | None = None
+    dedup_window_ms: int | None = None
+    # hook_host is intentionally absent: it is the websocket bind address,
+    # and changing it live would need the server restarted to take effect.
 
 
 class OpenAISpeechBody(BaseModel):
@@ -904,11 +917,39 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "qwen_timeout": "NOVATTS_QWEN_TIMEOUT",
     "qwen_extra_args": "NOVATTS_QWEN_EXTRA_ARGS",
     "poll_interval": "NOVATTS_POLL_INTERVAL",
+    "hook_mode": "NOVATTS_HOOK_MODE",
+    "hook_port": "NOVATTS_HOOK_PORT",
+    "hook_space_form": "NOVATTS_HOOK_SPACE_FORM",
+    "hook_dual_hook": "NOVATTS_HOOK_DUAL_HOOK",
+    "luna_ws_url": "NOVATTS_LUNA_WS_URL",
+    "file_watch": "NOVATTS_FILE_WATCH",
+    "file_watch_path": "NOVATTS_FILE_WATCH_PATH",
+    "dedup_window_ms": "NOVATTS_DEDUP_WINDOW_MS",
 }
 
-_SETTINGS_FIELD_TYPES: dict[str, type[Any]] = {
+
+def _env_bool(value: Any) -> bool:
+    """Coerce a GUI/.env value to bool.
+
+    The obvious `bool(value)` is a trap here: `bool("False")` is True, so
+    toggling a boolean off through /settings would store the string
+    "False", which is truthy, and the setting would appear to ignore the
+    user. Nothing in the current field set is a bool, which is why this
+    has never bitten before -- the hook booleans are the first.
+    """
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+_SETTINGS_FIELD_TYPES: dict[str, Callable[[Any], Any]] = {
     "qwen_timeout": float,
     "poll_interval": float,
+    "hook_port": int,
+    "dedup_window_ms": int,
+    "hook_space_form": _env_bool,
+    "hook_dual_hook": _env_bool,
+    "file_watch": _env_bool,
 }
 
 
@@ -928,6 +969,16 @@ def _settings_snapshot() -> dict[str, Any]:
         "poll_interval": settings.poll_interval,
         "qwen_autostart": settings.qwen_autostart,
         "qwen_auto_import_samples": settings.qwen_auto_import_samples,
+        # Hook input. hook_host is read-only here (see SettingsBody).
+        "hook_mode": settings.hook_mode,
+        "hook_host": settings.hook_host,
+        "hook_port": settings.hook_port,
+        "hook_space_form": settings.hook_space_form,
+        "hook_dual_hook": settings.hook_dual_hook,
+        "luna_ws_url": settings.luna_ws_url,
+        "file_watch": settings.file_watch,
+        "file_watch_path": settings.file_watch_path,
+        "dedup_window_ms": settings.dedup_window_ms,
     }
 
 

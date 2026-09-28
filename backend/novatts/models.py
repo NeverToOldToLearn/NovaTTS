@@ -15,6 +15,18 @@ class Dialogue:
     text: str
     """The spoken line, stripped and normalized."""
 
+    raw: str = ""
+    """The input line exactly as it arrived, before speaker splitting or
+    cleaning. Empty means "not tracked" -- the RenPy route leaves it empty
+    because it sets `text` to the raw line already.
+
+    This is the forensic record, and it is what makes a multi-speaker line
+    reconstructable: when "Anne Hallo! Rick Mooi." splits into two turns,
+    *both* turns carry the same `raw`, so nothing is lost. It is also what
+    dedup compares against, and what a filter can be tuned against when the
+    parsed result looks wrong.
+    """
+
     source: str = "renpy"
     """Pipeline origin: "renpy", "luna", or "api"."""
 
