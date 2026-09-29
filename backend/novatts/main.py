@@ -186,14 +186,16 @@ class NovaApp:
     def _start_adapters(self) -> None:
         """Start the raw_text sources enabled by ``settings.hook_mode``.
 
-        ``clipboard`` is the RenPy route, ``websocket`` the LunaHook route,
-        and ``both`` -- the default -- runs them side by side so the hook
-        can be proven against a route that already works.
+        ``websocket`` is the LunaHook route and the default since F8,
+        ``clipboard`` is the legacy RenPy route, and ``both`` runs them side
+        by side. Both remain reachable: ``both`` is what you want while
+        checking the hook against a route that already works, and
+        ``clipboard`` is what you want when a game has no hook at all.
 
         The mode is read once, here. Switching it later takes a restart:
         the websocket cannot be re-bound without dropping LunaTranslator's
         connection, and a restart the user is told about is better than a
-        silently dropped hook mid-scene.
+        silently dropped hook mid-scene (D16).
         """
         mode = settings.hook_mode
         if mode in ("clipboard", "both"):

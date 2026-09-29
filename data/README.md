@@ -64,8 +64,10 @@ set is a reasonable starting point for Dutch and English.
 
 ## What the hook route changes in this folder
 
-Almost nothing — and the one thing it does change is worth knowing before you
-wonder why a name showed up in your speakers.
+Since F8 the hook is the **default** input route rather than the optional one,
+so this section applies to a fresh install without you configuring anything.
+Almost nothing changes on disk — and the one thing that does is worth knowing
+before you wonder why a name showed up in your speakers.
 
 **No hook-specific file is ever written here.** The hook is configured entirely
 in `backend/.env` (`NOVATTS_HOOK_*`), not in `data/`, so there is nothing here to

@@ -2,7 +2,8 @@
 ruff>=0.8
 mypy>=1.11
 # Stubs: without this, `mypy --strict` fails on the one and only
-# import-untyped error in the codebase (novatts/adapters/clipboard.py).
+# import-untyped error in the codebase (pyperclip, imported by
+# novatts/adapters/legacy_clipboard.py -- renamed from clipboard.py in F8).
 types-pyperclip>=1.9
 # Test runner. Was missing entirely, so the suite could never be run
 # from a clean setup.cmd (G5.10).

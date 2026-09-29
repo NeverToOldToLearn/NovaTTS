@@ -36,9 +36,10 @@ HOOK_FIELDS = (
 
 def test_hook_defaults_match_the_agreed_topology() -> None:
     s = Settings()
-    # D2: "both" until the websocket route has proven itself. The cutover
-    # to "websocket" is the last step of F8, not a default we drift into.
-    assert s.hook_mode == "both"
+    # D2: the cutover happened in F8. "websocket" is now the primary source,
+    # which is what "replace RenPy" meant. RenPy survives as an explicit
+    # choice and as "both" -- so this is a changed primary, not a deletion.
+    assert s.hook_mode == "websocket"
     # NovaTTS serves the websocket; LunaTranslator connects to it. Loopback
     # only -- 0.0.0.0 here would expose raw game text to the network.
     assert s.hook_host == "127.0.0.1"
@@ -49,6 +50,22 @@ def test_hook_defaults_match_the_agreed_topology() -> None:
     assert s.file_watch is False
     assert s.file_watch_path == "textractor_output.txt"
     assert s.dedup_window_ms == 500
+
+
+def test_the_default_is_websocket_but_a_broken_value_still_falls_back_to_both() -> None:
+    """The default and the fallback are deliberately DIFFERENT (D29).
+
+    Worth its own test because the instinct is to keep the two in sync: they
+    answer different questions. The default is "what should a fresh install
+    use", and the answer is the route that is actually better. The fallback is
+    "what should happen when this setting is unreadable", and the answer is
+    the route that breaks least -- which is "both", because it still delivers
+    text if one source is dead. Syncing them would mean a typo in .env
+    silently removes the source the user was relying on.
+    """
+    assert Settings().hook_mode == "websocket"
+    assert Settings(hook_mode="cliboard").hook_mode == "both"  # noqa: FBT003
+    assert Settings(hook_mode="").hook_mode == "both"
 
 
 def test_hook_fields_are_exposed_in_the_settings_snapshot() -> None:

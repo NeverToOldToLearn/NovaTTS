@@ -11,16 +11,18 @@ the speaker from a JSON registry, synthesizes speech with a local Qwen3-TTS
 ```
    game window
         │
-        ├─ RenPy copy_voice_to_clipboard ──► ClipboardAdapter ──┐
-        │                                                       │
-        ├─ Textractor ─ws─► LunaAdapter ──► HookTextProcessor ───┼─► parse ──► gate ──► dialogue-worker
-        │  (LunaTranslator)   127.0.0.1:6677   (parse+dedup)     │   (luna)     (trust,     │   (Qwen3-TTS,
-        │                                                       │              dedup,      │    thread)
-        └─ output file ──────► FileMonitorAdapter ──────────────┘              blacklist) ▼
+        ├─ Textractor ─ws─► LunaAdapter ──► HookTextProcessor ──┐   ← primary
+        │  (LunaTranslator)   127.0.0.1:6677   (parse+dedup)      │     since F8
+        │                                                        │
+        ├─ output file ──────► FileMonitorAdapter ──────────────┤
+        │                                                        ├─► parse ──► gate ──► dialogue-worker
+        └─ RenPy copy_voice_to_clipboard ──► ClipboardAdapter ──┘       (luna)     (trust,     │   (Qwen3-TTS,
+                                                                     renpy)     dedup,      │    thread)
+                                                                                   blacklist) ▼
                                                                         speaker registry ──► voice
 ```
 
-Three things about that picture are load-bearing, not incidental:
+Four things about that picture are load-bearing, not incidental:
 
 - **Every source goes through the same parser.** The websocket and file routes
   share one `HookTextProcessor`, so a line cannot be read two different ways
@@ -33,6 +35,8 @@ Three things about that picture are load-bearing, not incidental:
 - **The gate is shared too.** `DialogueGate` decides speaker trust, dedup and
   blacklisting once, so a line cannot be admitted on one route and rejected on
   another.
+- **The clipboard route is last, not gone.** It is the fallback for a game with
+  no hook at all — see [Migrating from RenPy](#migrating-from-renpy).
 
 ## Installer (schoon systeem)
 
@@ -149,12 +153,16 @@ with `NOVATTS_HOOK_MODE` in `backend/.env`:
 
 | Value | Route | Notes |
 |---|---|---|
-| `clipboard` | RenPy `copy_voice_to_clipboard` | the fallback — kept deliberately, still fully supported |
-| `websocket` | LunaHook / Textractor | the route this project moved to |
-| `both` | both side by side, first yield wins | **the current default** |
+| `websocket` | LunaHook / Textractor | **the default since F8** — live text, a speaker per turn |
+| `clipboard` | RenPy `copy_voice_to_clipboard` | the legacy route — kept deliberately, still fully supported, still tested |
+| `both` | both side by side, first yield wins | useful while checking the hook against a route you already trust |
 
 An unrecognised value falls back to `both` with a logged warning rather than
-refusing to start, so a typo cannot lock you out of the app.
+refusing to start, so a typo cannot lock you out of the app. That fallback is
+deliberately *not* the default: the default answers "what should a fresh
+install use" (the better route), the fallback answers "what should happen when
+this setting is unreadable" (the route that breaks least). Syncing the two would
+mean a typo silently removing the source you were relying on.
 
 The dashboard's **Hook** card tells you which of three situations you are in,
 because they need different fixes and none of them looks like "not connected":
@@ -184,7 +192,7 @@ loopback traffic. Check with `netsh winhttp show proxy`; the fix is
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `NOVATTS_HOOK_MODE` | `both` | `clipboard` / `websocket` / `both` |
+| `NOVATTS_HOOK_MODE` | `websocket` | `clipboard` / `websocket` / `both` |
 | `NOVATTS_HOOK_HOST` | `127.0.0.1` | websocket bind address — keep on loopback |
 | `NOVATTS_HOOK_PORT` | `6677` | websocket port |
 | `NOVATTS_HOOK_SPACE_FORM` | `1` | Textractor sends `Rick It's 2 parts.` (space form). Set to `0` only for `Rick:`-style games — the RenPy parser is tried first regardless. |
@@ -219,6 +227,37 @@ with the current line, and a log that only grows. The one shape it does not
 recover on its own is a writer that puts a name and its text on separate
 lines — `"Rick"` then `"Answer the door."` is two lines, and the name has no
 body to attach to. Set `NOVATTS_HOOK_DUAL_HOOK=1` and the two lines rejoin.
+
+## Migrating from RenPy
+
+If your game used `copy_voice_to_clipboard`, **nothing breaks.** The RenPy
+route is still in the build, still tested, and one setting away. What changed
+is which route is the default — so if you upgrade and hear nothing, you almost
+certainly have no hook attached, and the fix is not a reinstall.
+
+**Do you need to change anything?**
+
+| Your situation | What to do |
+|---|---|
+| RenPy game, no hook, works today | nothing — but set `NOVATTS_HOOK_MODE=clipboard` in `backend/.env`, because the default is now `websocket` and a RenPy game sends nothing on the socket |
+| willing to run LunaTranslator | set it to `websocket` (or leave the default) and add the `.xdll` — you get live text, a speaker per turn, and the multi-speaker split |
+| want to check the new route before committing | `both`, then watch the Hook card: it tells you whether lines are arriving at all |
+| Perfect Cut / `.spk` pipeline | unaffected; that reads files, not the clipboard |
+
+**How to tell which one you are on:** the settings view shows the current
+`hook_mode`, and the startup log names the adapter it started. Look for
+`Clipboard adapter started (poll 0.25s) -- legacy RenPy route` or
+`Hook server listening on ws://…`.
+
+**What you gain on the hook:** a speaker per turn. The clipboard carries one
+line, so `Anne Hallo! Rick Mooi.` arrives as narration with two names in it.
+The hook splits it into two turns and can give each its own voice. The
+clipboard format has already thrown that information away before NovaTTS sees
+it, so no amount of parsing gets it back.
+
+**What you lose:** nothing, as long as you set the mode explicitly. The one
+real difference is that the clipboard route needs no extra process — which is
+exactly why it stays in the build instead of being deleted.
 
 ## Build checks
 

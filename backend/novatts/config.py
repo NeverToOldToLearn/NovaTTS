@@ -112,9 +112,14 @@ class Settings(BaseSettings):
     # --- Hook input (LunaTranslator / Textractor) ---
     # Which raw_text source is active. "clipboard" is the RenPy route,
     # "websocket" is the LunaHook route, "both" runs them side by side.
-    # Default stays "both" until the websocket route has proven itself
-    # (D2) -- the cutover to "websocket" is the final step of F8.
-    hook_mode: Literal["clipboard", "websocket", "both"] = "both"
+    #
+    # Default is "websocket" since F8 (D2). That was the point of the phase:
+    # the hook is now the primary source, and RenPy stays reachable as an
+    # explicit choice plus as the "both" mode. Note that the *validator*
+    # still falls back to "both" on a bad value -- deliberately, and not
+    # because it was forgotten. See D29: a typo in the config should land
+    # on maximum tolerance, not on the strictest route.
+    hook_mode: Literal["clipboard", "websocket", "both"] = "websocket"
     # NovaTTS *serves* the websocket; LunaTranslator connects to it via
     # Extensions -> Add -> textractor_websocket_x64.xdll, pointed at
     # ws://<hook_host>:<hook_port>. Loopback only, never 0.0.0.0.

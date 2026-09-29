@@ -212,14 +212,30 @@
         <span class="fk">Source</span>
         <select
           class="field"
-          value={form.hook_mode ?? "both"}
+          value={form.hook_mode ?? "websocket"}
           onchange={(e) => (form.hook_mode = (e.target as HTMLSelectElement).value as HookMode)}
         >
-          <option value="both">Both — clipboard + hook</option>
-          <option value="websocket">Hook only (LunaTranslator)</option>
-          <option value="clipboard">Clipboard only (RenPy)</option>
+          <option value="websocket">Hook only (LunaTranslator) — the default</option>
+          <option value="both">Both — hook first, clipboard as backup</option>
+          <option value="clipboard">Clipboard only (RenPy, legacy)</option>
         </select>
       </label>
+      <!--
+        The legacy route keeps a visible, working option rather than being
+        buried in backend\.env. D1 keeps the RenPy code as a fallback, and a
+        fallback a user cannot find is not a fallback -- someone on RenPy
+        would conclude their game is broken. The badge says what it is
+        instead of pretending otherwise.
+      -->
+      {#if form.hook_mode === "clipboard"}
+        <p class="muted small">
+          Legacy route: NovaTTS reads the RenPy <code>copy_voice_to_clipboard</code>
+          output. It still works and is still tested. Choose this only if your game
+          has no hook — with LunaTranslator available, “Hook only” gives you live
+          text, a speaker per turn and the multi-speaker split that the clipboard
+          form cannot express.
+        </p>
+      {/if}
       <label class="field-row">
         <span class="fk">Hook port</span>
         <input class="field sm" type="number" bind:value={form.hook_port} min="1" max="65535" />

@@ -190,7 +190,7 @@ $exe = "gui/src-tauri/target/release/novatts-gui.exe"
   - `NOVATTS_HOST`, `NOVATTS_PORT` — API luister-adres
   - `NOVATTS_QWEN_URL` — Qwen3-TTS server (default: `http://127.0.0.1:8080`)
   - `NOVATTS_QWEN_BIN`, `NOVATTS_QWEN_MODEL` — Paden naar TTS-binary & model
-  - `NOVATTS_HOOK_MODE` — `clipboard` | `websocket` | `both` (default `both`)
+  - `NOVATTS_HOOK_MODE` — `clipboard` | `websocket` | `both` (default `websocket`; a RenPy game needs `clipboard` or `both`)
   - `NOVATTS_HOOK_HOST`, `NOVATTS_HOOK_PORT` — websocket bind-adres (default `127.0.0.1:6677`)
   - `NOVATTS_HOOK_SPACE_FORM`, `NOVATTS_HOOK_DUAL_HOOK` — zie "Hook-input" hieronder
   - `NOVATTS_FILE_WATCH`, `NOVATTS_FILE_WATCH_PATH` — de bestandsroute

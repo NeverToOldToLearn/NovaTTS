@@ -65,7 +65,7 @@ adapter (Clipboard | Luna WS | FileMonitor)   ← 2 van 3 zijn placeholders
 |---|---|---|
 | `main.py` | 1029 | ✅ 36 routes, `NovaApp` + FastAPI in één bestand, lifespan, CORS, OpenAI-compat |
 | `parser/renpy.py` | 144 | ✅ `RenPyParser` — strict `Name: Text`, 38-woord narratie-stoplist, `known_names` whitelist |
-| `adapters/clipboard.py` | 96 | ✅ poll 0.25 s, `last_clipboard` dedup, `set_known_speakers` |
+| `adapters/legacy_clipboard.py` | 96 | ✅ poll 0.25 s, `last_clipboard` dedup, `set_known_speakers` — **hernoemd in F8**, de klasse heet nog `ClipboardAdapter` (D30) |
 | `adapters/rawclipboard.py` | 58 | ✅ `RawClipboardLogger` — pre-filter logging, wist zichzelf op shutdown |
 | `blacklist.py` | 88 | ✅ `PRESETS` (togglebaar) + `custom_words`, `is_renpy_exception` altijd-aan |
 | `emotions.py` | 231 | ✅ auto-discovery `C:\Piper\emotion_sounds`, 67 patterns, aliases, map-validatie |
@@ -478,7 +478,7 @@ Twee mutanten waren **no-ops en telden niet mee**: een `; _ = 0` die ik als "syn
 
 Doel bereikt: de hook-pipeline is live naast de RenPy-pipeline, en elke regel die spreekt is door één poort gegaan. **De RenPy-route houdt dezelfde adapter, dezelfde parser en dezelfde registratie** — `hook_mode=clipboard` gedraagt zich als vóór F4, met één bewuste toevoeging: de dedup van 500 ms geldt nu óók voor de clipboard (`A → B → A` binnen een halve seconde sprak vroeger twee keer `A`, want de adapter onderdrukt alleen een onveranderde herhaling).
 
-- [x] `NovaApp._start_adapters()`: adapter-keuze uit `settings.hook_mode` — `clipboard` / `websocket` / `both` (default `both`). **B's inline `app.py` NIET overgenomen** (G4.1); Main's `dialogue-worker` + `_wake` + `_pending_seq` blijft de enige synthese-route
+- [x] `NovaApp._start_adapters()`: adapter-keuze uit `settings.hook_mode` — `clipboard` / `websocket` / `both` (**default `websocket` sinds F8**; in F1–F7 nog `both`). **B's inline `app.py` NIET overgenomen** (G4.1); Main's `dialogue-worker` + `_wake` + `_pending_seq` blijft de enige synthese-route
 - [x] Dedup — maar niet als `dict` in `NovaApp`: ondergebracht in `novatts/gate.py`
 - [x] Trust-gate op auto-registratie — **anders dan het plan voorschreef**; zie D15 en "wat onderweg duidelijk werd" punt 1. De geplande regel (`is_plausible_character_name`) is gemeten een **no-op**
 - [x] `is_blacklisted_name()` **bewust niet toegevoegd** — zie D18
@@ -935,20 +935,217 @@ hem nu doen zou de groene vinkje op een toekomstige test zetten.
 
 ---
 
-### ⬜ F8 — Cutover: RenPy → LunaHook
+### ✅ F8 — Cutover: RenPy → LunaHook
 
 Doel: de *replace* uit de opdracht, expliciet en omkeerbaar. **Vorm vastgelegd in D1:**
 de primaire route wisselen, de RenPy-code behouden als fallback. Geen verwijdering van
 `ClipboardAdapter` / `parser/renpy` — die blijven als expliciete keuze bestaan totdat de
 ws-route bewezen stabiel is.
 
-- [ ] **Stap 1 — alles centraal aan.** Standaard blijft `hook_mode=both`; RenPy blijft aantoonbaar werkend. Dat is de veilige vorm van "vervangen": de primaire route wisselen, niet de code weggooien.
-- [ ] **Stap 2 — default om.** `hook_mode` default → `"websocket"` in `config.py` + `.env.example` + GUI-default. Clipboard blijft als expliciete keuze + als `both`-fallback.
-- [ ] **Stap 3 — RenPy naar legacy.** `ClipboardAdapter` verhuist naar `adapters/legacy_clipboard.py` met een `DEPRECATED`-docstring die naar de ws-route verwijst. `source="renpy"` blijft een geldige `Dialogue.source` voor gelezen logs — **dat schrijf je expliciet, anders breekt mypy op de Literal.**
-- [ ] **Stap 4 — GUI.** Menu-item "RenPy clipboard (legacy)" met een "legacy"-badge, of uit de UI en alleen via `.env`.
-- [ ] **Stap 5 — documenteer.** README krijgt een "Migratie vanaf RenPy"-sectie met de clipboard→ws-configmapping.
+De vijf stappen zijn alle vijf gedaan, in deze volgorde, en elke stap had een gate:
 
-**Gate per stap:** `pytest` groen. Stap 5 vereist een handmatige `start_all.cmd --min` + echte LunaHook-sessie.
+| Stap | Wat | Gate |
+|---|---|---|
+| 1 | nulmeting: de nulmeting-voor-de-cutover | functionele E2E op beide routes |
+| 2 | default om naar `websocket` | pytest, plus een proef die bewijst dat de knop om is |
+| 3 | `clipboard.py` → `legacy_clipboard.py` | pytest, ruff, mypy + de valback opnieuw functioneel |
+| 4 | GUI: legacy-badge en uitleg | svelte-check, build |
+| 5 | README "Migratie vanaf RenPy" | elke claim uit die sectie gemeten |
+
+**Gate per stap:** `pytest` groen (354 → **355**, de +1 is de nieuwe D29-test).
+Stap 5 vereist een handmatige `start_all.cmd --min` + echte LunaHook-sessie — die
+staat hieronder als overgedragen checklist, want een spel draai ik hier niet.
+
+#### F8 stap 1 — de nulmeting, en waarom die vóór stap 2 moest
+
+Het hele idee van een nulmeting is dat hij de cutover draagt. Draai je hem erna, dan meet
+je de nieuwe situatie en noem je het een bewijs. Gemeten is daarom eerst, met de default
+nog op `both`:
+
+| route | wat er gebeurde | bewijs |
+|---|---|---|
+| hook · `Rick It's 2 parts.` | 2 beurten, naam als gok → niet geregistreerd (D15) | `hook_last_raw` klopte, 0 gedropt |
+| hook · `{"name":"Anne","text":"Good night babe!"}` | **geregistreerd** — de JSON-herstap werkt (G3.1) | `Anne` verscheen in `/speakers` |
+| hook · `Anne Hallo! Rick Mooi.` | **2 beurten, 2 stems** (G3.2) | `Anne: Hallo!` + `Rick: Mooi.` |
+| hook · `Marty: I'll be back.` | colon-vorm, `Marty` geregistreerd | `/speakers` |
+| hook · lege regel | genegeerd | `hook_last_raw` bleef op de vorige staan |
+| hook · `Rick` (kale naam) | genegeerd — de hook praat de naam niet uit | geen dialoog |
+| clipboard · 3 RenPy-regels | 3 WAV's, 1.4–2.4 s | bestanden in `data/cache/` |
+| clipboard · onbekende naam | `NovaRookie` geregistreerd | `/speakers` |
+
+**De kernclaim van de DoD is "NovaTTS speelt Ricks gekloonde stem", en die bleek op één
+manier meetbaar zonder te luisteren.** Het cachepad is
+`_cache_path(text, voice, instruct, emotion)`: de stem zit ín de hash. Dus dezelfde tekst
+met en zonder toegewezen stem moet twee verschillende bestanden geven.
+
+```
+ongestemd   'NovaVoiceProof1790678460 zeven woorden in totaal.' -> adfad972…wav  345644 bytes
+gestemd     idem, met Samantha: (M-All_Peter_Griffin)          -> b5ed358…wav  299564 bytes
+```
+
+Gelijke hashes zouden hebben betekend dat de stem nergens aankomt. Ze verschillen, dus
+de stemparameter bereikt het model. Wat dit **niet** bewijst is dat die stem subjectief
+de goede is — dat kan alleen een mens beoordelen, en dat hoort dus in de game-sessie.
+Ik noem dit een *indirecte* meting omdat het zo is.
+
+#### F8 — twee meetinstrumenten lagen tegen de code, en een derde was een echte
+
+Dit is het belangrijkste deel van de fase, en het gaat niet over de cutover. Drie
+harnassen gaven een **zeker, verkeerd** antwoord:
+
+**1. De applicatielog staat in `.err`, niet in het logbestand.** Mijn eerste geïsoleerde
+harnas las `f8_backend.log` en meldde "niets gesproken" voor regels die wél gesproken
+werden. Het bestand bevat alleen de uvicorn-accesslog; de applicatielog gaat naar stderr.
+Een `grep` op het verkeerde stream is een haarnet dat niets vangt.
+
+**2. De audiocache maakt synthese stil.** Tweede run, dezelfde regels: alles binnen
+(`hook_last_raw` klopte), en wéér geen logregel. Oorzaak: de cache sleutelt op tekst-hash,
+dus de tweede keer is het een hit — en `Cache hit` wordt op **debug** gelogd, dus op
+INFO-niveau is een cache-hit volledig stil. **"Geen regel in de log" betekent niet "niets
+gebeurd".** Het echte bewijs is het bestand in `data/cache/`, en elke proef gebruikt
+daarom een unieke tekst.
+
+**3. Twee routes in één proces is vervuild.** Ik wilde weten of de hook meer
+crashdump-achtige rommel doorlaat dan het klembord. Gemeten met `hook_mode=both`, en de
+tabel die eruit kwam kon niet kloppen: `ClipboardAdapter._is_garbage` vangt
+`'  File "game/script.rpy", line 3'` (in-proces bewezen), dus het klembord had die regel
+nóóit mogen spreken. Opnieuw gemeten met **één route per proces**:
+
+```
+'  File "game/script.rpy", line 3'   klembord: niet gesproken   hook: niet gesproken
+'RuntimeError: boom'                 klembord: niet gesproken   hook: niet gesproken
+'traceback follows'                  klembord: niet gesproken   hook: niet gesproken
+'some exception happened'            klembord: niet gesproken   hook: niet gesproken
+```
+
+Allebei stil. En dat is een *ander* antwoord dan ik voorspelde: ik had verwacht dat de
+hook hier de zwakkere route zou zijn, omdat hij alleen `is_renpy_exception` aanroept terwijl
+het klembord daarnaast `_is_garbage` heeft. Dat gat blijkt niet te bestaan, maar om een
+andere reden: de hook blokkeert deze regels via de **plausibiliteitsregel**
+(`RuntimeError` is geen sprekersnaam), niet via crashdumperkenning. Gemeten, niet
+geredeneerd — zie D31.
+
+Alle drie de fouten hebben dezelfde vorm: een harnas dat een antwoord gaf zonder de
+benodigde route te volgen. Dat is precies §12.14, nu drie keer bevestigd in één sessie.
+
+#### F8 stap 2 — de default om, en de ene plaats waar hij níét mee omging
+
+`hook_mode: "both"` → `"websocket"` in `config.py`, `.env.example` en de GUI-select.
+Maar de **validator** valt nog steeds terug op `both` bij een onleesbare waarde. Dat is
+niet vergeten, dat is D29.
+
+De proef die bewijst dat de knop echt om staat, moet kunnen slagen én falen. Daarom twee
+bevingen in één draai, waarvan de tweede een "niets gebeurt" is en dus een zwakkere vorm:
+
+| bewering | gemeten |
+|---|---|
+| de hook doet het nog | unieke regel over de ws → **nieuw** wav-bestand (295724 bytes) |
+| het klembord doet het niet meer | unieke RenPy-regel op het klembord, 6 s gewacht → **geen** nieuw bestand |
+
+Een "geen bewijs"-meting is zwakker dan een "wel bewijs"-meting, dus de reden staat erbij:
+een nog lopende synthese uit de vorige stap zou in dit meetvenster kunnen vallen. Daarom
+is de hook eerst bewezen (wél audio, dus de server is warm en de keten staat), en pas dan
+de afwezigheid gecontroleerd.
+
+#### F8 stap 3 — de rename, en wat er níét is hernoemd
+
+`git mv` zodat de geschiedenis bewaard blijft. De **klassenaam is bewust hetzelfd
+gebleven**: `ClipboardAdapter`. Hernoemen zou `main.py`, de hele testsuite en elke import
+raken zonder winst, en een klassenaam die niet meer bij zijn bestand past is erger dan een
+module die "legacy" heet en een klasse die zegt wat hij is. Het *bestand* draagt de status;
+de docstring draagt de reden.
+
+Wat wél meebeweegt: het comment in `requirements-dev.txt` noemde het oude pad. Dat is
+geen ruff-exemptie maar de `types-pyerclip`-stub, dus het zou stil vervallen zijn — een
+verwijzing naar een pad dat niet meer bestaat, in een bestand dat een volgende agent leest
+als hij een typefout van `pyperclip` zoekt.
+
+**Het waarschuwen uit het plan bleek niet van toepassing.** De stapnotitie zei dat
+`source="renpy"` expliciet geschreven moet worden *"anders breekt mypy op de Literal"*.
+Maar `Dialogue.source` is een kale `str`, geen `Literal` — dus er viel niets te typen.
+Mypy zegt het zelf: 33 bestanden, 0 fouten.
+
+#### F8 stap 4 — de GUI, en waarom de valback zichtbaar blijft
+
+Opties hernoemd en herordend zodat de geadvanceerde keuze op het default staat, en de
+legacy-optie blijft **zichtbaar met uitleg** in plaats van in `.env` te begraven:
+
+> Legacy route: NovaTTS reads the RenPy `copy_voice_to_clipboard` output. It still works
+> and is still tested. Choose this only if your game has no hook.
+
+Een terugvalweg die een gebruiker niet kan vinden is geen terugvalweg. Iemand op RenPy zou
+anders concluderen dat zijn spel stuk is, terwijl er een regel `.env` voor nodig is die
+hij niet kent.
+
+#### F8 stap 5 — een docsectie die zelf een claim maakt
+
+De README-sectie "Migrating from RenPy" moest zeggen wat een RenPy-gebruiker ziet na
+de upgrade. Vier claims, alle vier eerst gemeten:
+
+| claim | gemeten |
+|---|---|
+| `clipboard` start nog steeds de legacy adapter | `hook_mode=clipboard` → poort 6677 **vrij**, log zegt `Clipboard adapter started (poll 0.25s) -- legacy RenPy route` |
+| de hook luistert niet als `clipboard` aanstaat | zelfde meting: `LunaHook websocket adapter not started` |
+| de stem wordt echt gebruikt | zie stap 1, twee verschillende hashes |
+| `versions: 1` is geen teller die ik hoef te herstellen | het is een vaste literal in `registry.to_dict()` |
+
+#### F8 — de meting waarvan ik wou dat ik hem niet nodig had
+
+Ik wilde weten of de hook-route meer rommel doorlaat dan het klembord, want dat zou een
+reden zijn om aarzelen over de cutover. Gemeten, en het antwoord is: **nee**.
+
+| regel | hook | klembord |
+|---|---|---|
+| `%^&*(){}[]<>\|#~` | **gesproken** (215084 bytes) | **gesproken** |
+| `!!!???` | **gesproken** (69164 bytes, D10/D11-meting) | **gesproken** |
+| `Traceback (most recent call last):` | geblokkeerd | geblokkeerd |
+| `RuntimeError: boom` | geblokkeerd (plausibiliteit) | geblokkeerd (`_is_garbage`) |
+| `ab` (korter dan `min_text_length`) | genegeerd | genegeerd |
+
+Er is dus **geen inhoudsguard voor interpunctie**, in geen van beide routes: alleen
+`min_text_length=3` en crashdumperkenning. Dat is **bestaand Main-gedrag**, geen
+regressie van de hook, en het is daarom ook géén F8-probleem om op te lossen — een
+inhoudsguard toevoegen zou het gedrag van de RenPy-route veranderen, en dat is een
+ander werk. Wel staat het nu in de README, want het is een eigenschap die een gebruiker
+verwacht als hij een game-UI ziet.
+
+> Het opvallende is dat de hook op één ding wél beter is dan de RenPy-route: een kale
+> naam valt weg in plaats van als vertelstem uitgesproken te worden, en de
+> multi-spreker-split bestaat alleen op de hook.
+
+#### F8 — de overgedragen checklist: wat een echte sessie nog moet leveren
+
+Alles hierboven draaide zonder spel en zonder LunaTranslator. Wat een client die ik zelf
+schrijf **niet** kan bewijzen, is dat Textractor deze frames daadwerkelijk produceert —
+mijn eigen protocolaanname is geen bewijs voor andermans gedrag. Dus dit blijft over, in
+volgorde, en elke stap is zo geschreven dat hij een waarheid-van-het-bare-feit oplevert:
+
+| # | stap | waar te kijken |
+|---|---|---|
+| 1 | start NovaTTS (`start_all.cmd --min`), Hook-kaart op `waiting` | dashboard |
+| 2 | start LunaTranslator, `Extensions → Add → textractor_websocket_x64.xdll`, op `ws://127.0.0.1:6677` | — |
+| 3 | 3. Hook-kaart moet `1 client` tonen | dashboard |
+| 4 | open het spel, één regel dialoog | kaart moet naar *connected, no line yet* → dan een regel |
+| 5 | hoor je Rick's **gekloone** stem? | gehoor — het enige wat geen automatisering kan |
+| 6 | Characters-tab: is de naam er? | GUI, alleen een tabreload nodig |
+| 7 | Settings → *Save to .env* | **alleen** met een `.env` die je mag wijzigen |
+| 8 | `stop_all.cmd`, en is poort 6677 weer vrij? | `netstat -ano \| findstr 6677` |
+
+Stap 5 is het enige dat een mens moet doen, en het is tegelijk het belangrijkste: al het
+andere is bewezen dat het *pad* klopt, niet dat het resultaat goed is.
+
+#### F8 — wat er níét in deze fase zat
+
+- **Geen inhoudsguard toegevoegd.** Zie hierboven: bestaand gedrag, beide routes gelijk,
+  en een gedragswijziging op de RenPy-route hoort niet bij een cutover.
+- **Geen `Dialogue.source` aangeraakt.** De planwaarschuwing bleek overbodig.
+- **`data/` niet opgeruimd buiten het register terug.** De drie namen die de metingen
+  registreerden (`Anne`, `Marty`, `NovaRookie`) zijn verwijderd en het bestand is
+  terug op de originele vier. Eerste terugzetpoging faalde omdat mijn eigen back-up al
+  besmet was toen ik hem maakte — zie D32.
+- **Geen `start_all.cmd --min` koud gedraaid**, en niet op *Save to .env* geklikt. Punt 4
+  van het CRLF-rapport blijft daarom op *deels*, precies zoals F7 het heeft neergezet.
+- **Niets gepusht.** Zoals bij elke eerdere fase.
 
 ---
 
@@ -999,7 +1196,7 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 
 | # | Besluit | Gevolg voor het plan |
 |---|---|---|
-| **D1** ✅ | **"Vervangen" = primaire route wisselen, RenPy-code behouden als fallback.** | F8 wordt 5 omkeerbare stappen (§F8 stap 1→5). `ClipboardAdapter` wordt **niet** verwijderd; hij verhuist naar `adapters/legacy_clipboard.py` met een `DEPRECATED`-docstring die naar de ws-route verwijst. `source="renpy"` blijft een geldige waarde — dat moet je expliciet schrijven, anders breekt de `Literal`. |
+| **D1** ✅ | **"Vervangen" = primaire route wisselen, RenPy-code behouden als fallback.** | **Uitgevoerd in F8.** `ClipboardAdapter` is niet verwijderd; hij is verhuist naar `adapters/legacy_clipboard.py` met een `DEPRECATED`-docstring die naar de ws-route verwijst, en de klasse naam is bewust ongewijzigd gelaten (D30). De default is omgezet naar `websocket`, maar `clipboard` en `both` werken allebei nog — en dat is na de cutover functioneel gemeten, niet aangenomen. De waarschuwing in deze rij ("`source=\"renpy\"` … anders breekt mypy op de `Literal`") bleek **onnodig**: `Dialogue.source` is een `str`. Planwaarschuwingen moeten gemeten worden, anders staan ze er als werk. |
 | **D2** ✅ | `hook_mode` default = `both` tot F8 bewezen is; daarna `websocket`. | F1 zet `both`, F8-stap 2 zet `websocket`. GUI-default volgt in dezelfde commit. |
 | **D3** ✅ | `hook_dual_hook` wordt **echt conditioneel** gemaakt, niet weggegooid. | F3. B declareert de setting al, dus weggooien zou een gedragsregressie zijn t.o.v. het concept. |
 | **D4** ✅ | **Geen** raw-TCP-fallback. | F3 gebruikt `websockets` uit `requirements.txt`; bij een ontbrekende import een duidelijke foutmelding, geen tweede transport. ~40 regels YAGNI vervallen. |
@@ -1058,6 +1255,15 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D27** ✅ | **Het start-script meldt de hook, maar grijpt er nooit in.** Geen blanket-kill op 6677; wél een waarschuwing vóór start mét pid + `stop_all.cmd`. | F7. 6677 is een gedeelde poort — hetzelfde trucje als bij 8765 zou een vorig NovaTTS óf een willekeurig ander proces slaan. En een bezette bind-poort faalt **stil** (backend draait, alleen is er geen hook), dus de waarschuwing is geen extraatje maar het enige wat de gebruiker kan waarschuwen. `stop_all.cmd` hoeft daarom niets extra's te doen: de hook-socket gaat vanzelf dicht met de backend. |
 | **D28** ✅ | **Elke bewering in een doc die gedrag beschrijft wordt eerst gemeten, anders blijft hij een aanname met een tabel.** | F7. Twee voorbeelden uit dezelfde paragraaf: de JSON-route leek gebroken omdat mijn proef `push()` rechtstreeks voedde (en dus `decode_wire_message()` oversloeg), en een alinea over sprekerregistratie wilde zeggen dat je de GUI moest herstarten terwijl `/speakers` live uit het geheugen leest. Allebei de *conclusie* omgekeerd. De regel is ook praktisch: `data/README.md` is de plek waar iemand gaat kijken als iets onverwacht doet, dus een aanname daar is geen cosmetiek. |
 
+### 9.8 Uit F8 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D29** ✅ | **De default en de validator-fallback zijn per definitie verschillend: `websocket` en `both`.** | F8. De default beantwoordt *"wat moet een verse installatie gebruiken"* → de betere route. De fallback beantwoordt *"wat moet er gebeuren als deze instelling onleesbaar is"* → de route die het minst breekt, en dat is `both`, want die levert nog tekst als één bron dood is. De instinct is ze gelijk te trekken; dat zou een typefout in `.env` stilletjes de bron laten verwijderen waarop iemand vertrouwde. Vastgelegd omdat het eruitziet als een inconsistentie en het een bewuste keuze is. Eigen test: `test_the_default_is_websocket_but_a_broken_value_still_falls_back_to_both` — omdat de neiging om ze gelijk te trekken een *volgende* agent overkomt. |
+| **D30** ✅ | **Bij een rename blijft de logregel-prefix hetzelfde; de nieuwe status wordt erachter gezet.** | F8. `Clipboard adapter started (poll 0.25s) -- legacy RenPy route`. Een bestaande `grep` op de prefix blijft werken, en de startup-lognamen voortaan het woord *legacy* mee — wat precies de reden is dat `legacy_clipboard.py` in de log verschijnt in plaats van `clipboard.py`. De klasse is bewust niet hernoemd om dezelfde reden: een klassenaam die niet meer bij zijn bestand past is lastiger te lezen dan een bestand met een duidelijke naam. |
+| **D31** ✅ | **Twee routes in één proces mag niet als de vraag is welke route wat weigert.** Eén route per proces, en de log is geen bewijs. | F8. Gemeten in twee ronden en beide gaven een verkeerd antwoord: `both` in één proces liet de hook rommel spreken die het klembord blokkeert (een synthese uit de vorige meting viel in het meetvenster), en de log gaf "niets gesproken" voor regels die wél gesproken waren — deels omdat de applicatielog in `.err` staat en deels omdat een cache-hit op debug-niveau stil is. Drie keer dezelfde vorm: een bewijs dat de verkeerde route volgde. Nu een harnas-conventie, niet een tip voor deze ene meting. |
+| **D32** ✅ | **Een back-up die je ná de eerste meting maakt is geen back-up.** | F8. Om de stem te bewijzen wees ik `Samantha` een stem toe en zette ik daarna terug. Maar de eerste clipboard-E2E had al drie namen geregistreerd, en toen ik de "back-up" maakte was die dus al besmet. Ook mijn terugzetcontrole was zwak: ik las `$json.Samantha.voice`, maar het bestand is `{versions, speakers}` — dus die controle gaf een lege string en zou ook bij een mislukte terugzetting groen zijn geweest. Uiteindelijk met de juiste sleutel gecontroleerd en de drie meetnamen verwijderd. De les is niet "maak betere back-ups" maar: **controleer een terugzetting op de structuur die het bestand écht heeft**, anders bewijs je niets. |
+
 ---
 
 ## 10. Baseline-logboek
@@ -1110,6 +1316,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F5 | *"F5: file tailer…"* | **333 ✅** (+6 ❌ omgevingsafhankelijk) | **0 ✅** | **0 ✅** | ✅ | 318 → 345. Dunne laag over `HookTextProcessor` i.p.v. een port (D19). **33/33 mutanten**, waarvan 6 nieuw. De 6 failures bestonden al op de F4-boom: Open WebUI zit op 8080 waar `NOVATTS_QWEN_URL` wijst — zie de F5-sectie. |
 | 2026-09-29 | F6 | *"F6: the GUI…"* | **354 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 345 → 354. **Eerste fase zonder nieuwe runtime-impact in de backend** — de GUI hangt aan `/status`, en `status()` kreeg alleen de file-route erbij. 9 nieuwe tests voor een methode die er vóór F6 **nul** had. `svelte-check` van 2 bestaande errors + 1 warning → **0/0**, met de oorzaak in `api.ts` gerepareerd i.p.v. de casts verzwakt. `npm run lint` bleek `&` te gebruiken en maskeerde de eerste opdracht (§12.13) — nu gemeten dat beide talen de gate kunnen laten falen. De 6 omgevingsfailures uit F5 zijn weg: poort 8080 gaf vrij. |
 | 2026-09-29 | F7 | *"F7: lifecycle…"* | **354 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | **354 → 354, opzettelijk.** Nul regels productie-Python en nul regels GUI (`git diff --stat -- backend/novatts gui/src` leeg), dus het aantal tests mag hier per definitie niet wijzigen — dat maakt deze regel de anti-regressiebewijs voor §12.9 in plaats van een herhaling. Buiten `pytest`: 13/13 cmd-gevallen, 6/6 PowerShell-gevallen, beide met een gedocumenteerde valse-groen achter de vingers. `websockets`-floor gemeten 12.0 crasht / 13.0 werkt. |
+| 2026-09-29 | F8 | *"F8: cutover…"* | **355 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 354 → 355: de +1 is `test_the_default_is_websocket_but_a_broken_value_still_falls_back_to_both`, dat de default en de fallback uit elkaar houdt (D29). Dit is de eerste fase die **gedrag omzet** — `hook_mode` staat nu op `websocket` — en daarom ook de eerste met functionele metingen buiten `pytest`. De kernclaim van de DoD is indirect bewezen: dezelfde tekst met en zonder toegewezen stem geeft twee verschillende cache-hashes, dus de stem bereikt het model; of die stem *goed* klinkt kan alleen een mens beoordelen. Drie meetinstrumenten gaven een zeker verkeerd antwoord en dat kostte meer tijd dan de hele cutover — zie §12.15. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -1136,7 +1343,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F5 `file_monitor.py` | ✅ | D19: dunne laag over `HookTextProcessor`, géén port — B's route heeft geen referentiegedrag. D20: één regel per delivery, **gemeten** (de parser plakt regels aan elkaar). `set_known_speakers` van duck-typing naar `InputAdapter` (D21). `_adapters()` vervangt drie losse adapterslijsten. 318 → **345 tests**, **33/33 mutanten** — waarvan 2 herricht na de refactor (§12.12). Limiet rond `Rick\nTekst` bewust gedocumenteerd én vastgespeld. |
 | F6 GUI | ✅ | Nieuwe sectie "Text hook" (9 velden, D23), Hook-kaart met **drie** toestanden i.p.v. één vlag (D25), `brand-sub` om (G6.3). `status()` kreeg de file-route erbij en had **nul** tests → `test_status_contract.py` (9). `svelte-check` als gate erbij, wat 2 bestaande type-errors aan het licht bracht: oorzaak in `api.ts` (responsformaat i.p.v. bestandsformaat), niet verzwakt met `as unknown as`. `npm run lint` maskeerde de eerste opdracht met `&` → §12.13. 345 → **354 tests**, alle gates groen, en de GUI één keer **echt bekeken** tegen een draaiende backend. |
 | F7 Lifecycle & docs | ✅ | De headline is een **cmd-bug die altijd "ja" zei**: `^|` binnen `( … )` maakt de pipe letterlijk, dus de check kon nooit "nog niet aan het binden" melden (§12.14). Gemeten met een `netstat`-stub: variant `^|` gaf 0 bij een vrije én een bezette poort, de kale `|` gaf 1 en 0. Tweede vondst: `NOVATTS_HOOK_PORT = 7300` werd door het script genegeerd terwijl de backend hem wél las — **het log noemde een poort waar niemand op luisterde**. `websockets>=12.0` bleek te laag (12.0 crasht op import, 13.0 werkt) → `>=13.0` (D26). `start_all.cmd` meldt de hook maar doodt hem nooit (D27). `setup.ps1` zwijgt op loopback en waarschuwt alleen bij een blootgesteld adres. Makefile-gate miste svelte-check. Docs: pipeline, 9 env-sleutels, `hook_mode`-tabel, Hook-kaart-drie-toestanden, LunaTranslator-stappen, `data/README.md`, en §5 van het CRLF-rapport — dat wees naar een pad (`NovaTTSLun@`) dat niet meer bestaat en is herschreven met bewijs per punt, punt 4 bewust **deels**. Twee doc-claims bleken onjuist en zijn door meting gecorrigeerd (D28). **354 → 354 tests, opzettelijk.** |
-| F8 Cutover RenPy→LunaHook | ⬜ | Bevat de handmatige RenPy-smoke die uit F0 is gehaald. |
+| F8 Cutover RenPy→LunaHook | ✅ | De vijf stappen in de geplande volgorde, wat het verschil maakt: **stap 1 was de nulmeting, vóór het default omging**, want een meting ná de wijziging meet de nieuwe situatie en noemt het een bewijs. `hook_mode` staat nu op `websocket`; het klembord start niet meer mee (bewezen met een regel die wél audio oplevert, en daarna één die dat níet doet). `clipboard.py` → `legacy_clipboard.py` via `git mv`, klasse naam bewust ongewijzigd (D30), legacy-badge zichtbaar in de GUI in plaats van begraven in `.env`. Kernclaim indirect bewezen via de cache-hash: dezelfde tekst geeft twee audiostreamen met en zonder stem — of die stem *goed klinkt* kan alleen een mens beoordelen, en dat staat als 8-staps checklist overgedraven. Ook gemeten: **beide routes laten interpunctie door** — bestaand Main-gedrag, dus gedocumenteerd en niet "opgelost". De mypy-waarschuwing uit het plan bleek onnodig (`Dialogue.source` is een `str`). **355 tests.** Drie meetinstrumenten gaven een zeker verkeerd antwoord (§12.15). |
 | F9 Opruimen | ⬜ | `vntts/` en G5.8 zijn al afgehandeld in F0. |
 
 ---
@@ -1165,3 +1372,16 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
     - **Een proef die een andere route volgt dan productie is een aanname met een tabel.** Twee F7-proeven sloten `decode_wire_message()` over en rekenden de JSON-herstap dubbel om; beide sloten de conclusie "dit werkt niet" — wat aantoont dat een gemeten verhaal niet zomaar klopt als er één regel code is overgeslagen.
 
     En de vorm waarin dit opgeslagen moet worden: **de regel in het document, het harnas in de temp-map.** Een harnas in de repo is een tweede ding dat roet aan, maar een harnas dat nergens is, betekent dat de *reden* in het document moet staan — anders lost het probleem zichzelf op en is de volgende agent het kwijt.
+15. **Nooit de afwezigheid van een logregel als bewijs gebruiken.** F8 leverde drie meetinstrumenten die een *zeker* antwoord gaven en alle drie lagen. §12.14 gaat over condities die je op twee posities moet toetsen; deze regel gaat over iets dat ernaast ligt en minstens zo gevaarlijk is: **het kiezen van het bewijsstuk.** Een pipeline heeft altijd paden waarop iets wél gebeurt en toch niets laat zien, en drie F8-harnassen belandden elk in zo'n pad.
+
+    | pad | wat er gebeurde | hoe het eruit zag |
+    |---|---|---|
+    | applicatielog gaat naar **stderr**, niet naar stdout | de regels stonden in `.log.err` terwijl het harnas `.log` las | "niets gesproken" voor regels die wél gesproken waren |
+    | **audiocache** op tekst-hash, `Cache hit` op *debug* | dezelfde regel een tweede keer sturen geeft een hit en géén INFO-regel | opnieuw "niets gesproken", nu voor een regel die in de eerste ronde wél een WAV had gemaakt |
+    | synthese is **asynchroon** en overstemt zichzelf | de synthese van de vorige meting landde binnen het meetvenster van de volgende | de klembord-route leek rommel te spreken die hij blokkeert |
+
+    De regel die eruit volgt is niet "log meer". Die zou de eerste twee rijen niet hebben opgelost, want die loggden níets te melden. De regel is: **kies een artefact dat niet kan bestaan tenzij de gebeurtenis plaatsvond.** Voor "er is audio gemaakt" is dat het bestand in `data/cache/`; voor "er is een spreker geregistreerd" is dat de naam in `/speakers`; voor "de poort is vrij" is dat `Get-NetTCPConnection`. Een logregel is een *hint* — handig om te vinden, ongeschikt om te bewijzen.
+
+    En de vorm die het meeste opleverde: **één route per proces als de vraag is welke route wat doet.** Twee routes in één proces is verleidelijk omdat het dan zeker "dezelfde omgeving" is, maar het is precies die gedeelde omgeving die het meetvenster van de ene route in het antwoord van de andere laat vallen. Ook het gemakkelijkste om te vergeten: de eerste draai gaf een tabel die met de code niet kon kloppen, en alleen de tweede draai — één route per keer, eigen proces — gaf de waarheid.
+
+    Tot slot de vorm die het meest tijd kostte en het minste opleverde: **geloof niet in een terugzetting die je niet op de juiste sleutel hebt gecontroleerd.** Het spelregister is `{versions, speakers}`, dus `$json.Samantha.voice` geeft een lege string — ook wanneer de terugzetting mislukt was. Mijn eigen back-up bleek bovendien al besmet op het moment dat ik hem maakte (D32). Een terugzetcontrole die de structuur raakt die het bestand *niet* heeft, is net zo'n dode check als een `^|` in een blok.
