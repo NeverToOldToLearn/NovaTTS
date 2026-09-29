@@ -52,19 +52,45 @@ wordt de eerste regel (`@echo off`) verkeerd geparst — vandaar fouten als
 
 ## 4. Permanente preventie
 
-### 4.1 `.gitattributes` (nieuw)
+### 4.1 `.gitattributes` — **uitgebreid (29 sep 2026)**
+
+De oude versie stond alleen CRLF-voor op de Windows-bestanden en liet de rest
+over aan de gitconfig van de gebruiker. Dat betekende dat de vorm op schijf niet
+in het project stond, maar in `core.autocrlf` van wie er dan ook mee werkt. Op
+een machine met `core.autocrlf=input` of `false` zag dezelfde clone er anders
+uit. De regels zijn nu expliciet, in twee delen:
 
 ```
-*.cmd  text eol=crlf
-*.bat  text eol=crlf
-*.iss  text eol=crlf
-*.ps1  text eol=crlf
+*               text=auto eol=crlf     # de hele map CRLF op schijf, LF in git
+
+*.cmd/.bat/.iss/.ps1  text eol=crlf    # expliciet, want cmd.exe vereist dit
+
+*.sh / Makefile / *.mk  text eol=lf    # uitzondering: hier is CRLF een fout
 ```
 
-Met `core.autocrlf=true` op Windows-checkouts was dit eerst niet nodig, maar
-AI-tooling schrijft hier soms toch LF — vandaar de expliciete attributen. Voor
-`NovaTTSLun@`: neem dit bestand ongewijzigd over (alleen `.venv`/`node_modules`
-excluderen).
+**Waarom de uitzondering bestaat.** `setup.sh` en de `Makefile` stonden als
+CRLF op schijf terwijl hun blobs LF waren — gemeten, 169 respectievelijk 164
+regels, alle 88 receptregels van de Makefile inclusief. Twee gevolgen:
+
+- `setup.sh` begint met `#!/bin/bash\r`. Die shebag leest de **kernel**, niet
+  bash, dus op elk POSIX-systeem volgt *bad interpreter: /bin/bash^M*. Op deze
+  Windows-machine met Git Bash werkt het toevallig, omdat MSYS de CR bij het
+  lezen stripst — en juist daarom is het hier niet te meten en elders wel.
+- `INSTALL.md` schrijft `make dev` en `make dev-tauri` voor. Make voert een
+  receptregel uit mét de CR, dus het recept wordt `commando\r`.
+
+Het vaste punt dat dit volledig onschadelijk maakt: git schrijft tekst altijd
+als LF in de database, en de `eol`-convertie gebeurt bij het uitschrijven naar
+de working tree. Deze regels veranderen dus geen enkele blob, geen enkele hash
+en geen enkele regel geschiedenis — alleen de vorm op schijf.
+
+**Bewijs** (136 getrackte paden, `git ls-files --eol`): 116 staan `i/lf w/crlf`,
+9 `i/lf w/-text` (binaire ico's/png's), 2 zonder enig regeleinde (éénregelige
+JSON, dus niets te converteren), 2 `i/lf w/lf` — en dat zijn precies
+`setup.sh` en de `Makefile`. Nul afwijkingen. Daarnaast is dezelfde
+uitschrijfactie onder vier `core.autocrlf`-instellingen (`true`, `false`,
+`input`, en de echte config) uitgevoerd: de vier uitkomsten zijn identiek, en
+de binaire bestanden zijn byte-voor-byte gelijk aan hun blob.
 
 ### 4.2 `.gitignore` (gewijzigd)
 
@@ -113,7 +139,7 @@ hieronder met hun meetbaar bewijs in plaats van met een opdracht:
 
 | # | Punt | Status | Bewijs |
 |---|---|---|---|
-| 1 | `.gitattributes` | ✅ hier | `*.cmd`, `*.bat`, `*.iss`, `*.ps1` op `text eol=crlf` |
+| 1 | `.gitattributes` | ✅ hier, **uitgebreid 29 sep** | `* text=auto eol=crlf`, plus de vier Windows-bestanden expliciet, plus `*.sh`/`Makefile`/`*.mk` op `eol=lf`. Zie §4.1 voor de meting |
 | 2 | CRLF-fix op alle `.cmd`/`.ps1` | ✅ hier | 11 bestanden gescand: overal `CRLF=n, kale-LF=0` — ook de drie die F7 bewerkte (`start_all.cmd`, `stop_all.cmd`, `setup.ps1`) |
 | 3 | `.gitignore` `backend/.env` | ✅ hier | regel 13, met de `.env.example`-flow erboven |
 | 4 | functioneel testen | ⚠️ **deels** | zie hieronder |
@@ -135,4 +161,5 @@ laatste klik hoort bij een release-test met een `.env` die men mag veranderen.
 
 - Kleurige batch-waarschuwing staat soms in Windows zelfs zonder kleur: dat is cosmetisch.
 - Als het startscript “hangt” na start: check of een oude `tts-server.exe` (qwentts) nog draait op `:8080` (via Taakbeheer → Details).
-- `core.autocrlf` werkte op deze machine als `true`, maar alleen met `.gitattributes` blijft het deterministisch na `git clone` + AI-writes.
+- `core.autocrlf` werkte op deze machine als `true`, maar alleen met `.gitattributes` blijft het deterministisch na `git clone` + AI-writes. De uitgebreide regels (§4.1) maken die afhankelijkheid van de persoonlijke gitconfig nu helemaal weg: gemeten identiek onder `true`, `false`, `input` en de echte config. Je hoeft `core.autocrlf` dus niet meer in te stellen.
+- **Bestaande working trees blijven zoals ze zijn tot je de bestanden aanraakt.** Git schrijft een bestand pas opnieuw uit als de inhoud wijkt. Een map die je al een tijd open hebt, houdt dus de oude vorm tot je er iets in verandert of het bestand verwijdert en terugzet. Op een verse clone is het meteen goed.

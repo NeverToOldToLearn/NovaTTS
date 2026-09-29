@@ -1,7 +1,49 @@
-# CRLF line-endings voor Windows batch/cmd (cmd.exe vereist \r\n)
-*.cmd  text eol=crlf
-*.bat  text eol=crlf
-*.iss  text eol=crlf
+# Regeleindes.
+#
+# De uitkomst is gemeten, niet gekozen. Over alle bestanden in dit project
+# stonden 17 blobs als LF en 17 working-tree-bestanden als CRLF. Dat CRLF
+# hier op schijf stond kwam NIET door dit project maar door de globale
+# core.autocrlf=true van de gebruiker, en die is per machine verschillend.
+# Deze regels maken het gedrag expliciet, zodat een verse clone hetzelfde
+# oplevert als deze working tree en niet als iets dat van iemands
+# gitconfig hangt.
+#
+# Het vaste punt dat dit uitlegt: git schrijft tekst ALTIJD als LF in de
+# database. De eol-convertie gebeurt bij het uitschrijven naar de working
+# tree, niet bij het bewaren. Daarom verandert onderstaande regel geen
+# enkele blob, geen enkele hash en geen enkele regel geschiedenis -- alleen
+# de vorm op schijf.
+#
+# Dus: deze regels kunnen niet "het hele bestand gewijzigd" in een diff
+# veroorzaken. Als dat toch gebeurt is er iets anders aan de hand, en dan
+# moet dat onderzocht worden in plaats van weggecorrigeerd.
+*               text=auto eol=crlf
 
-# Overig consistent Unix (behalve Windows-specifieke tooling)
-*.ps1 text eol=crlf
+# cmd.exe voert een .cmd met kale-LF regels uit in een gebroken modus, met
+# fouten die naar de *volgende* regel wijzen. Deze vier staan daarom niet
+# voor de sier, en 'text' (zonder =auto) betekent: ook als git een bestand
+# zou aanzien voor binair, behandel het als tekst.
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
+*.iss           text eol=crlf
+*.ps1           text eol=crlf
+
+# Uitzonderingen: hier is CRLF op schijf geen "windows", maar een fout.
+# Zij staan ONDER de algemene regel omdat de laatste match wint.
+#
+# setup.sh: de shebang wordt door de kernel gelezen, niet door bash.
+# '#!/bin/bash\r' geeft op elk POSIX-systeem "bad interpreter". Op deze
+# machine met Git Bash werkt het toevallig, omdat MSYS de CR stripst bij
+# het lezen -- en dat is precies de reden dat dit hier niet te meten is
+# en elders wel.
+#
+# Makefile: INSTALL.md schrijft 'make dev' en 'make dev-tauri' voor, en alle
+# 88 receptregels droegen een CR. Make leest het tab-indent en voert de
+# regel uit, inclusief de CR, dus het recept wordt 'commando\r'.
+*.sh            text eol=lf
+Makefile        text eol=lf
+*.mk            text eol=lf
+
+# Binaire bestanden: git raakt hier niets aan. 'text=auto' op de algemene
+# regel betekent al dat git zelf beslist, en de .png/.ico/.wav in
+# gui/src-tauri/icons en installer staan gewoon als binary in de database.
