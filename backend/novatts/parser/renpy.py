@@ -13,6 +13,7 @@ Strict rules (all must hold):
 
 from __future__ import annotations
 
+import html
 import re
 from collections.abc import Iterable
 
@@ -70,8 +71,36 @@ _NARRATION_STOPLIST = frozenset(
 )
 
 
+# Punctuation a bare name line never ends with. "Tatsuo" is a name on a
+# line of its own; "Hello." on a line of its own is the start of a sentence.
+# Without this rule a one-word sentence becomes a speaker named after it.
+_NAME_LINE_ENDINGS = frozenset(".!?,;:")
+
+# One tag of a rich-text clipboard payload: "<b>", "</b>", "<br/>". The
+# inner class forbids "<" and ">" so a stray "<" cannot swallow a whole line.
+_TAG_PATTERN = re.compile(r"<[^<>]{0,200}>")
+
+
 def _normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
+
+
+def _strip_markup(raw: str) -> str:
+    """Remove rich-text tags and decode entities from a clipboard payload.
+
+    LunaTranslator can copy the dialogue *with* its formatting, in which case
+    the name arrives as ``<b>Tatsuo</b>`` rather than ``Tatsuo`` (measured,
+    F14). Tags become a space so ``a<br/>b`` does not become ``ab``, and tags
+    are removed *before* entities are decoded so an escaped ``&lt;b&gt;``
+    stays readable text instead of turning into a tag that is then dropped.
+    """
+    return html.unescape(_TAG_PATTERN.sub(" ", raw))
+
+
+def _content_lines(raw: str) -> list[str]:
+    """Non-empty stripped lines, whatever newline style the source used."""
+    unified = raw.replace("\r\n", "\n").replace("\r", "\n")
+    return [line.strip() for line in unified.split("\n") if line.strip()]
 
 
 def _word_passes(word: str) -> bool:
@@ -92,6 +121,23 @@ class RenPyParser:
     strict heuristics (e.g. "Passenger 1" or a long multi-word name). This
     lets user-registered speakers win over the heuristics while keeping the
     strict rules for everything else.
+
+    Two payload shapes are accepted, because both were measured arriving
+    from a real game (F14, ``data/logs/clipboard_raw.log``):
+
+      * ``"Rick: Hi all."`` -- Ren'Py's own ``Name: Text``.
+      * ``"Rick\\nHi all."`` -- a bare name on its own line. This is what
+        LunaTranslator copies, with or without ``<b>`` tags around the name.
+
+    The second shape only counts as a speaker when the first line passes the
+    same strict rules as a colon-prefix *and* does not end in sentence
+    punctuation; anything else is narration, joined exactly as before. Only
+    the *first* name is split off: a payload holding several name/text pairs
+    stays one turn with the later names read aloud, because this class
+    returns a single :class:`Dialogue`. That case is real, not hypothetical
+    -- measured on the user's own clipboard log in F14, 3 of the 61
+    multi-line payloads held two or three pairs. Pinned, not fixed; see
+    ``test_a_block_of_pairs_stays_one_turn``.
     """
 
     def __init__(self, known_names: Iterable[str] = ()) -> None:
@@ -110,7 +156,22 @@ class RenPyParser:
                 self._known[n.strip().lower()] = n.strip()
 
     def parse(self, raw: str, source: str = "renpy", instruct: str = "") -> Dialogue:
-        text = _normalize_text(raw)
+        cleaned = _strip_markup(raw)
+
+        # "Name" on its own line, then the dialogue. Checked first: joined
+        # into one line it would otherwise be narration, or -- if the body
+        # happens to contain a colon -- a speaker made of both lines.
+        bare = self._bare_name_form(cleaned)
+        if bare is not None:
+            name, body = bare
+            # A registered name wins and maps to its canonical spelling,
+            # exactly as in the "Name: text" branch below.
+            speaker = self._known.get(name.lower()) or self._clean_speaker(name)
+            return Dialogue(
+                speaker=speaker, text=body, source=source, instruct=instruct
+            )
+
+        text = _normalize_text(cleaned)
         if not text:
             return Dialogue(speaker=None, text="", source=source)
 
@@ -153,6 +214,26 @@ class RenPyParser:
 
         # No colon: plain narration.
         return Dialogue(speaker=None, text=text, source=source, instruct=instruct)
+
+    def _bare_name_form(self, raw: str) -> tuple[str, str] | None:
+        """Split ``"Name\\nText"`` into ``(name, text)``, or None.
+
+        None means "not this shape", and the caller then parses the payload
+        as a single line -- which is what every payload looked like before
+        F14, and is still what a single-line narration looks like.
+        """
+        lines = _content_lines(raw)
+        if len(lines) < 2:
+            return None
+        name = lines[0]
+        body = _normalize_text(" ".join(lines[1:]))
+        if not body:
+            return None
+        if name[-1] in _NAME_LINE_ENDINGS:
+            return None
+        if self._known.get(name.lower()) is None and self._clean_speaker(name) is None:
+            return None
+        return name, body
 
     @staticmethod
     def _clean_speaker(raw: str) -> str | None:

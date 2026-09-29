@@ -188,5 +188,54 @@ class Settings(BaseSettings):
         )
         return "both"
 
+    @field_validator("luna_ws_url", mode="before")
+    @classmethod
+    def _coerce_luna_ws_url(cls, value: object) -> str:
+        """Repair a pasted assignment; refuse a URL that cannot be dialled.
+
+        Measured in F14: backend/.env contained
+
+            NOVATTS_LUNA_WS_URL=NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677
+
+        because a whole ``KEY=value`` line was typed into a field that
+        already carried the key. The stored value is then a string that is
+        not a URL -- and a *non-empty* ``luna_ws_url`` is precisely what
+        switches LunaAdapter out of server mode and into client mode, so a
+        typo in one field silently stopped the hook from ever listening.
+        Nothing in the UI said so: /status still reported hook_mode=websocket
+        and hook_clients=0, which is what a healthy, merely-idle hook looks
+        like.
+
+        Two repairs, in this order:
+
+        * Strip a repeated ``NOVATTS_LUNA_WS_URL=`` prefix. What the user
+          meant is unambiguous, and refusing it would be pedantry.
+        * Anything still not ``ws://`` or ``wss://`` becomes empty, which is
+          server mode. Same reasoning as D29 and the validator above: a typo
+          must land on the route that needs nothing external, not on a dead
+          end. We warn either way, so the repair is visible rather than
+          silent.
+        """
+        if not isinstance(value, str):
+            return ""
+        url = value.strip()
+        # Repeated, not once: the doubled assignment is what was measured,
+        # and a triple is the same mistake pasted twice more.
+        while True:
+            head, sep, tail = url.partition("=")
+            if not sep or head.strip() != "NOVATTS_LUNA_WS_URL":
+                break
+            url = tail.strip()
+        if not url:
+            return ""
+        if not url.startswith(("ws://", "wss://")):
+            log.warning(
+                "NOVATTS_LUNA_WS_URL=%r is not a ws:// or wss:// URL; using "
+                "server mode instead (NovaTTS listens, the hook connects)",
+                value,
+            )
+            return ""
+        return url
+
 
 settings = Settings()

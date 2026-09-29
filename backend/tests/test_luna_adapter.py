@@ -993,6 +993,129 @@ class TestLifecycle:
         assert isinstance(LunaAdapter(on_dialogue=lambda d: None), InputAdapter)
 
 
+# -- F14: the two adapter-side defences ------------------------------------
+
+
+class TestUnusableWsUrl:
+    """Settings validates luna_ws_url; the adapter must not depend on that.
+
+    Defence in depth, and the second layer is the one that mattered when
+    this was measured: the adapter picks client mode with ``if self.ws_url``,
+    so a value it cannot dial turns a listening server into a dialling
+    client that neither listens nor connects -- and every status field still
+    looks healthy.
+    """
+
+    def test_an_unusable_url_does_not_silently_switch_to_client_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from novatts.config import settings
+
+        monkeypatch.setattr(
+            settings, "luna_ws_url", "NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677"
+        )
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        assert adapter.ws_url == "", "a URL it cannot dial must not select client mode"
+
+    @pytest.mark.parametrize("raw", ["localhost:6677", "http://127.0.0.1:6677", "6677"])
+    def test_unusable_urls_are_all_refused(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from novatts.config import settings
+
+        monkeypatch.setattr(settings, "luna_ws_url", raw)
+        assert LunaAdapter(on_dialogue=lambda d: None).ws_url == ""
+
+    def test_a_valid_url_still_selects_client_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from novatts.config import settings
+
+        monkeypatch.setattr(settings, "luna_ws_url", "ws://127.0.0.1:6678")
+        assert LunaAdapter(on_dialogue=lambda d: None).ws_url == "ws://127.0.0.1:6678"
+
+
+class TestStartMeansBound:
+    """``start()`` used to log "started" before the loop had done anything.
+
+    Measured consequence: a hook that never bound produced the same log
+    line, the same is_running() and the same /status as a healthy idle
+    hook. The only difference was invisible. Now the loop reports when it is
+    really up, and ``start`` says what happened.
+    """
+
+    def test_a_loop_that_never_comes_up_is_reported_not_swallowed(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import asyncio
+        import logging
+
+        from novatts.adapters import luna as luna_mod
+
+        async def park(self: LunaAdapter) -> None:
+            # Reachable by stop() through _stop, so the test leaves no
+            # thread behind, but it never sets _ready: this is the
+            # "server that never bound" case.
+            assert self._stop is not None
+            await self._stop.wait()
+
+        monkeypatch.setattr(luna_mod, "_STARTUP_TIMEOUT", 0.2)
+        monkeypatch.setattr(LunaAdapter, "_server_loop", park)
+
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter.port = _free_port()
+        with caplog.at_level(logging.INFO, logger="novatts.adapters.luna"):
+            adapter.start()
+        try:
+            assert "did not come up" in caplog.text
+            assert "adapter started" not in caplog.text
+            assert asyncio.get_event_loop_policy() is not None  # keeps the import used
+        finally:
+            adapter.stop()
+
+    def test_a_real_server_still_reports_started(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter.port = _free_port()
+        with caplog.at_level(logging.INFO, logger="novatts.adapters.luna"):
+            adapter.start()
+        try:
+            assert adapter.is_running()
+            assert "adapter started (server" in caplog.text
+            assert "listening on ws://" in caplog.text
+            assert "did not come up" not in caplog.text
+        finally:
+            adapter.stop()
+
+    def test_a_loop_that_dies_reports_why(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A bind that fails is not a timeout: the reason has to survive."""
+        import logging
+
+        from novatts.adapters import luna as luna_mod
+
+        async def explode(self: LunaAdapter) -> None:
+            raise OSError("address already in use")
+
+        monkeypatch.setattr(luna_mod, "_STARTUP_TIMEOUT", 2.0)
+        monkeypatch.setattr(LunaAdapter, "_server_loop", explode)
+
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter.port = _free_port()
+        with caplog.at_level(logging.ERROR, logger="novatts.adapters.luna"):
+            adapter.start()
+        try:
+            assert "did not come up" in caplog.text
+            assert "address already in use" in caplog.text
+            assert "adapter started" not in caplog.text
+        finally:
+            adapter.stop()
+
+
 class TestKnownGaps:
     def test_known_gap_hello_is_not_in_the_stopword_set(self) -> None:
         """A parser word-list gap, pinned here so it stays visible.

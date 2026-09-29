@@ -18,12 +18,14 @@ What the hook route does that this one cannot, and the reason the default
 moved:
 
   * A speaker per turn. ``Anne Hallo! Rick Mooi.`` is two turns with two
-    voices here; the hook splits it. The clipboard carries one line, so the
-    split is information the format already threw away.
+    voices here; the hook splits it. The clipboard carries one snapshot of
+    whatever the game last copied, so a burst of turns arrives joined.
   * Live rather than polled. This polls every ``poll_interval`` seconds; the
     hook pushes on arrival.
-  * A bare name on its own line is recoverable here only with
-    ``NOVATTS_HOOK_DUAL_HOOK=1``; the hook sees both lines arrive.
+  * A bare name on its own line. The clipboard *does* carry it -- measured,
+    F14 -- and the parser splits it, but only the first name: several
+    name/text pairs in one snapshot stay a single turn. The hook sees every
+    line arrive separately and makes a turn of each.
 
 What it still does better, and why it was not deleted: it works with no
 LunaTranslator, no extension and no extra process. If your game has no hook,

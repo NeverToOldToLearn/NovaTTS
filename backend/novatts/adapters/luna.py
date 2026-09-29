@@ -99,6 +99,38 @@ _PENDING_NAME_TTL = 0.6
 #: touches it, while a stuck TTS call cannot grow memory without bound.
 _DISPATCH_QUEUE_SIZE = 64
 
+# How long ``start`` waits for the event loop to reach a definitive state
+# before it reports that the hook is not coming up. Paid only on failure: a
+# loopback bind is milliseconds. F14, because "started" used to be logged
+# before the loop had done anything, which made a hook that never bound
+# indistinguishable from one that is merely idle.
+_STARTUP_TIMEOUT = 5.0
+
+
+def _dialable_ws_url(raw: str) -> str:
+    """The outbound URL, or "" when it cannot be dialled.
+
+    ``Settings`` already repairs and validates this, so an empty result here
+    means the value arrived without passing the validator. The failure it
+    prevents is the one F14 ran into: a non-empty ``ws_url`` selects client
+    mode, so an unusable URL quietly turns a listening server into a dialling
+    client that neither listens nor connects. Defence in depth, not
+    redundancy -- the adapter is constructed from ``settings`` by a test, by
+    the app, and potentially by future code that does not go through the
+    validator.
+    """
+    url = raw.strip()
+    if url and not url.startswith(("ws://", "wss://")):
+        log.error(
+            "Ignoring unusable NOVATTS_LUNA_WS_URL=%r; starting in server mode "
+            "on %s:%s instead",
+            raw,
+            settings.hook_host,
+            settings.hook_port,
+        )
+        return ""
+    return url
+
 
 # ---------------------------------------------------------------------------
 # Wire decoding (pure)
@@ -381,12 +413,19 @@ class LunaAdapter(InputAdapter):
         super().__init__(on_dialogue)
         self.host = settings.hook_host
         self.port = settings.hook_port
-        self.ws_url = settings.luna_ws_url.strip()
+        self.ws_url = _dialable_ws_url(settings.luna_ws_url)
         self.space_form = settings.hook_space_form
         self.dual_hook = settings.hook_dual_hook
         self.min_text_length = settings.min_text_length
 
         self._running = False
+        #: Set by the event loop once the adapter is really up: the socket is
+        #: bound in server mode, the loop has entered client mode otherwise.
+        #: ``start`` waits on this so the "started" line cannot be written
+        #: for an adapter that never came up.
+        self._ready = threading.Event()
+        #: Why the loop failed, if it did. Empty means "no reason reported".
+        self._startup_error = ""
         self._loop: asyncio.AbstractEventLoop | None = None
         self._server: websockets.asyncio.server.Server | None = None
         self._stop: asyncio.Event | None = None
@@ -445,10 +484,29 @@ class LunaAdapter(InputAdapter):
         )
         self._dispatch_thread.start()
 
+        self._ready.clear()
+        self._startup_error = ""
         self._thread = threading.Thread(target=self._run, name="luna-adapter", daemon=True)
         self._thread.start()
+
+        # The mode is known here; whether the adapter *works* is only known
+        # in the loop. F14 logged "started" before the loop had done anything
+        # at all, so a hook that never bound looked exactly like a healthy
+        # one in every field the UI shows. Not fatal either way -- in "both"
+        # mode the clipboard still delivers text -- so it is reported loudly
+        # rather than raised.
         mode = "client" if self.ws_url else "server"
-        log.info("Luna hook adapter started (%s %s:%s)", mode, self.host, self.port)
+        came_up = self._ready.wait(timeout=_STARTUP_TIMEOUT) and not self._startup_error
+        if came_up:
+            log.info("Luna hook adapter started (%s %s:%s)", mode, self.host, self.port)
+        else:
+            log.error(
+                "Luna hook adapter did not come up in %s mode within %.1fs (%s); "
+                "the hook will not deliver text",
+                mode,
+                _STARTUP_TIMEOUT,
+                self._startup_error or "no reason reported",
+            )
 
     def stop(self) -> None:
         if not self._running:
@@ -483,9 +541,12 @@ class LunaAdapter(InputAdapter):
                 loop.run_until_complete(self._client_loop())
             else:
                 loop.run_until_complete(self._server_loop())
-        except Exception:
+        except Exception as exc:
             # The adapter must never take the host process down; the
-            # contract is in InputAdapter's docstring.
+            # contract is in InputAdapter's docstring. The reason is kept
+            # so ``start`` can say *why* instead of only that it timed out.
+            self._startup_error = f"{type(exc).__name__}: {exc}"
+            self._ready.set()
             log.exception("Luna hook loop failed (swallowed)")
         finally:
             with contextlib.suppress(Exception):
@@ -495,6 +556,9 @@ class LunaAdapter(InputAdapter):
         assert self._stop is not None
         server = await websockets.asyncio.server.serve(self._handle_client, self.host, self.port)
         self._server = server
+        # Only now is the socket really accepting connections. This is the
+        # point ``start`` waits for.
+        self._ready.set()
         log.info("Hook server listening on ws://%s:%s", self.host, self.port)
         await self._stop.wait()
         server.close()
@@ -502,6 +566,11 @@ class LunaAdapter(InputAdapter):
 
     async def _client_loop(self) -> None:
         assert self._stop is not None
+        # Signalled on entry, not on first connect: whether the hook is
+        # actually reachable is a different question, answered by
+        # ``client_count`` in the status endpoint, and blocking ``start`` on
+        # a dial to a hook that may not be running yet would be wrong.
+        self._ready.set()
         while self._running:
             try:
                 async with websockets.asyncio.client.connect(self.ws_url) as ws:

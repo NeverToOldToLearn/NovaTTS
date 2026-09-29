@@ -13,8 +13,8 @@ would have appeared to ignore the user.
 from __future__ import annotations
 
 import pytest
+from helpers import make_settings
 
-from novatts.config import Settings
 from novatts.main import _SETTINGS_ENV_MAP, _env_bool, _settings_snapshot
 from novatts.models import Dialogue
 
@@ -35,7 +35,7 @@ HOOK_FIELDS = (
 
 
 def test_hook_defaults_match_the_agreed_topology() -> None:
-    s = Settings()
+    s = make_settings()
     # D2: the cutover happened in F8. "websocket" is now the primary source,
     # which is what "replace RenPy" meant. RenPy survives as an explicit
     # choice and as "both" -- so this is a changed primary, not a deletion.
@@ -63,9 +63,9 @@ def test_the_default_is_websocket_but_a_broken_value_still_falls_back_to_both() 
     text if one source is dead. Syncing them would mean a typo in .env
     silently removes the source the user was relying on.
     """
-    assert Settings().hook_mode == "websocket"
-    assert Settings(hook_mode="cliboard").hook_mode == "both"  # noqa: FBT003
-    assert Settings(hook_mode="").hook_mode == "both"
+    assert make_settings().hook_mode == "websocket"
+    assert make_settings(hook_mode="cliboard").hook_mode == "both"  # noqa: FBT003
+    assert make_settings(hook_mode="").hook_mode == "both"
 
 
 def test_hook_fields_are_exposed_in_the_settings_snapshot() -> None:
@@ -88,12 +88,12 @@ def test_every_writable_hook_field_has_an_env_mapping() -> None:
 
 @pytest.mark.parametrize("raw", ["clipboard", "websocket", "both"])
 def test_valid_hook_modes_pass_through(raw: str) -> None:
-    assert Settings(hook_mode=raw).hook_mode == raw
+    assert make_settings(hook_mode=raw).hook_mode == raw
 
 
 @pytest.mark.parametrize("raw", ["  WebSocket  ", "BOTH", "Clipboard"])
 def test_hook_mode_is_case_and_whitespace_insensitive(raw: str) -> None:
-    assert Settings(hook_mode=raw).hook_mode == raw.strip().lower()
+    assert make_settings(hook_mode=raw).hook_mode == raw.strip().lower()
 
 
 @pytest.mark.parametrize("raw", ["websockets", "ws", "", "luna", None, 42, True])
@@ -104,7 +104,106 @@ def test_bad_hook_mode_falls_back_to_both_instead_of_crashing(raw: object) -> No
     and NovaTTS dies with no server at all. B did the same fallback by hand;
     here the type does it.
     """
-    assert Settings(hook_mode=raw).hook_mode == "both"
+    assert make_settings(hook_mode=raw).hook_mode == "both"
+
+# --- luna_ws_url validator (F14) --------------------------------------------
+# Measured: this machine's backend/.env held
+#   NOVATTS_LUNA_WS_URL=NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677
+# A whole KEY=value line typed into a field that already carried the key.
+# The consequence was not cosmetic: a non-empty luna_ws_url selects client
+# mode, so a typo in one field silently stopped the hook from ever binding.
+
+
+def test_a_pasted_assignment_prefix_is_repaired() -> None:
+    assert make_settings(luna_ws_url="NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677").luna_ws_url == (
+        "ws://127.0.0.1:6677"
+    )
+
+
+def test_a_repeated_assignment_prefix_is_repaired() -> None:
+    """The measured value is doubled; a triple is the same paste twice more."""
+    raw = "NOVATTS_LUNA_WS_URL=NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677"
+    assert make_settings(luna_ws_url=raw).luna_ws_url == "ws://127.0.0.1:6677"
+
+
+def test_a_prefix_only_value_becomes_server_mode() -> None:
+    assert make_settings(luna_ws_url="NOVATTS_LUNA_WS_URL=").luna_ws_url == ""
+
+
+def test_an_unusable_url_falls_back_to_server_mode_not_to_a_dead_end() -> None:
+    """Same principle as D29, applied to the other mode switch.
+
+    "websocket" is a typo that would leave the hook dialling nothing; the
+    fallback has to be the route that needs nothing external, so it is ""
+    -- server mode -- and not an error, because a ValidationError at import
+    time takes the whole backend down.
+    """
+    for raw in ("localhost:6677", "http://127.0.0.1:6677", "6677", "ws:/127.0.0.1"):
+        assert make_settings(luna_ws_url=raw).luna_ws_url == "", raw
+
+
+@pytest.mark.parametrize("raw", ["ws://127.0.0.1:6677", "wss://hook.example/ws", "  ws://a  "])
+def test_a_valid_url_is_kept(raw: str) -> None:
+    assert make_settings(luna_ws_url=raw).luna_ws_url == raw.strip()
+
+
+def test_a_url_with_a_query_string_is_not_mistaken_for_an_assignment() -> None:
+    """The repair splits on "=", so it must not eat a legitimate "="."""
+    raw = "ws://127.0.0.1:6677/?token=a=b"
+    assert make_settings(luna_ws_url=raw).luna_ws_url == raw
+
+
+@pytest.mark.parametrize("raw", [None, 42, True, b"ws://x"])
+def test_a_non_string_url_becomes_server_mode(raw: object) -> None:
+    assert make_settings(luna_ws_url=raw).luna_ws_url == ""
+
+
+def test_the_wrong_field_name_is_not_stripped() -> None:
+    """Only NOVATTS_LUNA_WS_URL is unwrapped.
+
+    A different key means the value really is a typo rather than a paste,
+    and stripping it would hide the mistake instead of reporting it.
+    """
+    assert make_settings(luna_ws_url="NOVATTS_HOOK_PORT=ws://127.0.0.1:6677").luna_ws_url == ""
+
+
+# --- test isolation (F14) ---------------------------------------------------
+
+
+def test_the_suite_does_not_see_the_developers_env() -> None:
+    """The verdict belongs to the code, not to one desktop.
+
+    Nine tests in test_luna_adapter.py failed on an untouched commit because
+    this machine's .env held the doubled NOVATTS_LUNA_WS_URL above. Two
+    tests in this file failed for the same reason via NOVATTS_HOOK_MODE.
+    conftest pins the shared ``settings`` object for every test, so if this
+    ever fails, that pinning stopped working -- which is a gate failure, not
+    a test to be updated.
+    """
+    from novatts.config import settings
+
+    assert settings.luna_ws_url == ""
+    assert settings.hook_mode == "websocket"
+    assert settings.hook_port == 6677
+
+
+def test_the_isolation_actually_hides_an_ambient_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The negative case, so the positive case above is not vacuous (D43).
+
+    This machine's .env proves the ambient value is real. If the fixture
+    stopped working, the two assertions in the test above would pass for the
+    wrong reason -- the .env no longer containing anything -- and nobody
+    would notice until a developer's desktop broke the suite again.
+    """
+    from novatts.config import settings
+
+    monkeypatch.setattr(settings, "luna_ws_url", "ws://127.0.0.1:9999", raising=False)
+    assert settings.luna_ws_url == "ws://127.0.0.1:9999"
+    # And the fixture puts it back for the next test, which is the other
+    # half of "isolation": leaking would be just as wrong as not hiding.
+    assert make_settings().luna_ws_url == ""
 
 
 # --- env plumbing -----------------------------------------------------------
@@ -128,7 +227,7 @@ def test_hook_env_vars_are_read(
     env_key: str, env_value: str, field: str, expected: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(env_key, env_value)
-    assert getattr(Settings(), field) == expected
+    assert getattr(make_settings(), field) == expected
 
 
 # --- bool coercion ----------------------------------------------------------
