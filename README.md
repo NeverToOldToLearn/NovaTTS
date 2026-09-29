@@ -169,7 +169,7 @@ because they need different fixes and none of them looks like "not connected":
 
 | Card says | What it means | Do this |
 |---|---|---|
-| `waiting` · *LunaTranslator not connected* | nobody is attached to the socket | start LunaTranslator, add `textractor_websocket_x64.xdll`, point it at the address shown |
+| `waiting` · *hook not connected* | nobody is attached to the socket | start your hook and point it at the address shown — or, if your hook is the *server*, set `NOVATTS_LUNA_WS_URL` instead |
 | `N clients` · *connected, no line yet* | the socket is fine, the game is not | attach the hook to the **game window**; the card turns into a warning as long as nothing arrives |
 | `N clients` · *N dropped* | lines are arriving but synthesis cannot keep up | pause the game, or lower the voice latency |
 
@@ -177,12 +177,49 @@ because they need different fixes and none of them looks like "not connected":
 restart of the backend — the same rule that already applied to `hook_host`. The
 settings view says so next to the field.
 
-### Setting up LunaHook
+### Which side listens
 
-1. Start NovaTTS. It **serves** the websocket on `127.0.0.1:6677`.
-2. In LunaTranslator: `Extensions` → `Add` → `textractor_websocket_x64.xdll`.
-3. Point it at `ws://127.0.0.1:6677` and start Textractor on your game.
-4. Leave **translation off** — NovaTTS only wants the raw text.
+Pick by what your hook does. The two are not interchangeable, and the default
+is not the one every hook needs:
+
+| Your hook | NovaTTS setting | Who listens on `127.0.0.1:6677` |
+|---|---|---|
+| dials into NovaTTS | *(the default)* | **NovaTTS** — the Hook card counts clients |
+| listens itself | `NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677` | **your hook** — see the two gaps below |
+
+The second row is the one `textractor_websocket` needs. In its own words it
+*"opens a WebSocket locally on port 6677 and sends the text from Textractor to
+all the connected clients"* — so Textractor listens and NovaTTS dials in. That
+is the opposite of the default, and the opposite of what this file used to
+claim.
+
+Two known gaps make the second row incomplete. Both are pinned in
+`TestKnownGaps`, so closing one is a deliberate change rather than a surprise:
+
+- the Hook card reports `0 clients` **while text is arriving**, because the
+  counter is only maintained on the listening side. In this mode trust
+  `hook_last_raw` from `/status`, not the card.
+- `stop()` does not interrupt the client loop, so it spends its 5 second join
+  timeout and returns while the thread is still alive. The loop does end when
+  the hook goes away.
+
+1. Start NovaTTS.
+2. Install your hook and point it at the address the dashboard shows.
+3. Start the hook on your game. Leave **translation off** — NovaTTS wants the
+   raw line.
+
+An earlier version of this file said to add `textractor_websocket_x64.xdll`
+through LunaTranslator's `Extensions` → `Add`. Both halves of that were wrong,
+and both were measurable: LunaTranslator ships no `extensions` folder, and its
+`Extensions` is a WebView2 *browser*-extension manager (`NativeUtils.py`,
+`webview2_ext_add`, which wants a `manifest.json` with `icons` and
+`options_ui`). The `Extensions` → `Add extension` dialog that does accept the
+plugin belongs to `Textractor.exe`, the file is a `.dll`, and the picker
+defaults to `*.xdll` so that filter has to be switched.
+
+What is still **not** proven anywhere in this repository: that the extension
+delivers frames a real game produces. That needs the extension installed and a
+game running, which is the one step no measurement here can take.
 
 If the connection fails, a WinHTTP proxy on Windows will intercept even
 loopback traffic. Check with `netsh winhttp show proxy`; the fix is
@@ -240,7 +277,7 @@ certainly have no hook attached, and the fix is not a reinstall.
 | Your situation | What to do |
 |---|---|
 | RenPy game, no hook, works today | nothing — but set `NOVATTS_HOOK_MODE=clipboard` in `backend/.env`, because the default is now `websocket` and a RenPy game sends nothing on the socket |
-| willing to run LunaTranslator | set it to `websocket` (or leave the default) and add the `.xdll` — you get live text, a speaker per turn, and the multi-speaker split |
+| willing to run a hook | set it to `websocket` (or leave the default) and point your hook at the address the dashboard shows — you get live text, a speaker per turn, and the multi-speaker split |
 | want to check the new route before committing | `both`, then watch the Hook card: it tells you whether lines are arriving at all |
 | Perfect Cut / `.spk` pipeline | unaffected; that reads files, not the clipboard |
 

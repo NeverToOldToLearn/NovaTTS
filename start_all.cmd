@@ -57,18 +57,26 @@ REM gui is a workspace member and when it is not.
 set "NODE_READY=0"
 if exist "%ROOT%\node_modules\.bin\vite.cmd" set "NODE_READY=1"
 if exist "%ROOT%\gui\node_modules\.bin\vite.cmd" set "NODE_READY=1"
+REM `call` is hier niet fraai maar noodzakelijk, om dezelfde gemeten reden als
+REM verderop in dit bestand: een .cmd vanuit een batch aanroepen zonder call
+REM geeft de besturing door in plaats van terug te keren, en het script stopt
+REM dan ter plekke. Zonder call is de onderstaande regel de LAATSTE die van dit
+REM blok draait: de "npm install slaagde niet"-waarschuwing eronder zou nooit
+REM verschijnen, en de hele rest van de batch ook niet.
 if "%NODE_READY%"=="0" (
   echo [NovaTTS] node_modules ontbreekt — npm install wordt gedraaid...
-  pushd "%ROOT%\gui" 2>nul && npm install --no-audit --no-fund 1>nul 2>&1 && popd
+  pushd "%ROOT%\gui" 2>nul && call npm install --no-audit --no-fund 1>nul 2>&1 && popd
   if not exist "%ROOT%\node_modules\.bin\vite.cmd" if not exist "%ROOT%\gui\node_modules\.bin\vite.cmd" (
     echo [NovaTTS] LET OP: npm install slaagde niet of is incompleet — de GUI kan niet bouwen.
     echo          Controleer node/npm, of draai handmatig: cd gui ^&^& npm install
   )
 )
 REM -- check vite build exists --
+REM Ook hier is `call` nodig, om dezelfde reden: zonder call zou de vite build de
+REM laatste regel van dit blok zijn en alles daaronder overslaan.
 if not exist "%ROOT%\gui\dist\index.html" (
   echo [NovaTTS] gui/dist ontbreekt — vite build wordt gedraaid...
-  pushd "%ROOT%\gui" 2>nul && npm run build 1>nul 2>&1 && popd
+  pushd "%ROOT%\gui" 2>nul && call npm run build 1>nul 2>&1 && popd
 )
 
 REM idempotent: kill stale
@@ -138,8 +146,8 @@ REM brief wait for backend to bind port 8765
 timeout /t 2 /nobreak >nul 2>nul
 
 REM -- Zeg wat de hook doet. Anders weet een gebruiker niet dat hij nog iets
-REM    moet instellen: LunaTranslator is een extern programma dat je zelf
-REM    aan de game moet hangen, en daar staat niets anders op de weg.
+REM    moet instellen: de hook is een extern programma dat je zelf aan de
+REM    game moet hangen, en daar staat niets anders op de weg.
 if /I "%HOOK_MODE%"=="clipboard" (
   echo   Hook: uit ^(hook_mode=clipboard^) -- alleen de RenPy-clipboard-route.
 ) else (
@@ -153,31 +161,98 @@ if /I "%HOOK_MODE%"=="clipboard" (
   if errorlevel 1 (
     echo   Hook: poort %HOOK_PORT% luistert nog niet -- de backend start nog.
   ) else (
-    echo   Hook: luistert op ws://127.0.0.1:%HOOK_PORT% ^(%HOOK_MODE%^) en wacht op LunaTranslator.
-    echo         LunaTranslator: Extensions -^> Add -^> textractor_websocket_x64.xdll -^> bovenstaand adres
+    echo   Hook: luistert op ws://127.0.0.1:%HOOK_PORT% ^(%HOOK_MODE%^) en wacht op je hook.
+    echo         Verbindende hook: richt hem op het adres hierboven.
+    echo         Luisterende hook: zet NOVATTS_LUNA_WS_URL op dat adres, dan verbindt NovaTTS zich.
   )
 )
 
 echo [2/2] Tauri GUI ...
 
-REM -- Check of @tauri-apps/cli beschikbaar is (workspace hoist: root of gui node_modules) --
+REM -- Wat de Tauri-shell daadwerkelijk nodig heeft ----------------------------
+REM Er zijn twee dingen, en dit script controleerde er maar EEN:
+REM   1. de @tauri-apps/cli               -> TAURI_READY
+REM   2. backend\dist\novatts-backend.exe  -> EXE_READY
+REM
+REM (2) staat in tauri.conf.json onder bundle.resources, en tauri valideert
+REM resources ook in `tauri dev`. Zonder die exe sterft de build-script al voor
+REM er een regel Rust gecompileerd is:
+REM   resource path `..\..\backend\dist\novatts-backend.exe` doesn't exist
+REM Gemeten 2026-09-29: backend\dist is gitignored, de exe is 22,6 MB, en
+REM PyInstaller stond helemaal niet in de venv. In een verse worktree of op een
+REM verse clone FAALDE start_all.cmd dus altijd, terwijl dit script hier al een
+REM browser-fallback had -- alleen voor ding 1.
+REM
+REM Dus: bouw de exe als hij ontbreekt, en valt terug op de browser-GUI als dat
+REM niet lukt. De terugval is veilig, want de frontend praat over kale fetch
+REM (gui\src\lib\api.ts, BASE = http://127.0.0.1:8765). Het enige
+REM Tauri-specifieke stuk is de Perfect Cut-brug, en die merkt zelf dat hij in
+REM een browser draait en meldt dat netjes (gui\src\lib\cutter\tauri.ts).
+REM
+REM Dit is een bouwstap en geen startstap: op een verse machine duurt PyInstaller
+REM enkele minuten. Daarom zegt de melding het vooraf, en het script wacht niet
+REM stil -- het meldt en gaat door.
 set "TAURI_READY=0"
 if exist "%ROOT%\gui\node_modules\.bin\tauri.cmd" set "TAURI_READY=1"
 if exist "%ROOT%\node_modules\.bin\tauri.cmd" set "TAURI_READY=1"
 
+REM `call` is hier niet fraai maar noodzakelijk. Gemeten 2026-09-29: een .cmd
+REM (npm is npm.cmd) vanuit een batch aanroepen ZONDER call geeft de
+REM besturingsoverdracht door in plaats van terug te keren, en het script
+REM stopt dan ter plekke. Met de echte npm.cmd gemeten:
+REM   call npm --version  -> de regel erna wordt uitgevoerd
+REM   npm  --version      -> de regel erna wordt NIET meer uitgevoerd
+REM Zonder call werkte de al bestaande npm-tak dus ook al schreef ze "npm
+REM install...", en daarna volgde de controle op tauri.cmd nooit meer. Op een
+REM verse machine stopte start_all.cmd dan bij de installatie in plaats van de
+REM GUI te starten. Dit stond al in het script; het is nu pas merkbaar
+REM geworden omdat de browser-fallback hieronder op dezelfde conditie leunt.
 if "%TAURI_READY%"=="0" (
   echo   @tauri-apps/cli niet gevonden — npm install...
   if exist "%ROOT%\gui" (
-    pushd "%ROOT%\gui" 2>nul && npm install --no-audit --no-fund 1>nul 2>&1 && popd
+    pushd "%ROOT%\gui" 2>nul && call npm install --no-audit --no-fund 1>nul 2>&1 && popd
   ) else (
-    npm install --no-audit --no-fund 1>nul 2>&1
+    call npm install --no-audit --no-fund 1>nul 2>&1
   )
   if exist "%ROOT%\gui\node_modules\.bin\tauri.cmd" set "TAURI_READY=1"
   if exist "%ROOT%\node_modules\.bin\tauri.cmd" set "TAURI_READY=1"
 )
 
-if "%TAURI_READY%"=="0" (
-  echo   Tauri CLI niet beschikbaar — browser dev fallback op http://localhost:1420
+set "BACKEND_EXE=%ROOT%\backend\dist\novatts-backend.exe"
+if not exist "%BACKEND_EXE%" (
+  echo   backend\dist\novatts-backend.exe ontbreekt — PyInstaller bouwt hem nu, dit kan enkele minuten duren...
+  "%PY%" -m PyInstaller --version >nul 2>&1
+  if errorlevel 1 (
+    echo   pyinstaller staat niet in de venv — eenmalig installeren, daarna werkt dit automatisch...
+    "%PY%" -m pip install pyinstaller
+  )
+  if not errorlevel 1 (
+    pushd "%ROOT%\backend"
+    "%PY%" -m PyInstaller Novabackend.spec --noconfirm
+    popd
+  )
+  if not exist "%BACKEND_EXE%" echo   LET OP: de backend-exe kon niet worden gebouwd — de GUI start zonder Tauri-shell.
+)
+
+set "EXE_READY=0"
+if exist "%BACKEND_EXE%" set "EXE_READY=1"
+
+REM Eén beslispunt, zodat de route hiervandaan uit te lezen is. De takken hieronder
+REM vragen elkaar anders, en dan is "welke route?" een raadsel voor wie dit leest.
+set "USE_TAURI=0"
+if "%TAURI_READY%"=="1" if "%EXE_READY%"=="1" set "USE_TAURI=1"
+
+REM Eerst uitleggen waarom we terugvallen, dan pas terugvallen. Zo staat de reden
+REM boven het venster in plaats van erna, en blijft de OpenTauri-tak schoon.
+if "%USE_TAURI%"=="0" (
+  if "%TAURI_READY%"=="0" echo   Tauri CLI niet beschikbaar
+  if "%TAURI_READY%"=="1" echo   backend\dist\novatts-backend.exe ontbreekt
+  echo   Browser dev fallback op http://localhost:1420 ^(Perfect Cut is alleen in de Tauri-shell^)...
+)
+
+REM Vanaf hier gaat er een venster open. De regels hierboven zijn beslissingen en
+REM meldingen, en die zijn in een harnas te toetsen; de onderstaande niet.
+if "%USE_TAURI%"=="0" (
   if "%MODE%"=="hidden" (
     start "" /B cmd /c "cd /d "%ROOT%\gui" && npm run dev > "%ROOT%\gui.log" 2>&1"
   ) else if "%MODE%"=="visible" (

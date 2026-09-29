@@ -206,27 +206,43 @@ NovaTTS leest gametekst, maar is zelf géén Textractor. Dat is een losse
 installatie, en dat is het enige dat je handmatig moet doen. De koppeling is in
 beide richtingen belangrijk:
 
-- **NovaTTS is de server.** Het bindt `127.0.0.1:6677`.
-- **LunaTranslator is de client.** Die verbindt *naar* NovaTTS toe.
+- **Standaard is NovaTTS de server.** Hij bindt `127.0.0.1:6677` en de hook
+  verbindt zich ernaartoe.
+- **Maar sommige hooks zijn zelf de server.** `textractor_websocket` opent
+  zelf een websocket op 6677 en stuurt de tekst naar alle verbonden clients.
+  Daar draai je het om met `NOVATTS_LUNA_WS_URL`; dan verbindt NovaTTS zich.
 
 Stappen:
 
 1. Start NovaTTS (`start_all.cmd`). Het log zegt welk adres hij gebruikt; met de
    standaardconfiguratie is dat `ws://127.0.0.1:6677`.
-2. Installeer LunaTranslator. In de map `extensions` van LunaTranslator staat
-   `textractor_websocket_x64.xdll` — die voeg je toe via
-   `Extensions` → `Add`.
-3. Zet in die extensie het adres uit stap 1 en laat vertaling **uit**: NovaTTS wil
-   de oorspronkelijke regel.
-4. Start Textractor op je spel. De Hook-kaart in het dashboard hoort dan een
-   client te tonen.
+2. **Bepaal wie luistert.** Standaard luistert NovaTTS en verbindt je hook zich
+   ernaartoe. Maar `textractor_websocket` doet het omgekeerde: die opent zelf
+   een websocket op 6677 en stuurt de tekst naar alle verbonden clients. In dat
+   geval zet je `NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677` in `backend/.env`, en
+   verbindt NovaTTS zich ernaartoe. De Hook-kaart telt in die tweede vorm geen
+   clients, ook al komen er regels binnen — zie de twee bekende gaps in de
+   README.
+3. Installeer je hook en richt hem op het adres uit stap 1. Laat vertaling
+   **uit**: NovaTTS wil de oorspronkelijke regel.
+4. Start de hook op je spel. De Hook-kaart hoort dan een client te tonen, tenzij
+   je de tweede topologie uit stap 2 gebruikt.
+
+> De eerdere versie van deze stap zei: *"in de map `extensions` van
+> LunaTranslator staat `textractor_websocket_x64.xdll`, die voeg je toe via
+> `Extensions` → `Add`"*. Beide helften zijn onjuist, en beide waren te meten.
+> LunaTranslator levert geen map `extensions` mee, en zijn `Extensions` is een
+> WebView2-**browser**extensiebeheerder (`NativeUtils.py`, `webview2_ext_add`, dat
+> een `manifest.json` wil). Het `Extensions` → `Add extension`-dialoog dat de
+> plugin wél neemt hoort bij `Textractor.exe`; het bestand heet `.dll` en de
+> bestandskiezer staat op `*.xdll`, dus die filter moet omgezet.
 
 Drie dingen die het vaakst tegenzitten, in de volgorde waarin je ze moet
 uitsluiten:
 
 | Symptoom | Oorzaak | Controle |
 |---|---|---|
-| Dashboard blijft `waiting` | LunaTranslator is niet toegevoegd, of het verkeerde adres | de Hook-kaart toont altijd het adres; controleer of LunaTranslator echt verbonden is |
+| Dashboard blijft `waiting` | je hook is niet toegevoegd, luistert niet, of gebruikt het verkeerde adres | de Hook-kaart toont altijd het adres; controleer of er écht verbonden is |
 | Wel verbonden, maar nooit een regel | de hook zit niet aan het **spelvenster** | de kaart waarschuwt hier zodra de verbinding er is zonder dat er iets binnenkomt |
 | Verbinding valt er meteen af | een WinHTTP-proxy onderschept ook loopback | `netsh winhttp show proxy`; oplossen met `netsh winhttp reset proxy` (admin) |
 

@@ -654,7 +654,7 @@ Het simpele recept is één getal (`hook_clients`) en een groen of rood puntje. 
 
 | Toestand | Wat de gebruiker ziet | Wat hij moet doen |
 |---|---|---|
-| Niemand verbonden | `waiting` · *LunaTranslator not connected* | LunaTranslator starten en de `.xdll` op `ws://127.0.0.1:6677` zetten |
+| Niemand verbonden | `waiting` · *hook not connected* | De hook starten en op `ws://127.0.0.1:6677` richten, óf `NOVATTS_LUNA_WS_URL` zetten als de hook juist de server is |
 | Verbonden, nog geen regel | `1 client` · *connected, no line yet* + banner | De hook aan het **spelvenster** hangen (D9) |
 | Regels komen binnen en worden gedropt | `1 client` · *N dropped — synthesis is behind* + banner | Spel pauzeren, of stemlatency omlaag |
 
@@ -772,8 +772,8 @@ helemaal geen NovaTTS is. Dus:
 | De waarschuwing noemt het pid + `stop_all.cmd` | een melding zonder handeling is een klacht, geen hulp |
 
 Het script leest `NOVATTS_HOOK_PORT` / `NOVATTS_HOOK_MODE` uit `backend\.env` in plaats van
-vaste waarden, en meldt ná de wachttijd wat er werkelijk gebeurde: welk adres, welke `.xdll`,
-of er al een client aan hing, en `hook_mode=clipboard` zegt hij niets over websockets.
+vaste waarden, en meldt ná de wachttijd wat er werkelijk gebeurde: welk adres, of de poort
+al in gebruik was, of er nog een client aan hing, en `hook_mode=clipboard` zegt hij niets over websockets.
 
 **Over de test:** de blokken zijn uit `start_all.cmd` *gelicht* (op markers) en in echte cmd
 uitgevoerd. Lichten i.p.v. kopiëren is hier de hele truc: een gekopieerd blok
@@ -1141,7 +1141,7 @@ volgorde, en elke stap is zo geschreven dat hij een waarheid-van-het-bare-feit o
 | # | stap | waar te kijken |
 |---|---|---|
 | 1 | start NovaTTS (`start_all.cmd --min`), Hook-kaart op `waiting` | dashboard |
-| 2 | start LunaTranslator, `Extensions → Add → textractor_websocket_x64.xdll`, op `ws://127.0.0.1:6677` | — |
+| 2 | hook installeren en op `ws://127.0.0.1:6677` richten; als de hook zelf de server is, eerst `NOVATTS_LUNA_WS_URL` zetten | — |
 | 3 | 3. Hook-kaart moet `1 client` tonen | dashboard |
 | 4 | open het spel, één regel dialoog | kaart moet naar *connected, no line yet* → dan een regel |
 | 5 | hoor je Rick's **gekloone** stem? | gehoor — het enige wat geen automatisering kan |
@@ -1343,7 +1343,107 @@ ingreep dan het probleem waard is, en het is niet om te draaien.
 - **Geen ruff-uitsluitingen geherevalueerd.** De persoonlijke hulpscripts staan
   nog in de repo, dus de enige uitsluiting (`convert_vox_to_clone.py`, E701/E702)
   is nog steeds nodig. Niets te doen.
-- **Niets gepusht.** Zoals bij elke fase.
+- **Niets gepusht.** Zoals bij elke fase tot en met F11 — in F12 is dat om, op uitdrukkelijk verzoek van de gebruiker (zie de F12-sectie).
+
+### ✅ F12 — Het rode lampje, en een documentatie die het verkeerde voorhield *(gereed 2026-09-29)*
+
+De gebruiker meldde dat de Hook-kaart in de draaiende app een rood *niet verbonden*-lampje
+showde. Dat bleek **juist**, en de documentatie bleek **onjuist** — op drie manieren die
+gemeten konden worden en waarvan geen enkele in de richting van "er ontbreekt een bestand" wees.
+
+#### F12 — eerst de aanwijzing nagelopen, want een rode lampje is geen bewijs
+
+Een rood *niet verbonden*-lampje ziet er identiek uit bij drie verschillende oorzaken: de hook
+is er niet, de poort is vrij, of er draait helemaal geen NovaTTS. Dus eerst de servertak
+end-to-end gemeten met een echte `websockets`-client, en pas daarna de vraag stellen waarómat hij
+in de app rood is.
+
+| stap | gemeten |
+|---|---|
+| verbinden met `ws://127.0.0.1:6677` | `hook_clients` 0 → 1 |
+| frame `{"name":"NovaProef","text":"NovaHookProef 1790695108"}` sturen | `hook_last_raw` = `NovaProef: NovaHookProef 1790695108` |
+| resultaat | `data\cache\806287496feb14c1d4e8eaf76cd8fa68.wav`, 241,964 B |
+| verbinding sluiten | `hook_clients` → 0 |
+
+De servertak werkt dus volledig. Dat is hier het verschil: zonder deze tabel was "er ontbreekt een
+bestand" de aanname, en die aanname bleek ook waar — maar om een reden die de tabel niet voorspelde.
+
+#### F12 — de oorzaak, en een zelfcorrectie die erbij hoorde
+
+De oorzaak: **de hook-extensie bestaat niet op deze machine.** Geen enkel `.xdll` in
+`LunaTranslator_x64` of in de NovaTTS-boom, geen `extensions`-map, en geen Textractor
+(`TransControl.exe`, `GameHook.exe`, `RenameDll.exe`) op D:, `D:\!!Scripts!!` of in Program Files.
+LunaTranslator zelf draait wél (pid 18200). Er draait geen spel.
+
+Mijn eerste verklaring was dat de GUI met een andere NovaTTS-installatie praatte. Die bleek **fout**,
+en het weerlegde zich met één `/status`-antwoord: zes velden — `hook_last_raw`, `hook_dropped`,
+`file_watch_path`, `file_last_raw`, `hook_mode`, `file_watch` — komen alle zes alleen voor in
+`backend/novatts/main.py` van déze worktree, komen alle zes niet voor in
+`D:\Projects\NovaTTS\backend\novatts\main.py`, en kwamen alle zes wél terug in het live antwoord.
+De GUI praat dus met de LunaHook-code. Dat is §12.15 in een nieuwe vorm: een verklaring die plausibel
+klinkt en die één veldwaarde kostte om te weerleggen.
+
+#### F12 — de documentatie had de topologie omgekeerd (D39)
+
+De bewering die het rode lampje veroorzaakte had ik in F7 zelf geschreven (`git blame` → `0a4f52d`,
+geen voorouder van `pre-luna`). D28 stond al in dit document en was op precies die tekst niet
+toegepast. De bewering bleek op drie meetbare manieren onjuist:
+
+| bewering | wat de meting vond |
+|---|---|
+| LunaTranslator heeft een `extensions`-map met de hook | de installatie heeft 8 top-level items en géén `extensions`-map |
+| `class Extensions` laadt Textractor-plugins | `LunaTranslator/NativeUtils.py:710-733` is een **WebView2**-extensionbeheer: `webview2_ext_add/list/enable/rm`, en `Manifest_Info` leest `manifest.json`, `icons` en `options_ui` uit `EBWebView/Default/Secure Preferences` |
+| zo heet het bestand en zo heet het menu | `textractor_websocket_x64.dll` (geen `.xdll`), en `Extensions → Add extension` hoort bij **Textractor.exe**, niet bij LunaTranslator |
+
+De kern: `textractor_websocket` **opent zelf een WebSocket lokaal op poort 6677 en stuurt de tekst
+naar alle verbonden clients**. Textractor is dus de **server** en NovaTTS de client, terwijl de hele
+map het omgekeerde zei en NovaTTS standaard als server opstart en op een client wacht. Beide kanten
+blijven ondersteund — `NOVATTS_LUNA_WS_URL` draait hem om — dus de documentatie beschrijft nu beide
+kanten in plaats van de default stilzwijgend om te draaien (D39).
+
+#### F12 — clientmodus gemeten, en twee gaten vastgespeld
+
+`_client_loop` (`adapters/luna.py:493-520`) wordt gekozen door `if self.ws_url:` in `_run` (regel 466).
+Deze tak had **geen enkele test**. Met een `_FakeHook`-serverdouble en `TestClientRoundTrip` wel, en
+die vonden twee echte defecten. Beide zijn gemeten, en beide zijn **vastgespeld in plaats van
+gefixt**, want elke verandering verdient haar eigen geteste wijziging:
+
+| gat | meting | oorzaak |
+|---|---|---|
+| `client_count` blijft altijd 0 | tekst komt binnen, de teller staat op 0, de kaart toont het rode lampje | `_clients` wordt alleen in `_handle_client` bijgewerkt (regels 532/542) en die functie bestaat niet in clientmodus |
+| `stop()` stopt de client-lus niet | `stop()` duurde **5,00 s** — precies de join-timeout — en de draad leefde nog, terwijl `is_running()` al `False` zei | `_client_loop` leest `self._stop` alleen in zijn `except`-tak; de `async for message in websocket` in `_pump` ziet hem nooit |
+
+Het eerste scenario dat ik mat sloot de verbinding na elk frame en deed er 0,20 s over — "diep in de
+gaten". Het geval dat breekt is een verbinding die **open en stil** staat. Dat is §12.24: een
+testdouble dat maar één uitkomst kan produceren is een bewijs over de andere helft.
+
+#### F12 — drie mutaties, en één test die een hele lus bewaakt
+
+Elke mutatie had een must-fail- én een mag-niet-vallen-lijst (§12.23):
+
+| mutatie | verwacht | gemeten |
+|---|---|---|
+| `if self.ws_url:` → `if False:` | alle clientmodus-tests rood, géén server-test | **7 FAIL**, precies de clientmodus |
+| `while self._running:` → `for _eenkeer in (0,):` | **precies 1** FAIL | **1 FAIL** — `test_it_reconnects_when_the_hook_drops_the_connection` bewaakt dus de hele retry-lus |
+| `self._clients += 1` → `+= 0` | de tellerstest | **2 FAIL** |
+
+Twee dingen hieruit die nergens anders staan. De derde mutatie legde een **bestaand** gat bloot:
+`TestServerRoundTrip::test_client_count_tracks_connections` assertte alleen 0 → verbinden → 0, en kon
+dus een teller detecteren die nooit meet; die test telt nu `client_count` vanuit de open verbinding mee.
+En de tweede kolom bevat een les over de keuze van de mutant: `while False` op dezelfde plek gooide er
+**nul** tests om en gedroeg zich als mutatie 1 — hij verbond simpelweg nooit. Zonder mag-niet-vallen-lijst
+had ik dat als "niet gedetecteerd" opgeschreven, terwijl het twee verschillende mutaties waren.
+
+#### F12 — wat er níét in deze fase zat
+
+- **De twee clientgaten niet gefixt.** Ze zijn reëel en één ervan maakt de Hook-kaart misleidend in
+  clientmodus, maar elk verdient zijn eigen geteste wijziging i.p.v. een bijvangst van een docfix.
+- **Stap 2 van de F8-checklist niet herschreven, wel onuitvoerbaar verklaard:** de extensie is hier
+  niet aanwezig, dus "hoort er tekst binnen via de echte hook" blijft onbewezen.
+- **Geen `.xdll` in de instructies achtergelaten.** Het bestand heet `textractor_websocket_x64.dll`.
+- **`LunaTranslator_x64/` in `.gitignore`** (816 bestanden, 141,5 MB). Het is een installatie, geen bron.
+- **Niets gepusht in F0 t/m F11. In F12 wél, op uitdrukkelijk verzoek van de gebruiker** — dat keert
+  de eerdere instructie om, en daarom staat het hier en niet stilzwijgend.
 
 ---
 
@@ -1362,18 +1462,18 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 > Drie regels hieronder staan bewust **niet** op ✅. Ze staan open omdat ze waar zijn, en een DoD die groen gemaakt is door de regel te verzachten is geen DoD. Welke het zijn en waarom staat er: de module-limiet van 500 regels, de duurtest van een uur, en het punt dat een mens moet beoordelen of een stem goed klinkt.
 
 ### Functioneel
-- ⚠️ LunaTranslator + `textractor_websocket_x64.xdll` → `ws://127.0.0.1:6677` levert `Rick It's 2 parts.` → NovaTTS speelt **Ricks** gekloonde stem, geen leak naar andere speakers — **bewesen:** het ws-pad end-to-end (F8, echte `websockets`-client, unieke tekst → nieuw aud-bestand), de stemparameter bereikt het model (dezelfde tekst gaf twee verschillende cache-hashes), en *geen* leak want `Rick` wordt bij een gokte naam níet geregistreerd (D15). **Niet bewezen:** (a) dat Textractor deze frames écht produceert — geen spel en geen LunaTranslator in deze omgeving; (b) of de stem subjectief *goed* klinkt. (a) staat als stap 1–4 en (b) als stap 5 in de F8-checklist
+- ⚠️ De ws-route levert `Rick It's 2 parts.` → NovaTTS speelt **Ricks** gekloonde stem, geen leak naar andere speakers — **bewesen:** het ws-pad end-to-end (F8, echte `websockets`-client, unieke tekst → nieuw aud-bestand), herhaald in F12 met een protocol-proef (`hook_clients` 0 → 1 → 0, `hook_last_raw` gezet, WAV van 241,964 B); de stemparameter bereikt het model (dezelfde tekst gaf twee verschillende cache-hashes); en *geen* leak want `Rick` wordt bij een gokte naam níet geregistreerd (D15). **Niet bewezen:** (a) dat Textractor deze frames écht produceert — de hook-extensie staat niet op deze machine en er draait geen spel (F12); (b) of de stem subjectief *goed* klinkt. (a) staat als stap 1–4 en (b) als stap 5 in de F8-checklist. **En de topologie stond in alle documentatie omgekeerd** (D39): `textractor_websocket` is de *server* en NovaTTS de client, dus juist bij dat gebruik hoort `NOVATTS_LUNA_WS_URL`, en `ws://127.0.0.1:6677` is in de andere richting NovaTTS' eigen poort
 - ✅ Zelfde regel als JSON `{"name": "Rick", "text": "..."}` → speaker **Rick** (G3.1) — F8 stuurde `{"name":"Anne","text":"Good night babe!"}` over de ws en `Anne` verscheen in `/speakers`. De naamwaarde maakt niet uit, dus dit is dezelfde regel. De wire-shapes zitten ook in F2's unittests
 - ⚠️ Multi-spreker `"Anne Hallo! Rick Mooi."` → 2 aparte turns met 2 stems, in volgorde (G3.2) — **de 2 turns in volgorde zijn bewezen** (F8: `Anne: 'Hallo!'` en `Rick: 'Mooi.'`, in die volgorde). **“2 stems” is niet bewezen**, want op dat moment had geen van de sprekers een stem toegewezen, dus beide vielen terug op dezelfde. Wat wél bewezen is dat elke beurt een eigen speaker-veld heeft; de 2-stems-stap vraagt dezelfde `PATCH /speakers` als de stembewijs-meting uit F8
 - ✅ Narratie (`You have your shower.`, `Good night babe!`, `Meanwhile, back at…`) wordt **nooit** een speaker — `test_narration_registers_nothing` (gate) plus vier parserpinnen. Let op: dit gaat over *narratie wordt geen spreker*. Een ander, zwakker punt is wél waar en staat elders: interpunctie-afval wordt wél gesproken (F8)
 - ✅ RenPy-clipboard op `hook_mode=both` blijft 100% werken (geen regressie op Main) — F8, vóór de default-omzetting: 3 unieke RenPy-regels op het klembord → 3 WAV's van 1.4–2.4 s. En ná de omzetting nog eens, in `hook_mode=clipboard`: legacy-adapter start, poort 6677 blijft vrij, de log noemt `legacy_clipboard`
 - ✅ `NOVATTS_FILE_WATCH=1` levert tekst als de ws en clipboard stil zijn — F5: een dunne staart over dezelfde `HookTextProcessor`, 33/33 mutanten
-- ✅ `GET /status` toont `hook_mode` + een correcte `hook_clients` — F6 (9 tests, 3/3 mutanten) en F8 live: `hook_clients` 0 → 1 → 0 na het weghalen van de client, en de route zonder adapter geeft de getallen van de adapter die níet draait
+- ⚠️ `GET /status` toont `hook_mode` + `hook_clients` — **alleen in servermodus correct.** F6 (9 tests, 3/3 mutanten) en F8 live: 0 → 1 → 0 na het weghalen van de client, en de route zonder adapter geeft de getallen van de adapter die níet draait. **F12 mat het tegenovergestelde in clientmodus:** daar blijft de teller op 0 terwijl er wél tekst binnenkomt, want `_clients` wordt alleen in `_handle_client` bijgewerkt (`adapters/luna.py:532/542`) en die functie bestaat daar niet — de kaart toont dan het rode *niet verbonden*-lampje mét een werkende verbinding. Vastgespeld in `TestKnownGaps`, niet gefixt
 - ✅ Per-game switch behoudt Luna-geschiedenis per game — `test_main_wiring.py`, per-game registry swap
 - ✅ `stop_all.cmd` doodt backend + GUI + tts-server, op **8765** — F0 herstelde G5.1/G5.2/G5.3; F7 meet de cmd-gevallen, maar de "13/13" is teruggezet naar **8/8** na herwaardering: het harnas dat over is telt acht gevallen en was stuk op drie manieren die een schijn van dekking gaven in plaats van een fout. Zie de F7-testsectie hierboven
 
 ### Kwaliteit
-- ✅ `pytest` groen — **7 bestaande suites + nieuwe Luna-suites**, 0 regressies — **370 passed** (F0: 105 → F8: 355 → F9: 370)
+- ✅ `pytest` groen — **7 bestaande suites + nieuwe Luna-suites**, 0 regressies — **377 passed** (F0: 105 → F8: 355 → F9: 370 → F12: 377). F10 en F11 hielden 370 opzettelijk vast, want daar viel geen regel productiecode om te schrijven
 - ✅ `ruff check` + `mypy --strict` + `npm run build` + `npm run check` groen — 0 / 0 in 33 bestanden / build ok / svelte-check 0 en 0
 - [⚠️] `main.py` blijft < 1100 regels; elk nieuw module < 500 regels (`ULTIMATE_PROMPT.md` §2) — **de eerste helft klopt, de tweede niet.** `novatts/main.py` 1041 (limiet 1100, ✅); `novatts/parser/luna.py` **774** (❌); `novatts/adapters/luna.py` **516** (❌); `gate.py` 174 en `registry/speakers.py` 191 (✅). De limiet is niet gehaald en ga ik niet stilletjes aanpassen: eronder zit waarschijnlijk dat `parser/luna.py` in F2 van 11 naar 774 groeide omdat de multi-sprekersplit daar hoort, en `luna.py` in F3 en F5. De limiet is een maatstaf voor vindbaarheid en die is per bestand niet gehaald. **Beslissing voor de gebruiker, geen opruimwerk:** opsplitsen is omkeerbaar maar kost tijd, en beide bestanden zijn nu elk goed te lezen — laag-indeling en een docstring die de lagen benoemt
 - ✅ `adapters/luna.py` **dood de event loop niet** tijdens synthese (G4.1) — aantoonbaar: 2 gelijktijdig verzonden regels komen allebei door — `test_luna_adapter.py:536` stuurt twee frames en het tweede wordt verwerkt terwijl het eerste nog synthetiseert
@@ -1473,6 +1573,15 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D38** ✅ | **Een meetinstrument dat een gat melden kan is gevaarlijker dan een meetinstrument dat niets zegt.** | F9. Twee keer meldde een harnas een tekort dat er niet was. Eerst zocht het met een regex naar `<naam>…FAILED` terwijl pytest `FAILED…<naam>` schrijft, dus het vond niets terwijl de samenvatting erboven gewoon "1 failed" zei. Later zette ik `test_load_tolerates_a_null…` in de must-fail-lijst van mutatie C omdat hij thematisch hoorde — maar die test assertiont `== ""`, en zowel de kapotte als de goede code leveren exact `""`, dus hij kon C structureel niet zien. In beide gevallen was de **verwachting van het harnas** fout, niet de code. Een harnas dat teveel kan zien leidt tot een fix die niet nodig is; een harnas dat te weinig kan zien leidt tot een fix die ontbreekt. Daarom: elke mutatie heeft een must-fail- én een mag-niet-vallen-lijst, en een regel "NIET omgevallen" is een uitkomst om te onderzoeken, niet iets om weg te filteren. |
 
 
+### 9.10 Uit F12 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D39** ✅ | **De gedocumenteerde topologie was omgekeerd, en de documentatie beschrijft nu beide kanten in plaats van de default stil om te draaien.** `textractor_websocket` opent zelf een WebSocket op poort 6677 en stuurt naar alle clients: Textractor is de **server**. NovaTTS start standaard als server. | F12. Beide kanten blijven ondersteund, dus dit is een documentatie- en meetcorrectie, geen gedragswijziging: `NOVATTS_LUNA_WS_URL` draait de richting om. De correctie is **niet** "de default omdraaien" — dat zou de F8-meting van de serverkant vervalchen, en die is de enige die end-toend bewezen is. Vastgelegd omdat de foute bewering plausibel blijft: ze is in zeven bestanden plausibel, en de volgende agent die één ervan leest heeft geen reden om hem te wantrouwen. |
+| **D40** ✅ | **Een testdouble moet beide uitkomsten van de onderzochte conditie kunnen produceren.** | F12. De eerste `stop()`-meting gaf 0,20 s en *"diep in de gaten"*; de echte meting gaf 5,00 s — precies de join-timeout — met een levende draad. Het verschil was de double: hij sloot de verbinding na elk frame en nam daarmee de tak die wél op `self._stop` let. De stil-open verbinding is het geval dat breekt. Zelfde regel als §12.14, maar dan toegepast op de **meetapparatuur** in plaats van op de code — en herkenbaar aan een uitkomst die te mooi is. |
+| **D41** ✅ | **Een vastgespeld gat assert de huidige gebroken toestand, niet de gewenste.** | F12. De eerste versie assertte het gedrag dat de fix zou opleveren, waardoor de test meteen rood was en dus niets vastspelde maar alleen herinnerde. Nu zegt de test wat er moet gebeuren zodra hij omvalt: *"gaplijst gesloten: …"*. Dat is het omgekeerde van §12.9 — het aantal tests dat een fase toevoegt is geen maatstaf, en een test die bewijst dat een gat nog bestaat is een opdracht aan de volgende agent, geen last. |
+
+
 ---
 
 ## 10. Baseline-logboek
@@ -1529,6 +1638,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F9 | *"F9: opruimen…"* | **370 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 355 → 370: 15 tests voor G5.5. **De +15 maskeerden een bug**: de instructie-tests bewzen het geheugen en het bestand, en zagen niet dat `_load()` het veld niet teruglas — 370 groen en het product stuk. Gevonden door de herstart-meting, niet door de suite (D37). Daarnaast G5.4/G5.5/G5.6/G5.7/G6.2/G6.3 herwaardeerd (4 van de 6 lagen al afgehandeld), `data/speakers.json` uit de tracking (D36), en de `description` naar `(LunaHook/RenPy/Qwen3)`. 33/33 mutanten. **G5.5 bleek vier lagen, niet één** — en de vijfde is een featuregat, bewust niet dichtgezet. |
 | 2026-09-29 | F10 | *"F10: regeleindes…"* | **370 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | **370 → 370, opzettelijk**: nul regels Python en nul regels GUI, alleen `.gitattributes` en twee documenten. Nul runtime-impact is hier het *punt*, want de wijziging hoort de uitkomst niet te raken. De `.gitattributes` kreeg de vorm van de hele working tree vastgelegd in het project in plaats van in de globale `core.autocrlf` van de gebruiker (§12.18). Dat leverde twee bestanden op die stuk waren en daar niets van wisten: `setup.sh` met `#!/bin/bash\r` in de shebag, en een `Makefile` waarvan **alle 88** receptregels een CR droegen terwijl `INSTALL.md` `make dev` voorschrijft. 136 paden geteld in plaats van vijf: nul afwijkingen. En de uitschrijfactie vier keer herhaald onder verschillende `core.autocrlf`-standen, met identieke uitkomst — de sterkere claim dan "het werkt hier". Het functionele bewijs dat een CRLF-script breekt is hier **niet** te leveren: Git Bash op Windows stript de CR bij lezen, dus wat hier aantoonbaar was is de byte-toestand, en wat daarop volgt is POSIX- en make-semantiek. |
 | 2026-09-29 | F11 | *"F11: een lege map…"* | **370 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | Ontstaan doordat iemand `start_all.cmd --min` draaide en vroeg of de CMD kapot was. **Het script was niet kapot; de melding was onjuist.** `start_all.cmd` testte `gui\node_modules`, een map die dit project nooit vult: de root `package.json` heeft `"workspaces": ["gui"]`, dus npm hoist alles naar `node_modules\.bin` in de root. De test vuurde dus bij élke start, meldde een ontbrekende install en draaide daarna een `npm install` die "up to date" zegt en niets verandert (gemeten: 0,8 s, geen `gui/node_modules` erna, lockfiles schoon). Het script sprak zichzelf tegen, want het tauri-blok eronder kijkt wél op beide plekken. Vervangen door een test op een echt binair (`vite.cmd`) op beide plekken, plus een waarschuwing wanneer de install de zaak niet repareert. **5/5 cmd-gevallen, en het discriminatiebewijs is meegeleverd: de oude conditie haalt 2 gevallen om, de nieuwe 0** — anders beweest 5/5 niets. Het F7-cmd-harnas bleek onderweg **stuk op drie manieren zonder één fout te geven** (verouderde slotmarker die op hing · `call :label` met regeleinden, wat een grondige cmd-beperking is · `STUB_PORT` pas ná het bouwen van de stub); de claim "13/13" is teruggezet naar 8/8, zie de F7-testsectie. Eén correctie op mezelf, want de tussenmeting loog om de eindstand: een meting halverwege gaf **364 + 6 rode tests** en dat stond bijna in dit document als de uitkomst, terwijl de eindmeting **370 groen** geeft. Die 6 waren de bekende omgevingsgroep — Open WebUI, een `python`-proces, op 8080 waar `NOVATTS_QWEN_URL` wijst, `405` op `/v1/audio/speech` — en de eindmeting zag ze niet omdat de poort inmiddels vrij was. Twee metingen, twee uitkomsten, één oorzaak: de omgeving, niet de code. |
+| 2026-09-29 | F12 | *"F12: het rode lampje…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 370 → 377: 4 clientmodus-tests plus 3 vastgespelde gaten. **Deze fase voegde geen functionaliteit toe maar trok een documentatie-claim onderuit die op zeven plekken stond en op alle zeven fout was** — `textractor_websocket` is de *server* en NovaTTS de client, dus de hele setup stond om (D39). De rode lampje-melding is eerst zelf nagegaan in plaats van aangenomen: de serverkant bleek end-to-end werkend (echte `websockets`-client, `hook_clients` 0→1→0, WAV van 241,964 B) en de oorzaak was dat de extensie niet geïnstalleerd is. Twee zelfcorrecties: de GUI praat wél met déze worktree (zes `/status`-velden die alleen in deze code bestaan), en ik had "geen LunaTranslator in deze omgeving" geschreven terwijl die wél draaide. Clientmodus had nul tests en leverde twee echte gaten op, beide gemeten en beide **vastgespeld in plaats van gefixt**. Drie mutaties met must-fail én mag-niet-vallen; de derde legde een bestaande teller-test bloot die een teller die nooit meet niet kon zien. `npm run build` gemeten **schoon** voor de Tauri-schema's, dus de LF-vervuiling komt van de Tauri-CLI en niet van de build-gate. `LunaTranslator_x64/` in `.gitignore`. **Gepusht**, op uitdrukkelijk verzoek — tot en met F11 was er in geen enkele fase gepusht. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -1559,6 +1669,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F9 Opruimen | ✅ | `vntts/` en G5.8 al in F0. **G5.5 bleek vier lagen diep** (toewijzing · `SpeakerPatchBody` · endpoint · `_load()`), niet één zoals de audit noteerde; de vierde vond alleen een echte herstart-meting, met 370 groene tests erboven (D37). Een vijfde laag bleek een *featuregat* — niets gebruikt `Speaker.instruct` voor synthese — en is bewust niet dichtgezet, want dat is een ontwerpbeslissing. 4 van de 6 herwaardeerde checklistregels lagen al afgehandeld zonder dat iemand dat bijhield (D35). `data/speakers.json` uit de tracking met de geschiedenis ongemoeid (D36). Twee DoD-regels bewust **niet** op ✅ gezet: de module-limiet van 500 regels wordt gehaald door twee van de vier nieuwe modules niet, en de duurtest is nooit gedraaid. |
 | F10 Regeleindes | ✅ | Buiten de featurelijn: het gevonden gat was dat de vorm van de working tree in het gitprofiel van één gebruiker stond in plaats van in het project. `.gitattributes` legt nu vast dat tekst CRLF op schijf staat, met `*.sh`/`Makefile`/`*.mk` als uitzondering op LF. Dat vond twee bestanden die kapot waren zonder dat iets dat merkte: `setup.sh` (shebag met CR) en de `Makefile` (88/88 receptregels met CR, terwijl `INSTALL.md` `make dev` voorschrijft). Geteld over 136 paden, nul afwijkingen; de uitschrijfactie viermaal herhaald onder verschillende `core.autocrlf`-standen met identieke uitkomst. **370 → 370 tests, want er viel geen regel productiecode om te schrijven** — en dát is hier de bewering die gemeten moest worden, want een `.gitattributes` hoort de uitkomst niet te raken. Het functionele bewijs dat CRLF een bash-script breekt is hier niet te leveren (Git Bash stript de CR); wat gemeten is, is de byte-toestand. Details in §12.18. |
 | F11 De valse alarmmelding | ✅ | Ontstaan doordat iemand `start_all.cmd --min` draaide en vroeg of de CMD kapot was. Het script was niet kapot, de melding wel: de controle vroeg naar `gui\node_modules`, een map die een npm-workspace nooit vult. Dus iedere start meldde een ontbrekende install en draaide daarna een install die niets doet. Het script sprak zichzelf tegen, want het tauri-blok eronder kijkt wél op beide plekken. Vervangen door een controle op een echt binair, plus een waarschuwing wanneer de install niet helpt. **5/5 cmd-gevallen, met discriminatie: de oude conditie haalt er 2 om.** Onderweg bleek het F7-cmd-harnas **stuk zonder één fout te geven** — verouderde marker (hing op), `call :label` met regeleinden (onmogelijk in cmd), en `STUB_PORT` te laat toegewezen (bezette tak nooit getest) — dus de "13/13" is teruggezet naar 8/8 (§12.19, en de F7-testsectie). **370 tests**, want er viel geen regel Python of GUI om te schrijven. |
+| F12 Het rode lampje | ✅ | Ontstaan uit een gebruikersmelding: de Hook-kaart liet een rood *niet verbonden*-lampje zien. **Dat was correct, en de documentatie was fout.** Eerst de aanwijzing zelf nagegaan (§12.24) — de serverkant bleek end-to-end werkend met een echte client. Oorzaak: de hook-extensie staat niet op deze machine, en LunaTranslator draait wél. Onderweg twee zelfcorrecties: de GUI praat wél met déze worktree, en de eerdere zin "geen LunaTranslator in deze omgeving" was onwaar. **De topologie stond om** — `textractor_websocket` is de server, NovaTTS de client (D39) — en zeven foute claims in vier bestanden plus `start_all.cmd` zijn hersteld en per stuk geverifieerd. Clientmodus had nul tests en leverde twee echte gaten op: `client_count` blijft 0, waardoor de kaart misleidend is terwijl er tekst binnenkomt, en `stop()` duurt de volle join-timeout bij een stille open verbinding. Beide **vastgespeld, niet gefixt**. Eén bestaande teller-test bleek onvoldoende en is versterkt. **370 → 377 tests.** |
 
 ---
 
@@ -1638,6 +1749,8 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 
     Wat een bestaande working tree betreft: git schrijft een bestand pas opnieuw uit als de inhoud wijkt, dus een map die al open staat houdt de oude vorm tot je er iets in verandert of het bestand weghaalt en terugzet. Op een verse clone klopt het meteen. En de regels moeten niet zorgen voor de vorm van bestanden die git niet bijhoudt — `.env`, `data/cache`, de venv; die hebben hun eigen weg.
 
+En de omgekeerde richting heeft dezelfde valkuil, maar dan zichtbaar in `git status` in plaats van in een diff. Een Tauri-run — `npm run dev:tauri` of `npm run build:tauri`, dus de CLI en **niet** `vite build` — herschrijft `gui/src-tauri/gen/schemas/*.json` naar **LF**. De inhoud verandert niet, dus `git diff` is leeg en `git diff --numstat` levert niets op, terwijl `git status` die bestanden wél als gewijzigd toont en git er bij elke git-operatie bij zegt *"LF will be replaced by CRLF"*. Dat is regel 18 die correct werkt: de gegenereerde bestanden vallen onder `* text=auto eol=crlf` en de CLI schrijft ze met LF. Opruimen kan niet met `git checkout --`, want git slaat een bestand waarvan de index-stat klopt over — weghalen en terugzetten is de enige route. Gemeten: `npm run build` laat de mtime **ongeraakt** en de status schoon, dus de vervuiling komt van de Tauri-CLI en niet van de build-gate.
+
 19. **Nooit een pad testen; test of iets dat nodig is aanwezig is.** F11: `start_all.cmd` vroeg `if not exist "%ROOT%\gui\node_modules"` en meldde bij elke start dat de install ontbrak. Het pad klopt niet met de architectuur — de root `package.json` heeft `"workspaces": ["gui"]`, dus npm hoist alles naar `node_modules\.bin` in de root en vult `gui\node_modules` nooit. De melding was dus structureel onjuist, en de `npm install` die erop volgde bevestigde dat: 0,8 s, "up to date", geen `gui\node_modules` erna, lockfiles schoon. Het script sprak zichzelf tegen, want het tauri-blok verderop kijkt wél op beide plekken.
 
     Het patroon is niet "gebruik `--root` in plaats van `--cwd`". Het is: **een pad dat je nooit hebt aangemaakt is geen bewijs van een ontbrekende install**, en de vraag die je stelt moet dezelfde zijn als de vraag die je beantwoordt. "Is er een install?" beantwoord je met het ding dat je nodig hebt, niet met de map die je zou aanmaken.
@@ -1655,4 +1768,11 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
     - `call :label "a<newline>b"` geeft alleen de eerste regel door; de rest ontsnapt en wordt als commando uitgevoerd. Alle vijf meerregelige gevallen leverden dus een `.env` van één regel, en failden daarna met `NOVATTS_HOOK_PORT is not recognized` — een fout die naar het script wijst terwijl de oorzaak in het harnas zat.
 
     Ook dit hoort erbij: het F7-harnas hing op een **verouderde marker** (een commit herschreef één woord in de regel waar de marker naar zocht) in plaats van te melden dat de marker niet meer klopt. Een harnas dat stil ophoudt te meten is erger dan een harnas dat faalt. Dus twee regels erbij, die in beide harnassen staan: tel de getilde regels en meld een te korte lift als fout, en gebruik een marker die op een **structuurkenmerk** eindigt in plaats van op de volledige tekst — de eerste achttien tekens, niet de hele regel.
+20. **Nooit een doc-claim in één bestand zetten en hem in de rest van de map herhalen — grep de scripts mee.** F12 vond een door mijzelf geschreven bewering die op zeven plekken stond en op alle zeven fout was: `README.md`, `INSTALL.md`, `backend/.env.example`, dit document (vier plekken) en `start_all.cmd`, dat hem bij élke start op de console zette. Alleen de docs herstellen zou het probleem in de console hebben laten staan. D28 gold dus wel, maar paste niet op precies de tekst die de regel had opgeleverd. De regel is: **één bewering op meerdere plekken is één ongemeten bewering**, en het grep-commando hoort over `*.md`, `*.example` én `*.cmd`/`*.ps1` te lopen. Een script dat een verkeerde instructie print is lastiger te vinden dan een verkeerde alinea, en de gebruiker leest de console vaker dan de README.
+
+21. **Nooit een testdouble bouwen dat maar één uitkomst van de onderzochte conditie kan produceren.** F12: de eerste `stop()`-meting gaf 0,20 s en *"diep in de gaten"*, terwijl de echte meting 5,00 s gaf — precies de join-timeout — met een levende draad erna. Het verschil was de double: hij sloot de verbinding na elk frame en nam daarmee de tak die wél op `self._stop` let. Het geval dat breekt is een verbinding die **open en stil** staat. Dit is §12.14 toegepast op de meetapparatuur in plaats van op de code: **een double die de helft van de uitkomsten niet kan maken, is een bewijs over de helft die het wél kan maken.** En het is te herkennen aan een uitkomst die *te* mooi is — die is het moment om naar de conditie te kijken in plaats van door te meten.
+
+22. **Nooit een vastgespeld gat laten slagen op de gewenste toestand — speld de huidige toestand vast.** F12: de eerste versie van de `TestKnownGaps`-regels assertte het gedrag dat de fix zou opleveren, waardoor de test meteen rood was en dus niets vastspelde maar alleen herinnerde. Nu asserten ze de kapotte toestand, met een bericht dat zegt wat er moet gebeuren zodra de test omvalt: *"gaplijst gesloten: …"*. Dat is het omgekeerde van §12.9: het aantal tests dat een fase toevoegt is geen maatstaf, en een test die bewijst dat een gat nóg bestaat is een opdracht aan de volgende agent, geen last.
+
+23. **Nooit een mutant noemen als gedetecteerd zonder te zeggen wat er níét mag omvallen.** D38 voegde de mag-niet-vallen-lijst toe omdat een harnas een gat kan melden dat er niet is. F12 leverde de spiegelbeeldregel: **een must-fail-lijst zonder mag-niet-vallen-lijst accepteert elke mutatie die de suite rood maakt**, ook een die een heel ander deel van de code sloopt. Gemeten: `while self._running:` → `for _eenkeer in (0,):` moest precies één test omgooien, en gooide er precies één om. Maar `while False` op dezelfde plek gooide er **nul** om en gedroeg zich alsof hij onschuldig was — hij verbond simpelweg nooit, dus hij deed hetzelfde als mutatie 1. Zonder mag-niet-vallen-lijst had ik dat als "niet gedetecteerd, dus de test is zwak" opgeschreven, terwijl het twee verschillende mutaties waren. Concreet: twee regels die er hetzelfde uitzien kunnen twee verschillende dingen bewijzen, en alleen de lijst van wat níét mag vallen onderscheidt ze.
 

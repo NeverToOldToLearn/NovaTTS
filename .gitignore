@@ -54,6 +54,11 @@ data/emotion_aliases.json
 NovaTTS-Setup-*.exe
 NovaTTS-Portable-*.zip
 installer/Output/
+# Externe programma's die de gebruiker naast het project zet. LunaTranslator is
+# een eigen installatie (141 MB, 800+ bestanden) en geen deel van deze repo; de
+# uitleg hoe je de hook aansluit staat in INSTALL.md, niet in een map die hier
+# toevallig staat.
+LunaTranslator_x64/
 *.log
 backend/dist/
 # Emitted by the composite tsconfig.node.json that svelte-check reads
