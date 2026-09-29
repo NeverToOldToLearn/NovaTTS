@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api } from "../api";
-  import type { Speaker, SpeakersResponse } from "../types";
+  import type { Speaker } from "../types";
 
   let speakers: Record<string, Speaker> = $state({});
   let voices: string[] = $state([]);
@@ -27,12 +27,16 @@
 
   const load = async () => {
     const [sp, st, vs] = await Promise.all([api.speakers(), api.status(), api.voices()]);
-    speakers = (sp as SpeakersResponse).speakers ?? (sp as Record<string, Speaker>);
+    // sp is typed as the response shape now, so the two casts this used to
+    // need are gone. The backend really does answer {versions, speakers,
+    // fallback} -- api.ts used to declare the on-disk file shape instead,
+    // which is why both casts had to be papered over with `as unknown as`.
+    speakers = sp.speakers ?? {};
     voices = vs.voices ?? st.voices ?? [];
     stale = st.stale_mappings ?? [];
     voiceUsed = (st as unknown as { voice_used_by?: Record<string, string[]> }).voice_used_by ?? {};
     qwenOnline = vs.qwen_online ?? st.qwen ?? false;
-    fallback = (sp as SpeakersResponse).fallback ?? "Narrator";
+    fallback = sp.fallback ?? "Narrator";
   };
   const isStale = (name: string, voice: string) => stale.some((s) => s.speaker === name && s.voice === voice);
 

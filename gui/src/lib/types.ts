@@ -17,6 +17,15 @@ export interface ImportStatus {
   /** Wavs without a pair yet (need server-side extraction). */
   unpaired?: number;
 }
+/**
+ * Which raw_text sources the app started, from `settings.hook_mode`.
+ *
+ * A union rather than `string` so a typo in a component is a type error.
+ * The backend validates the value too and falls back to "both", so this
+ * guards the GUI's own comparisons, not the wire.
+ */
+export type HookMode = "clipboard" | "websocket" | "both";
+
 export interface ServerStatus {
   server: string;
   qwen: boolean;
@@ -31,7 +40,18 @@ export interface ServerStatus {
   current: string | null;
   speaker_count: number;
   qwen_mgr?: QwenMgr;
+  hook_mode?: HookMode;
+  hook_host?: string;
+  hook_port?: number;
+  hook_clients?: number;
+  hook_dropped?: number;
+  hook_last_raw?: string;
+  file_watch?: boolean;
+  file_watch_path?: string;
+  file_running?: boolean;
+  file_last_raw?: string;
 }
+
 export interface QwenMgr {
   managed_running: boolean;
   external_running: boolean;
@@ -91,6 +111,18 @@ export interface SettingsData {
   poll_interval: number;
   qwen_autostart: boolean;
   qwen_auto_import_samples: boolean;
+  // Hook input (LunaHook/Textractor). hook_host is read-only on purpose:
+  // it is the websocket bind address and cannot change without a restart,
+  // so the Settings endpoint does not accept it.
+  hook_mode: HookMode;
+  hook_host: string;
+  hook_port: number;
+  hook_space_form: boolean;
+  hook_dual_hook: boolean;
+  luna_ws_url: string;
+  file_watch: boolean;
+  file_watch_path: string;
+  dedup_window_ms: number;
 }
 
 export interface SettingsResponse {

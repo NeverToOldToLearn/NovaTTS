@@ -1,4 +1,4 @@
-import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, Speaker, SpeakBody } from "./types";
+import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, Speaker, SpeakBody, SpeakersResponse } from "./types";
 
 const BASE = "http://127.0.0.1:8765";
 
@@ -39,7 +39,7 @@ export const api = {
   speak: (body: SpeakBody) =>
     req<{ status: string; file: string }>("/speak", { method: "POST", body: JSON.stringify(body) }),
 
-  speakers: () => req<Record<string, Speaker> & { versions: number; fallback: string }>("/speakers"),
+  speakers: () => req<SpeakersResponse>("/speakers"),
   createSpeaker: (name: string) =>
     req<Speaker>("/speakers", { method: "POST", body: JSON.stringify({ name }) }),
   updateSpeaker: (name: string, patch: Partial<Pick<Speaker, "voice">>) =>

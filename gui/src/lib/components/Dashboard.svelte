@@ -15,6 +15,40 @@
 
   const levelOf = (t: string) => t === "error" ? "error" : t === "queued" ? "info" : t === "speaker_discovered" || t === "unassigned_speaker" ? "warn" : "muted";
 
+  // The hook card reports what the user can act on, not merely whether an
+  // adapter is running. Three states have to be told apart, because each has
+  // a different fix and none of them is visible from "not connected":
+  // nobody is connected (start LunaTranslator), somebody is connected but no
+  // line has arrived (hook not attached to the game window), or lines are
+  // arriving and being dropped (synthesis cannot keep up).
+  //
+  // Plain functions, not $derived, and the reason is measured rather than
+  // stylistic. At component top level TypeScript narrows `status` to `null`
+  // right after `let status: ServerStatus | null = $state(null)`, so *any*
+  // top-level property read off it is a type error -- a plain
+  // `const x = status?.hook_mode` fails exactly as hard as
+  // `const x = $derived(status?.hook_mode)`. Inside a function body the
+  // narrowing of a captured `let` is reset, which is why this works.
+  // (Measured on svelte-check 4 / svelte 5.57 / TS 5.6. The rest of the GUI
+  // never reads $state at top level either -- it puts the expressions in the
+  // template, where they are checked against the declared type.)
+  const hookOn = () => status?.hook_mode === "websocket" || status?.hook_mode === "both";
+  const hookClients = () => status?.hook_clients ?? 0;
+  const hookState = () => {
+    if (!status) return "…";
+    if (!hookOn()) return "off";
+    if (hookClients() > 0) return `${hookClients()} client${hookClients() === 1 ? "" : "s"}`;
+    return "waiting";
+  };
+  const hookDetail = () => {
+    if (!hookOn()) return "";
+    const dropped = status?.hook_dropped ?? 0;
+    if (dropped > 0) return `${dropped} dropped — synthesis is behind`;
+    if (hookClients() === 0) return "LunaTranslator not connected";
+    if (!status?.hook_last_raw) return "connected, no line yet";
+    return "";
+  };
+
   const poll = async () => {
     try {
       health = await api.health();
@@ -57,11 +91,19 @@
 
   <div class="cards">
     <div class="card"><span class="label">Qwen</span><span class="value dot" class:ok={qwen?.online || status?.qwen}>{qwen?.online||status?.qwen?"online":"offline"}</span></div>
-    <div class="card"><span class="label">Clipboard</span><span class="value">{status?.clipboard?"polling":"stopped"}</span></div>
+    <div class="card">
+      <span class="label">Hook</span>
+      <span class="value" class:dot={hookOn()} class:ok={hookClients() > 0}>{hookState()}</span>
+      <span class="hint">{hookDetail()}</span>
+    </div>
     <div class="card"><span class="label">Speakers</span><span class="value">{status?.speaker_count ?? "…"}</span></div>
     <div class="card"><span class="label">Queue</span><span class="value">{status?.queue_size ?? "…"}</span></div>
   </div>
   {#if status?.stale_mappings?.length}<div class="banner">⚠ {status.stale_mappings.length} speaker(s) point to missing voices — fix in Characters.</div>{/if}
+  {#if status?.hook_dropped}<div class="banner">⚠ {status.hook_dropped} hook line(s) dropped — the queue could not keep up with the hook. Pause the game, or lower the voice latency.</div>{/if}
+  {#if hookOn() && hookClients() > 0 && !status?.hook_last_raw}
+    <div class="banner">Hook connected, but nothing has arrived yet. Check that LunaTranslator has the hook attached to the game window.</div>
+  {/if}
 
   <div class="panel">
     <div class="qwen-head"><h3>Qwen engine</h3><span class="mono small url" title={qwen?.qwen_url ?? ""}>{qwen?.qwen_url ?? "—"}</span></div>
@@ -138,6 +180,7 @@
   .err{ color:#e5484d; font-size:0.82rem; margin:0; word-break:break-all; background:#2a1f24; border:1px solid #3a2a2e; border-radius:8px; padding:0.5rem 0.65rem; }
   .hint{ color:#8b8e9a; font-size:0.82rem; }
   .row{ display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
+  .card .hint{ margin-top:0.25rem; font-size:0.76rem; line-height:1.35; word-break:break-word; }
   input,select{ background:#14151a; border:1px solid #343842; color:#e8e8ec; border-radius:9px; padding:0.5rem 0.7rem; font-size:0.88rem; line-height:1.2; }
   input:focus,select:focus{ outline:none; border-color:#4a5aa8; box-shadow:0 0 0 3px rgba(59,75,143,0.25); }
   button{ background:#3b4b8f; color:#fff; border:none; border-radius:9px; padding:0.52rem 1rem; cursor:pointer; font-size:0.88rem; font-weight:550; line-height:1; }

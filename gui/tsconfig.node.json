@@ -6,7 +6,13 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "strict": true,
-    "noEmit": true
+    // Composite projects must emit something; svelte-check complained
+    // about noEmit here on every run. Vite.config.ts is not consumed by
+    // anything downstream, so the build output is discarded rather than
+    // written to a real path.
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "declarationDir": "./.tsbuild"
   },
   "include": ["vite.config.ts"]
 }

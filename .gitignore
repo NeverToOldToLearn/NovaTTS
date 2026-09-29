@@ -50,4 +50,9 @@ NovaTTS-Portable-*.zip
 installer/Output/
 *.log
 backend/dist/
+# Emitted by the composite tsconfig.node.json that svelte-check reads
+# (gui/tsconfig.node.json); nothing consumes it, it only satisfies the
+# composite project rule.
+gui/.tsbuild/
+
 backend/build/

@@ -12,7 +12,7 @@
   <aside class="sidebar">
     <div class="brand">
       <h1>NovaTTS</h1>
-      <span class="brand-sub">Qwen3 · RenPy clipboard</span>
+      <span class="brand-sub">Qwen3 · LunaHook + clipboard</span>
     </div>
     <nav aria-label="Primary">
       <button class:active={tab === "dashboard"} onclick={() => (tab = "dashboard")}>

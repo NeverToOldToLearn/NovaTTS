@@ -505,14 +505,27 @@ class NovaApp:
             "game": self.games.active(),
             "games": self.games.list_games(),
             "clipboard": self.clipboard.is_running() if self.clipboard else False,
+            # The three source routes, each reporting whether its loop is
+            # live. They are deliberately separate fields rather than one
+            # "input: ok" boolean: a user whose game is not RenPy needs to
+            # know which of them to look at. F5 added `filemon`, and a GUI
+            # card that cannot see a route is how a route becomes a mystery.
+            "file_watch": settings.file_watch,
+            "file_watch_path": settings.file_watch_path,
+            "file_running": self.filemon.is_running() if self.filemon else False,
             "hook_mode": settings.hook_mode,
+            "hook_host": settings.hook_host,
+            "hook_port": settings.hook_port,
             "hook_clients": self.luna.client_count if self.luna else 0,
             "hook_dropped": self.luna.dropped if self.luna else 0,
             # D9: the last raw line the hook delivered, before parsing.
             # "Nothing is arriving" and "it arrives and is misparsed" look
             # identical from every other field here, and this is the only
-            # one that tells them apart.
+            # one that tells them apart. The file route has its own, because
+            # a file that stopped changing and a file that is misparsed are
+            # also indistinguishable from everything else.
             "hook_last_raw": self.luna.last_raw if self.luna else "",
+            "file_last_raw": self.filemon.last_raw if self.filemon else "",
             "queue_size": self.player.queue_size(),
             "current": str(self.player.current()) if self.player.current() else None,
             "speaker_count": len(self.registry.names()),

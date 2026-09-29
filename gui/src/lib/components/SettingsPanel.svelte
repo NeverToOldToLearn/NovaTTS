@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { api } from "../api";
   import { openCutter } from "../cutter/tauri";
-  import type { PathStatus, SettingsData, SettingsResponse } from "../types";
+  import type { HookMode, PathStatus, SettingsData, SettingsResponse } from "../types";
 
   let data: SettingsResponse | null = $state(null);
   let form: Partial<SettingsData> = $state({});
@@ -199,6 +199,77 @@
   </div>
 
   <div class="section">
+    <h3>Text hook</h3>
+    <p class="muted small">
+      NovaTTS listens on <code>ws://{form.hook_host}:{form.hook_port}</code>. In
+      LunaTranslator add <code>textractor_websocket_x64.xdll</code> and point it
+      at that address. Leave translation off — NovaTTS wants the original line.
+      The bind address is read-only because it is the socket the server binds;
+      changing it live would mean rebinding underneath a live connection.
+    </p>
+    <div class="form-grid">
+      <label class="field-row">
+        <span class="fk">Source</span>
+        <select
+          class="field"
+          value={form.hook_mode ?? "both"}
+          onchange={(e) => (form.hook_mode = (e.target as HTMLSelectElement).value as HookMode)}
+        >
+          <option value="both">Both — clipboard + hook</option>
+          <option value="websocket">Hook only (LunaTranslator)</option>
+          <option value="clipboard">Clipboard only (RenPy)</option>
+        </select>
+      </label>
+      <label class="field-row">
+        <span class="fk">Hook port</span>
+        <input class="field sm" type="number" bind:value={form.hook_port} min="1" max="65535" />
+      </label>
+      <label class="field-row">
+        <span class="fk">Bind address</span>
+        <div class="fv">
+          <input class="field" value={form.hook_host ?? ""} readonly />
+          <span class="muted small">restart required</span>
+        </div>
+      </label>
+      <label class="field-row">
+        <span class="fk">Outgoing ws URL</span>
+        <input class="field" bind:value={form.luna_ws_url} placeholder="empty = listen; ws://host:port = connect out" />
+      </label>
+      <!-- A div, not a <label>: the toggle below is a label of its own and
+           nesting labels is invalid HTML. The browser un-nests them silently,
+           and the path field then stops toggling the checkbox. -->
+      <div class="field-row">
+        <span class="fk">File watch</span>
+        <div class="fv">
+          <input
+            class="field"
+            bind:value={form.file_watch_path}
+            placeholder="textractor_output.txt"
+            disabled={!form.file_watch}
+          />
+          <label class="chk"><input type="checkbox" bind:checked={form.file_watch} /> on</label>
+        </div>
+      </div>
+      <label class="chk-row">
+        <input type="checkbox" bind:checked={form.hook_space_form} />
+        <span>Space form — Textractor sends <code>Rick It's 2 parts.</code> rather than <code>Rick: …</code></span>
+      </label>
+      <label class="chk-row">
+        <input type="checkbox" bind:checked={form.hook_dual_hook} />
+        <span>Dual hook — buffers a bare name and merges it with the next line</span>
+      </label>
+      <label class="field-row">
+        <span class="fk">Dedup window (ms)</span>
+        <input class="field sm" type="number" bind:value={form.dedup_window_ms} min="0" max="5000" step="50" />
+      </label>
+    </div>
+    <p class="muted small">
+      Source and port are read once at start, so they need a backend restart —
+      same rule as the bind address. Everything below them is read per line.
+    </p>
+  </div>
+
+  <div class="section">
     <h3>Misc</h3>
     <div class="form-grid">
       <label class="field-row">
@@ -249,6 +320,10 @@
   .muted{ color:#8b8e9a; } .small{ font-size:0.8rem; }
   .chk{ display:flex; align-items:center; gap:0.4rem; font-size:0.82rem; color:#8b8e9a; cursor:pointer; }
   .chk input{ accent-color:#3b4b8f; }
+  .chk-row{ display:flex; align-items:flex-start; gap:0.5rem; font-size:0.83rem; color:#b6b8c0; cursor:pointer; line-height:1.35; }
+  .chk-row input{ accent-color:#3b4b8f; margin-top:0.15rem; }
+  select.field{ cursor:pointer; }
+  input.field:read-only{ color:#8b8e9a; background:#191a20; }
   .section{ background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:1rem 1.1rem; display:flex; flex-direction:column; gap:0.75rem; }
   .section h3{ margin:0; font-size:0.95rem; letter-spacing:-0.01em; color:#e8e8ec; }
   .form-grid{ display:flex; flex-direction:column; gap:0.65rem; }

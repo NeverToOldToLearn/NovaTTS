@@ -610,16 +610,105 @@ Zonder dual-hook wordt `"Rick"` als kale naam weggegooid en wordt `"Answer"` —
 
 ---
 
-### ⬜ F6 — GUI
+### ✅ F6 — GUI *(gereed 2026-09-29)*
 
-- [ ] `types.ts`: `hook_mode: string` + `hook_clients: number` op `ServerStatus`; `hook_mode` + `hook_port` op `SettingsData`
-- [ ] `SettingsPanel.svelte`: Hook-mode-selector (3 opties) + hook-poort-veld + hint *"herstart vereist"*
-- [ ] `Dashboard.svelte`: hook-status in een bestaande card (of één nieuwe card) — géén nieuwe tab
-- [ ] `App.svelte`: `brand-sub` → `"Qwen3 · LunaHook + clipboard"` (G6.3)
-- [ ] `api.ts`: niets nodig — `/settings` en `/status` bestaan al
-- [ ] `npm run build` + `npm run check`
+- [x] `types.ts`: `HookMode` als **unie** (niet `string`); 10 hook-/file-velden op `ServerStatus`; 9 op `SettingsData`
+- [x] `SettingsPanel.svelte`: nieuwe sectie **"Text hook"** met alle 9 instellingen (plan zei er 2 — zie D23)
+- [x] `Dashboard.svelte`: Hook-kaart + twee voorwaardelijke banners — géén nieuwe tab
+- [x] `App.svelte`: `brand-sub` → `"Qwen3 · LunaHook + clipboard"` (G6.3)
+- [x] `main.py`: `status()` krijgt de **file-route** erbij — die miste nog, dus de kaart zou voor die route leeg zijn geweest
+- [x] `tests/test_status_contract.py`: 9 tests. **`status()` had hiervoor nul tests** en is nu de plek waar de GUI aan hangt
+- [x] `svelte-check` als gate: `npm run check` (gui) en `npm run lint` (root, nu beide talen)
+- [x] `api.ts`: `api.speakers()` retourneert het **responsformaat** i.p.v. het bestandsformaat — daarmee 2 bestaande type-errors aan de bron gerepareerd
 
-**Gate:** `vite build` + `svelte-check` groen.
+**Gate:** `vite build` ✅ · `svelte-check` **0 errors / 0 warnings** ✅ · `ruff check .` 0 ✅ · `mypy --strict novatts` 0 ✅ · `pytest` **354 ✅ / 0 ❌** (de 6 omgevingsfalen uit F5 zijn weg — poort 8080 gaf vrij; zie de F5-sectie).
+
+#### F6 — de baseline moest eerst groen worden, en dat was een echte bug
+
+De fase-gate is `svelte-check groen`, maar er was **nooit** een `check`-script. De eerste meting gaf:
+
+```
+SpeakersPanel.svelte:30  Error: Conversion of type 'Record<string, Speaker> & {versions…}'
+SpeakersPanel.svelte:35  Error: Conversion of type 'Record<string, Speaker> & {versions…}'
+svelte-check found 2 errors and 1 warning
+```
+
+Twee **bestaande** type-errors, niet door F6 veroorzaakt. De gebruikelijke uitweg was `as unknown as` — precies de verzwakking die de melding afraden. De ware oorzaak stond in `api.ts`:
+
+```ts
+// voor: het BESTANDSformaat, terwijl /speakers het RESPONSformaat teruggeeft
+speakers: () => req<Record<string, Speaker> & { versions: number; fallback: string }>("/speakers"),
+// na
+speakers: () => req<SpeakersResponse>("/speakers"),
+```
+
+Het backend-antwoord is `{versions, speakers, fallback}` (zie `registry.to_dict()` plus de `fallback` in de route). De intersection `Record<string, Speaker> & {versions, fallback}` was bovendien zelf al onzin: `versions: number` botste met de index-signature. Door het type bij de bron te repareren vervielen **beide** casts in plaats van verzwakt te worden. Dat is het verschil tussen een patch en een fix: de volgende agent die `/speakers` aanroept krijgt nu het juiste type, en hoeft geen cast meer te gokken.
+
+De derde melding was de `tsconfig.node.json`-waarschuwing (*"Referenced project may not disable emit"*). Opgelost door `emitDeclarationOnly` + `declarationDir: "./.tsbuild"` — een composite-project moet iets emitteren; de output wordt weggegooid en staat in `.gitignore`.
+
+> **Waarom telt dit als F6-werk en niet als schoonmaak?** Omdat een gate die je pas ná je eigen wijzigingen introduceert een *nieuwe* rode baseline mag hebben — dan is zij niet meer afnemend en dus geen gate meer (Z §12.9). De grens is niet "is het mijn code" maar "is de gate hierna sterker dan hiervoor".
+
+#### F6 — de kaart onderscheidt drie toestanden, niet één vlag
+
+Het simpele recept is één getal (`hook_clients`) en een groen of rood puntje. Dat is onbruikbaar, want de drie situaties die een gebruiker tegenkomt hebben elk een **andere oplossing**, en geen van drie is zichtbaar in "niet verbonden":
+
+| Toestand | Wat de gebruiker ziet | Wat hij moet doen |
+|---|---|---|
+| Niemand verbonden | `waiting` · *LunaTranslator not connected* | LunaTranslator starten en de `.xdll` op `ws://127.0.0.1:6677` zetten |
+| Verbonden, nog geen regel | `1 client` · *connected, no line yet* + banner | De hook aan het **spelvenster** hangen (D9) |
+| Regels komen binnen en worden gedropt | `1 client` · *N dropped — synthesis is behind* + banner | Spel pauzeren, of stemlatency omlaag |
+
+De derde toestand is de reden dat `hook_dropped` in `/status` staat en niet alleen in de log. Zie D25.
+
+#### F6 — de lint-gate had dezelfde ziekte als de Makefile, één laag hoger
+
+F6 voerde `svelte-check` in aan `npm run lint`. Dat script was tot dan toe `npm run lint --workspaces --if-present & ruff check backend` — en `&` levert de exitcode van de **laatste** opdracht:
+
+```
+$ cmd /c "type C:\nietbestaand.txt & echo TWEEDE-DRAAIDE"
+TWEEDE-DRAAIDE
+Het systeem kan het opgegeven bestand niet vinden.
+exitcode = 0        ← de fout is weg
+```
+
+Dus het toevoegen van een tweede taal aan de gate maakte de gate **in stilte zwakker**: een type-fout in de GUI zou door een groene ruff worden weggeschreven. Opgelost met `&&`, en gemeten dat het nu beide kanten faalt:
+
+| Injectie | `npm run lint` |
+|---|---|
+| niets | `0` ✅ |
+| `export const __f6_probe: number = "kapot";` in `types.ts` | `1` ❌ (svelte-check) |
+| `novatts/_f6_probe.py` met `x = 1` | `1` ❌ (ruff) |
+
+Tegelijk is `ruff` vervangen door de expliciete venv-interpreter (`backend\.venv\Scripts\python.exe -m ruff`), zodat de gate niet meer van een ontwikkelaars-PATH afhangt. Dit is §12.8 in een andere taal — Z §12.13.
+
+#### F6 — twee dingen die de meting tegenspraken
+
+1. **Mijn eerste verklaring waarom `$derived` niet werkt was onjuist, en ik heb hem niet opgeschreven omdat ik hem eerst wilde meten.** Het symptoom was *"Property 'hook_mode' does not exist on type 'never'"* — het leek alsof Svelte 5 `$derived` op `$state` kapot is. Dat is niet zo: op component-**top-level** narrowt TypeScript `status` naar `null`, direct na `let status: ServerStatus | null = $state(null)`, dus élke top-level eigenschapsread faalt. Gemeten met een gewone regel zonder `$derived`:
+
+   ```svelte
+   const __topLevelPlainRead = status?.hook_mode;   // faalt exact even hard
+   ```
+
+   Binnensloten wordt die narrowing van een gecapte `let` gereset, en daarom werken de `const hookOn = () => …`-functies wel. Overigens gebruikt de rest van deze GUI nergens `$derived` — overal staan de expressies in de template, waar ze tegen de **gedeclareerde** type worden gecheckt. De regel die hieruit volgt staat nu als commentaar in `Dashboard.svelte`, want de volgende agent die dit bestand opent moet hem niet opnieuw uitzoeken.
+
+2. **Mijn eerste opzet had geneste `<label>`** (`label.field-row` met daarin `label.chk`). Dat is ongeldig HTML; de browser haalt de buitenste eruit en dan stopt het pad-veld de checkbox te togglen. Nu is de buitenste een `div`. Geverifieerd in de browser: met "on" aangevinkt wordt het pad-veld `enabled`, en daarvoor moest `form.file_watch` daadwerkelijk door de checkbox worden gezet.
+
+#### F6 — de GUI echt gezien, niet alleen gebouwd
+
+`svelte-check` en `vite build` zeggen niets over de vraag of de kaart iets zinvols toont. Daarom de volledige keten één keer handmatig gedraaid: backend op `:8765` (`hook_mode=both`, geen client), de gebouwde GUI op **`:1420`** — die poort staat al in de CORS-allowlist, dus geen eenmalige CORS-uitzondering nodig — en daarna:
+
+| Geverifieerd in de browser | Uitkomst |
+|---|---|
+| `brand-sub` | `Qwen3 · LunaHook + clipboard` |
+| Hook-kaart, geen client | `waiting` · *LunaTranslator not connected* |
+| `/settings` → sectie "Text hook" | rendert met `ws://127.0.0.1:6677` live uit de settings |
+| Source-select | 3 opties, `both` geselecteerd |
+| Bind address | read-only, met *restart required* ernaast |
+| File watch | pad-veld disabled; na tikken **enabled** (bewijst de binding) |
+| Space form / Dual hook | `true` / `false`, de gedocumenteerde defaults |
+| Console / netwerk | 0 fouten, alle requests 200 |
+
+Er is bewust **niet** op *Save to .env* geklikt: dat zou de echte `.env` van de gebruiker herschrijven. `git status` bevestigt achteraf dat hij schoon is.
 
 ---
 
@@ -743,6 +832,15 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D20** ✅ | **Eén regel per delivery.** | F5, gemeten: de parser plakt regels binnen één aanvoer aan elkaar, dus "de hele wijziging als één regel" laat regel twee de tekst van spreker één worden. Verkeerde stem op verkeerde tekst is erger dan een regel die als vertelstem inleest. Alle regels van een groeiend log komen nu los binnen. |
 | **D21** ✅ | **`set_known_speakers()` komt op `InputAdapter`, abstract.** | F5. Het was duck-typing; zodra `_adapters()` de lus typecheckt, wordt de aanname een mypy-fout in plaats van een stille werkende aanname. Een volgende bron kan de priming niet meer overslaan. |
 
+### 9.6 Uit F6 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D22** ✅ | **`hook_host` wordt in de GUI read-only getoond, en `/status` spiegelt hem.** | F6. F1 sloot `hook_host` al uit van `SettingsBody` (het is het adres waarop de server bindt). De GUI mag het daarom niet bewerken, maar wél tonen — anders moet de gebruiker in `.env` duiken om te zien waar hij naartoe moet wijzen. Dat het getoonde adres ook echt het gebonde adres is, is nu een assertion in `test_status_contract.py` i.p.v. een aanname. |
+| **D23** ✅ | **De GUI exposeert alle 9 hook-instellingen, niet de 2 uit het plan.** | F6. Het plan is geschreven vóór F5 bestond en noemde `hook_mode` + `hook_port`. Met alleen die twee zou de F5-route (`file_watch`, `file_watch_path`) onzichtbaar blijven in de GUI, terwijl de backend hem al volledig ondersteunt. Eén "Text hook"-sectie is bovendien vindbaarder dan losse velden verspreid over twee panelen — dat is het prioriteitscriterium van het hele project. |
+| **D24** ✅ | **De nieuwe `ServerStatus`-velden zijn in de GUI optioneel (`?`).** | F6. Het backend stuurt ze altijd, maar `ServerStatus` had al een gemengde stijl (`qwen_mgr?`, `import_status?` — latere toevoegingen als optioneel). De GUI moet ook tegen een oudere backend kunnen draaien: een `gui/dist` uit een vorige build tegen deze backend is een echte situatie bij het installatiewerk in F7. `SettingsData` is wél volledig, want dat is een round-trip: een ontbrekend veld zou stiekem worden weggeschreven bij het opslaan. |
+| **D25** ✅ | **De kaart toont drie toestanden, geen verbindingsvlag.** | F6. D9 wilde onderscheiden "er komt niets aan" van "het komt aan en wordt verkeerd gelezen". Eén boolean kan dat niet, want de drie toestanden hebben elk een andere oplossing en geen van drie is zichtbaar in "niet verbonden". Vandaar: `hook_clients` (wie), `hook_last_raw` (komt er iets aan) en `hook_dropped` (houdt de synthese het bij). |
+
 ---
 
 ## 10. Baseline-logboek
@@ -793,6 +891,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F3 | `aa67c6e` | **263 ✅** | **0 ✅** | **0 ✅** | ✅ | 195 → 263. Ws-server in drie lagen, 11 mutanten gevangen. **Nog 0 runtime-impact** — de adapter is nog niet aangesloten. |
 | 2026-09-29 | F4 | *"F4: gate…"* | **318 ✅** | **0 ✅** | **0 ✅** | ✅ | 263 → 318. **Eerste fase met runtime-impact.** Nieuwe `gate.py` + bedrading; **27/27 mutanten** met caching uit (§12.10). RenPy-route houdt dezelfde adapter, parser en registratie. |
 | 2026-09-29 | F5 | *"F5: file tailer…"* | **333 ✅** (+6 ❌ omgevingsafhankelijk) | **0 ✅** | **0 ✅** | ✅ | 318 → 345. Dunne laag over `HookTextProcessor` i.p.v. een port (D19). **33/33 mutanten**, waarvan 6 nieuw. De 6 failures bestonden al op de F4-boom: Open WebUI zit op 8080 waar `NOVATTS_QWEN_URL` wijst — zie de F5-sectie. |
+| 2026-09-29 | F6 | *"F6: the GUI…"* | **354 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 345 → 354. **Eerste fase zonder nieuwe runtime-impact in de backend** — de GUI hangt aan `/status`, en `status()` kreeg alleen de file-route erbij. 9 nieuwe tests voor een methode die er vóór F6 **nul** had. `svelte-check` van 2 bestaande errors + 1 warning → **0/0**, met de oorzaak in `api.ts` gerepareerd i.p.v. de casts verzwakt. `npm run lint` bleek `&` te gebruiken en maskeerde de eerste opdracht (§12.13) — nu gemeten dat beide talen de gate kunnen laten falen. De 6 omgevingsfailures uit F5 zijn weg: poort 8080 gaf vrij. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -817,7 +916,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F3 `adapters/luna.py` | ✅ | Drie lagen (pure functies · `HookTextProcessor` · `LunaAdapter`). Eigen event loop + dispatch-thread; synthese blijft van de loop af (G4.1). 195 → **263 tests**, 11 mutanten gevangen. Nog niet aangesloten. |
 | F4 `NovaApp`-bedrading | ✅ | Nieuwe `gate.py`: één poort voor alle bronnen. Trust-gate = "gesteld, niet gegokt" (het plan was een gemeten no-op). `hook_mode`-selectie, `status()`-velden, G5.4, stop-volgorde, `_refresh_known_speakers`. 263 → **318 tests**, **27/27 mutanten**. `NovaApp` had hiervoor nul tests. Twee naad-bugs gevangen (`push()` en de handmatige `Dialogue`-rebuilds) → §12.11. |
 | F5 `file_monitor.py` | ✅ | D19: dunne laag over `HookTextProcessor`, géén port — B's route heeft geen referentiegedrag. D20: één regel per delivery, **gemeten** (de parser plakt regels aan elkaar). `set_known_speakers` van duck-typing naar `InputAdapter` (D21). `_adapters()` vervangt drie losse adapterslijsten. 318 → **345 tests**, **33/33 mutanten** — waarvan 2 herricht na de refactor (§12.12). Limiet rond `Rick\nTekst` bewust gedocumenteerd én vastgespeld. |
-| F6 GUI | ⬜ | |
+| F6 GUI | ✅ | Nieuwe sectie "Text hook" (9 velden, D23), Hook-kaart met **drie** toestanden i.p.v. één vlag (D25), `brand-sub` om (G6.3). `status()` kreeg de file-route erbij en had **nul** tests → `test_status_contract.py` (9). `svelte-check` als gate erbij, wat 2 bestaande type-errors aan het licht bracht: oorzaak in `api.ts` (responsformaat i.p.v. bestandsformaat), niet verzwakt met `as unknown as`. `npm run lint` maskeerde de eerste opdracht met `&` → §12.13. 345 → **354 tests**, alle gates groen, en de GUI één keer **echt bekeken** tegen een draaiende backend. |
 | F7 Lifecycle & docs | ⬜ | |
 | F8 Cutover RenPy→LunaHook | ⬜ | Bevat de handmatige RenPy-smoke die uit F0 is gehaald. |
 | F9 Opruimen | ⬜ | `vntts/` en G5.8 zijn al afgehandeld in F0. |
@@ -838,3 +937,4 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 10. **Nooit een mutant-controle draaien zonder bytecode-caching uit.** Python valideert een `.pyc` op `(mtime in seconden, size)`. Een harness die de bron terugzet met dezelfde lengte binnen dezelfde seconde (`[0]` → `[1]`) laat de **herstelde** bron de **gemuteerde** bytecode laden — en dan toont een volgende testrun een regressie die niet bestaat. Dit is in F4 echt gebeurd en kostte een uur zoeken naar een bug in correcte code. **Draai elke mutant met `python -B` (`PYTHONDONTWRITEBYTECODE=1`) en ruim de project-`__pycache__` op vóór elke meting.** De regel is de algemene vorm van §12.8: een meting die niet kan falen is geen meting — maar een meting die *iets anders* meet dan je denkt is erger, want hij liegt met een getal.
 11. **Nooit een `Dialogue` met de hand herbouwen — gebruik `dataclasses.replace(dialogue, ...)`.** `Dialogue` is een frozen dataclass, dus `replace` kopieert elk veld, ook een veld dat pas later wordt toegevoegd. Een handmatige `Dialogue(...)` naast de originele was drie keer exact dezelfde fout: `raw` verdween in de emotie-segmenten, `speaker_is_guess` in `HookTextProcessor.push()`, en beide in `voice_manager.clean_dialogue`. Gevolg: de F4-trust-gate was op het enige pad dat de hook echt gebruikt **inert**, terwijl parser- én gatetests groen waren. De reconstructie-plekken (`push`, `gate.admit`, `_segment_dialogue`, `clean_dialogue`) gebruiken nu alle vier `replace`.
 12. **Nooit een mutant als "gevangen" tellen die niet is toegepast.** De harness moet het zoekpatroon in de bron verifiëren vóór hij meet, en anders `MIS … PATROON 0x (verwacht 1)` melden. In F5 gebeurde precies dat: de `_adapters()`-refactor maakte W3 en W10 stuk, hun `old`-strings bestonden niet meer, dus de mutatie werd **niet geschreven** en de test "faalde" omdat de bron onveranderd was. Dat is het gevaarlijkste soort groen: een meting die niet faalt om de verkeerde reden. Het alarm is wat het aan het licht bracht — daarom is het een harde eis in de harness en geen netheidje. Algemene vorm: **elke meting moet kunnen zeggen "ik deed niets"**, anders is haar "ik slaagde" betekenisloos.
+13. **Nooit twee checks achter `&` of `;` aan één exitcode hangen.** §12.8 in een andere taal, en F6 vond de bekende ziekte op een plek waar niemand hem zocht: `npm run lint` was `npm run lint --workspaces --if-present & ruff check backend`, en op Windows levert `&` de exitcode van de **laatste** opdracht. Toen F6 daar `svelte-check` bij zette, werd de gate er stilzwijgend *zwakker* door — een type-fout in de GUI werd door een groene ruff weggeschreven. Gemeten: `cmd /c "type C:\nietbestaand.txt & echo ok"` geeft `exitcode = 0`. De regel is dus de ruimere vorm van §12.8: **het gaat niet om `|| true`, het gaat om elke constructie die de exitcode van een check weggooit** — en de Fix is altijd dezelfde: `&&` (of apart draaien), plus één injectietest die bewijst dat de gate wél rood wordt. Overigens ook: als een gate een *bestaande* rode baseline aantreft, is repareren wat hij vindt de taak van de fase die hem introduceeert, want een gate met een rode baseline is geen afnemende gate.
