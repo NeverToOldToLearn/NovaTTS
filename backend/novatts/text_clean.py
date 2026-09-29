@@ -57,7 +57,29 @@ _ASTERISK_TOKEN_RE = re.compile(r"\*([^*]{1,80})\*")
 _ELLIPSIS_RE = re.compile(r"\.{2,}|…+")
 _WS_RE = re.compile(r"\s+")
 
+# A TTS model cannot pronounce punctuation. Once the emotion words are
+# stripped, what is often left is only the "." or "," that used to follow
+# them: "Aah!" -> "!", "Mm-hm." -> ".". Handing that to Qwen spends a
+# synthesis request on it and returns a garbled blip or an invented
+# syllable, so punctuation on its own counts as no text at all.
+_SPEAKABLE_RE = re.compile(r"[^\W_]", re.UNICODE)
+_LEADING_PUNCT_RE = re.compile(r"^[\s\W_]+", re.UNICODE)
+
 _compiled: list[re.Pattern[str]] | None = None
+
+
+def has_speakable_text(text: str) -> bool:
+    """True when `text` holds at least one letter or digit to pronounce."""
+    return bool(_SPEAKABLE_RE.search(text or ""))
+
+
+def strip_leading_punctuation(text: str) -> str:
+    """Drop punctuation left stranded at the start by an emotion removal.
+
+    Only the leading edge is touched: a trailing "..." on a real sentence is
+    deliberate prosody and must survive.
+    """
+    return _LEADING_PUNCT_RE.sub("", text or "")
 
 
 def _load_patterns() -> list[re.Pattern[str]]:

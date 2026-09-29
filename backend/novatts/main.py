@@ -188,42 +188,28 @@ class NovaApp:
 
     def _synth_emotion_aware(self, dialogue: Dialogue) -> list[Path]:
         cleaned, emotions = self.emotions.extract(dialogue.text)
-        if not cleaned.strip() and emotions:
-            out: list[Path] = []
-            for _, tag in sorted(emotions):
-                p = self.emotions.resolve_path(tag)
-                if p is not None:
-                    out.append(p)
-            return out
         paths: list[Path] = []
-        last = 0
-        text = cleaned
-        for pos, tag in sorted(emotions):
-            seg = text[last:pos].strip()
-            if seg:
-                try:
-                    path = self.voices.synthesize(Dialogue(speaker=dialogue.speaker, text=seg, source=dialogue.source, instruct=dialogue.instruct))
-                    paths.append(path)
-                except Exception as exc:
-                    log.error("Synthesis failed: %s", exc)
-                    self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
-            ep = self.emotions.resolve_path(tag)
-            if ep is not None:
-                paths.append(ep)
-            last = pos
-        seg2 = text[last:].strip()
-        if seg2:
+        pending_text: str | None = None
+        for kind, value in self.emotions.plan(cleaned, emotions):
+            if kind == "sound":
+                ep = self.emotions.resolve_path(value)
+                if ep is not None:
+                    paths.append(ep)
+                continue
+            pending_text = value
             try:
-                path2 = self.voices.synthesize(Dialogue(speaker=dialogue.speaker, text=seg2, source=dialogue.source, instruct=dialogue.instruct))
-                paths.append(path2)
+                paths.append(self.voices.synthesize(Dialogue(speaker=dialogue.speaker, text=value, source=dialogue.source, instruct=dialogue.instruct)))
             except Exception as exc:
                 log.error("Synthesis failed: %s", exc)
                 self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
-        if not paths and cleaned.strip():
+        if not paths and pending_text:
+            # One retry of the same chunk. Never fall back to `dialogue` itself:
+            # that is the raw line, emotion words included, so it would put back
+            # exactly the words that were just stripped.
             try:
-                paths.append(self.voices.synthesize(dialogue))
+                paths.append(self.voices.synthesize(Dialogue(speaker=dialogue.speaker, text=pending_text, source=dialogue.source, instruct=dialogue.instruct)))
             except Exception as exc:
-                log.error("Synthesis failed: %s", exc)
+                log.error("Synthesis failed on retry: %s", exc)
                 self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
         return paths
 
@@ -318,10 +304,11 @@ class NovaApp:
     # -- API helpers ----------------------------------------------------
 
     def speak(self, req: SpeakRequest) -> dict[str, Any]:
-        from .text_clean import clean_emotion_text
+        from .text_clean import clean_emotion_text, has_speakable_text
 
         cleaned = clean_emotion_text(req.text)
-        if not cleaned.strip():
+        # "Aah!" cleans down to "!", which is not empty but also not speakable.
+        if not has_speakable_text(cleaned):
             raise HTTPException(status_code=400, detail="Text empty after emotion filtering")
         dialogue = Dialogue(speaker=req.speaker, text=cleaned, source="api", instruct=req.instruct)
         voice = None if req.voice in (None, "", "default") else req.voice
@@ -755,10 +742,13 @@ async def shutdown() -> dict[str, Any]:
 @app.post("/voices/{name}/preview")
 async def preview_voice(name: str, body: SpeakBody) -> dict[str, Any]:
     """Preview a voice without changing any speaker mapping."""
-    from .text_clean import clean_emotion_text
+    from .text_clean import clean_emotion_text, has_speakable_text
 
     rt = get_runtime()
-    text = clean_emotion_text(body.text.strip()) or "Hello from NovaTTS."
+    # "Aah!" cleans down to "!" — truthy, but nothing a voice can pronounce.
+    text = clean_emotion_text(body.text.strip())
+    if not has_speakable_text(text):
+        text = "Hello from NovaTTS."
     try:
         path = rt.voices.synthesize(Dialogue(speaker=None, text=text, source="api"), voice_override=name)
         rt.player.enqueue_interrupt(path)

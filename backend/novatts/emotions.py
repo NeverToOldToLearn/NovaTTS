@@ -201,6 +201,41 @@ class EmotionSounds:
         cleaned = "".join(parts).replace("*", "")
         return cleaned, positions
 
+    def plan(self, cleaned: str, positions: list[tuple[int, str]]) -> list[tuple[str, str]]:
+        """Ordered playback plan for a cleaned line.
+
+        Returns ("text", chunk) and ("sound", tag) items in document order, so
+        a sound still lands between the words around it. Two things are
+        handled here that used to leak into the TTS backend:
+
+        - A chunk with nothing pronounceable in it is dropped. Stripping
+          "Aah!" leaves "!", and a lone "." costs a synthesis request and
+          comes back as a garbled blip.
+        - Every chunk after the first begins exactly where an emotion word
+          was removed, so it can start with stranded punctuation
+          ("Aah! Yes..." -> "Yes..."). A trailing "..." on real text is
+          deliberate prosody and is left alone.
+        """
+        from .text_clean import has_speakable_text, strip_leading_punctuation
+
+        ordered = sorted(positions)
+        out: list[tuple[str, str]] = []
+        last = 0
+        for pos, tag in ordered:
+            chunk = cleaned[last:pos]
+            if last > 0:
+                chunk = strip_leading_punctuation(chunk)
+            chunk = chunk.strip()
+            if has_speakable_text(chunk):
+                out.append(("text", chunk))
+            out.append(("sound", tag))
+            last = pos
+        tail = strip_leading_punctuation(cleaned[last:]) if ordered else cleaned[last:]
+        tail = tail.strip()
+        if has_speakable_text(tail):
+            out.append(("text", tail))
+        return out
+
     def resolve_path(self, tag: str) -> Path | None:
         norm = self.normalize_tag(tag)
         fname = self.sound_map.get(norm)
