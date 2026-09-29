@@ -39,6 +39,12 @@ Thumbs.db
 # Per-game stem-casting en Perfect Cut instellingen zijn lokaal
 data/games/*/speakers.json
 data/perfect_cut.json
+# Het globale register: het speakers.json dat geldt wanneer er geen actieve
+# game is (games.py, speakers_path()). Bevat echte stemmen van echte personen
+# en is dus net zo persoonlijk als de per-game bestanden hierboven. De app
+# maakt het zelf aan bij de eerste registratie, dus een verse clone mist het
+# en dat is correct.
+data/speakers.json
 # Emotion mapping is per bibliotheek: de map met audio is lokaal en het map-bestand
 # is een cache van die map. De app maakt ze zelf aan; zie de *.json.example ernaast.
 data/emotion_sound_map.json

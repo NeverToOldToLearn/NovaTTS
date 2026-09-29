@@ -47,7 +47,24 @@ class SpeakBody(BaseModel):
 
 
 class SpeakerPatchBody(BaseModel):
+    """PATCH body for a speaker. Every field is optional.
+
+    All three fields default to ``None``, and ``None`` means "leave this
+    field alone" -- the registry treats it that way on purpose, because a
+    PATCH that omits a key must not clear it. To clear a field, send ``""``.
+
+    ``instruct`` and ``emotion`` were missing here and missing from the
+    handler below: the endpoint wrapped ``registry.update()`` but forwarded
+    only ``voice``, so the two fields the registry already supported and
+    already serialised were unreachable from outside the process. The GUI
+    still only sends ``voice`` (see ``updateSpeaker`` in ``api.ts``) -- these
+    fields are for scripts and importers until that changes, and adding a GUI
+    input for them is a feature, not a fix.
+    """
+
     voice: str | None = None
+    instruct: str | None = None
+    emotion: str | None = None
 
 
 class SpeakerCreateBody(BaseModel):
@@ -715,7 +732,12 @@ async def create_speaker(body: SpeakerCreateBody) -> dict[str, Any]:
 @app.patch("/speakers/{name}")
 async def update_speaker(name: str, body: SpeakerPatchBody) -> dict[str, Any]:
     rt = get_runtime()
-    updated = rt.registry.update(name, voice=body.voice)
+    updated = rt.registry.update(
+        name,
+        voice=body.voice,
+        instruct=body.instruct,
+        emotion=body.emotion,
+    )
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Speaker {name!r} not found")
     rt.registry.save()

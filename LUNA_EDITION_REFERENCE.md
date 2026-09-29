@@ -256,10 +256,10 @@ Als je B blind port, mis je functionaliteit die `VN_Suite.py` wél heeft:
 | G5.1 ✅ | `stop_all.cmd` schiet op **poort 8081** (Qwen) terwijl de comment zegt *"kill anything on port 8765"* — en de backend draait op 8765. `POST /shutdown` gaat dus naar de verkeerde poort. Bevestigd: `start_all.cmd:63` en `lib.rs:299` gebruiken allebei 8765; alleen `stop_all.cmd:4,7` wijkt af. **→ Opgelost in F0.** | `stop_all.cmd:4` + `:7` |
 | ~~G5.2~~ | ~~`2>nul` breekt~~ **Ingetrokken na verificatie.** `2>nul` is geldige *cmd*-syntaxis en werkt hier. De `V2_ROADMAP.md` §1.1-waarschuwing geldt voor PowerShell-invocaties; de Rust-sidecar gebruikt helemaal geen PowerShell meer (`lib.rs:310 taskkill_tree`, `:320 netstat`). | — |
 | G5.3 ✅ | `stop_all.cmd` doodt `novatts-gui.exe` nooit, terwijl `App.svelte` de sidebar de user *naar* `stop_all.cmd` verwijst. **→ Opgelost in F0.** | `stop_all.cmd` |
-| G5.4 | `_synth_emotion_aware` hardcodt `"source": "clipboard"` in de `Event("error", …)`-calls — wordt onjuist zodra de bron `luna`/`file` is. | `main.py:209, 221, 227, 261` |
-| G5.5 | `SpeakerRegistry.update(…, instruct=…)` accepteert `instruct` maar **wijst het nooit toe**. Stille no-op. | `registry/speakers.py` |
-| G5.6 | `registry.update()` is keyword-only; `registry.update(name, "voice")` (B-stijl) zou `TypeError` geven. Bij het toevoegen van Luna-code een afwijking voor beide moeten dragen. | idem |
-| G5.7 | `main.py:451-453` losse regel tussen functie en import (ruff E303). | `main.py:451-453` |
+| G5.4 ✅ | `_synth_emotion_aware` hardcodt `"source": "clipboard"` in de `Event("error", …)`-calls — wordt onjuist zodra de bron `luna`/`file` is. **→ Was al opgelost vóór F9**: alle vier de `Event("error")` in `_synth_emotion_aware` gebruiken `dialogue.source`, en de vijfde (in de API-route) gebruikt `"api"`. Er staat nergens meer een hardcoded `"clipboard"` in een event. | `main.py` |
+| G5.5 ✅ | `SpeakerRegistry.update(…, instruct=…)` accepteert `instruct` maar **wijst het nooit toe**. Stille no-op. **→ Opgelost in F9**, in drie lagen: de toewijzing, `SpeakerPatchBody` (had alleen `voice`) en de endpoint (gaf alleen `voice` door). Zie D33. **→ Later in F9 uitgebreid tot VIER lagen**: `_load()` las het veld niet terug, dus de waarde overleefde een herstart niet. Die vierde laag vond alleen een echte herstart-meting, met 370 groene tests erboven (D37). | `registry/speakers.py` |
+| G5.6 ✅ | `registry.update()` is keyword-only. **→ Was al waar**: de signature bevat `*`, dus `update(name, "voice")` gaf al `TypeError`. Afgestreept in F9, niet gesloten — er is niets veranderd (D35). | idem |
+| G5.7 ✅ | `main.py:451-453` losse regel tussen functie en import (ruff E303). **→ Regel bestaat niet meer**: `ruff check` geeft 0, en `ruff check --select E303` ook (ruff meldt dat de selectie zonder `preview` geen effect heeft). Afgestreept in F9 (D35). | `main.py:451-453` |
 | G5.8 ✅ | `.env.example` zegt `NOVATTS_QWEN_TIMEOUT=120.0`; `config.py:79` zegt `300.0`. **→ Opgelost in F0.** | `backend/.env.example:11` |
 | G5.9 ✅ | `pyproject.toml` mist `[build-system]` — `pip install -e backend` werkt niet. **→ Opgelost in F0** (setuptools + `packages.find`; `pip install -e .` geverifieerd). | `backend/pyproject.toml` |
 | G5.10 | `requirements-dev.txt` is **onvolledig**: `pytest` ontbreekt (terwijl er 7 testsuites zijn), `httpx2` ontbreekt (zonder het faalt `starlette.testclient` → `test_cutter.py` + `test_openai_speech.py` breken tijdens collectie), `types-pyperclip` ontbreekt (de enige `import-untyped`-fout). **Gevolg: de testsuite is vanaf een schone `setup.cmd` nooit draaibaar geweest.** Bevestigd in de nulmeting. **→ Opgelost in F0.** | `backend/requirements-dev.txt` |
@@ -270,8 +270,8 @@ Als je B blind port, mis je functionaliteit die `VN_Suite.py` wél heeft:
 | # | Drift | Actie |
 |---|---|---|
 | G6.1 | `data/emotion_sound_map.json` + `emotion_aliases.json` bestaan **niet** in Main (bewust uitgehaald in `e48c8ef`) | `emotions.py` bouwt ze op uit de schijf. **Geen actie** — moet zo blijven. |
-| G6.2 | `data/speakers.json` bevat game-lokale namen (`where_the_heart_is`, `Anna`, `Brenda`, `D`, `Lilya`) | Persoonlijke data in de repo. Net als `e48c8ef` voor de emotion-map: overwegen om naar `data/games/` te verplaatsen + `.gitignore` (zie D5). |
-| G6.3 | `brand-sub` in de GUI zegt nog `"Qwen3 · RenPy clipboard"` | → `"Qwen3 · LunaHook + clipboard"`. |
+| G6.2 ✅ | `data/speakers.json` bevat game-lokale namen (`where_the_heart_is`, `Anna`, `Brenda`, `D`, `Lilya`) | Persoonlijke data in de repo. **→ Opgelost in F9 (D36):** uit de tracking gehaald en in `.gitignore`. Het is het *globale* register dat geldt als er geen actieve game is (`games.py:speakers_path()`), dus het is werkdata en geen voorbeeld — precies als het al genegeerde `data/games/*/speakers.json`. De geschiedenis is met rust gelaten. |
+| G6.3 ✅ | `brand-sub` in de GUI zegt nog `"Qwen3 · RenPy clipboard"` | **→ Was al opgelost in F6**: de regel zegt nu `Qwen3 · LunaHook + clipboard`. Afgestreept in F9, niet gesloten (D35). |
 | G6.4 ✅ | Geen `.env`-documentatie voor de 9 hook-sleutels | **→ Opgelost in F1**: tabel in `README.md` + volledige uitleg in `backend/.env.example`, inclusief de proxy-diagnose. |
 
 ---
@@ -1149,14 +1149,183 @@ andere is bewezen dat het *pad* klopt, niet dat het resultaat goed is.
 
 ---
 
-### ⬜ F9 — Opruimen (kan tussendoor of aan het einde)
+### ✅ F9 — Opruimen
 
-- [x] `backend/vntts/` verwijderen — **gedaan in F0** (niet hier; nul functionele impact, makkelijk terug te draaien)
-- [ ] G5.5 (`update(instruct=)` no-op), G5.6 (kw-only), G5.7 (ruff E303) fixen
-- [x] G5.8 (`.env.example` timeout) — **gedaan in F0**
-- [ ] G6.2: persoonlijke speakers uit `data/speakers.json` naar `data/games/` verplaatsen + gitignore
-- [ ] `[project] description` in `pyproject.toml` van `"…(RenPy/Qwen3)"` naar `"…(LunaHook/Qwen3)"`
-- [ ] Ruff-uitsluitingen herevalueren zodra de persoonlijke hulpscripts zijn opgeschoond
+Zeven openstaande regels, en de eerste bevinding was dat er minder openstond dan
+de lijst suggereerde — of juist meer. Van de zes die de F9-checklist noemde waren
+**vier** al afgehandeld zonder dat iemand dat had bijgehouden, en de twee die echt
+openstonden bleken samen vier lagen diep. Geen van beide bevindingen was te zien
+uit de checklist alleen; ze kwamen pas uit meten.
+
+> Herwaardeerd zijn de rijen die de F9-checklist zelf noemde (G5.4–G5.7, G6.2,
+> G6.3). De overige openstaande rijen in §4 zijn **niet** opnieuw beoordeeld, dus
+> "vier regels lagen" betekent niet "de rest klopt". De G3.x/G4.x-rijen zijn trouwens
+> geen takenlijst maar een gap-inventaris ("ontbreekt in B"), en horen dus niet op ✅.
+
+| item | wat het was | uitkomst |
+|---|---|---|
+| G5.5 `update(instruct=)` no-op | echte bug, **in vier lagen** | gefixt, 15 nieuwe tests |
+| G5.6 kw-only | **al waar** — de signature bevat `*` sinds vóór deze editie | checklist afgestreept |
+| G5.7 ruff E303 | **al weg** — `ruff check` geeft 0, ook expliciet op `--select E303` | checklist afgestreept |
+| G5.8 `.env.example` timeout | al afgehandeld in F0 | — |
+| G6.2 / D5 persoonlijke speakers | `data/speakers.json` met 7 namen zat in de tracking | uit de tracking + `.gitignore`, geschiedenis met rust gelaten |
+| `description` in `pyproject.toml` | zei `(RenPy/Qwen3)` | `(LunaHook/RenPy/Qwen3)` |
+| ruff-uitsluitingen herevalueren | nog niets opgeschoond | blijft staan — er valt niets te herwaarderen zolang de bestanden bestaan |
+
+Daar staat nog een regel bij die de F9-checklist niet noemde en die wél openstond:
+
+| G5.4 fout-events hardcoded `"source": "clipboard"` | zou fout labelen zodra de bron `luna`/`file` is | **al waar** — alle vijf `Event("error")` gebruiken `dialogue.source` of `"api"` |
+
+#### G5.5 was één regel, en bleek vier lagen
+
+De audit noteerde `SpeakerRegistry.update()` nam `instruct` en wees het nooit toe.
+Dat klopte. Maar ik had ook al geconcludeerd dat `main.py` het doorgeeft, en die
+conclusie was **fout**. Mijn `grep` vond `instruct=body.instruct` en ik las die
+regel als de spreker-PATCH, terwijl het `/speak` was. De waarheid, gemeten door de
+regel te lezen in plaats van de zoekhit te interpretieren:
+
+```python
+# vóór
+class SpeakerPatchBody(BaseModel):
+    voice: str | None = None
+
+async def update_speaker(name: str, body: SpeakerPatchBody) -> dict[str, Any]:
+    updated = rt.registry.update(name, voice=body.voice)   # alleen voice
+```
+
+Dus `instruct` en `emotion` waren vanuit het proces **onbereikbaar**: niet
+ontvangen, niet doorgestuurd, en in het register niet toegewezen. Dat zijn drie
+lagen, waar de audit er één noemde — en het bleken er vier.
+
+Dat maakt de volgorde van het fixen niet neutraal. Alleen laag 1 repareren is
+**erger dan niets doen**: `update()` gaat dan `instruct` wél honorseren, de
+signature nodigt uit om het te gebruiken, en de endpoint slurpt het alsnog. De
+bug verhuist van duidelijk naar onzichtbaar. Daarom is er een apart endpoint-
+testbestand bijgekomen, en niet alleen tests in de registrytests.
+
+De GUI is bewust **niet** uitgebreid: `updateSpeaker` in `api.ts` is getypt als
+`Partial<Pick<Speaker, "voice">>` en stuurt alleen `voice`. De GUI heeft dus geen
+knop om een instructie te zetten, en dat ook niet gekregen — dat zou een feature
+zijn, geen fix. `instruct` en `emotion` zijn nu bruikbaar vanuit scripts en
+importers, en de docstring bij het veld zegt dat met zoveel woorden.
+
+#### Laag 4: de waarde bereikte het bestand en kwam toch niet terug
+
+Na drie lagen gevonden te hebben, was ik klaar. Toen startte ik NovaTTS echt,
+`PATCH`te een instructie, en zag dit:
+
+```
+na herstart : instruct='' voice='F9Voice' emotion='neutral'
+```
+
+`voice` overleefde de herstart. `instruct` en `emotion` niet — terwijl ze wél in het
+bestand stonden, wat meting 2 van dezelfde run had bewezen. Dus in `_load()`:
+
+```python
+speakers[name] = Speaker(name=name, voice=raw_voice)   # instruct en emotion weggegooid
+```
+
+Dat is een *vierde* laag, van dezelfde soort als laag 1: een veld dat de code
+schrijft en niet terugleest. Het gevolg is erger dan een no-op, want het is een
+leugen in plaats van een gat: `GET /speakers` rapporteerde `""` voor een bestand
+dat duidelijk iets anders zei. Een gebruiker die na een herstart naar de GUI gaat
+ziet zijn instructie weg, en de API bevestigt dat kloppend.
+
+**370 tests waren groen toen dit gevonden was.** Niet één keek in de laadrichting:
+de bewering "instruct overleeft een herstart" was simpelweg nooit als test
+geschreven. Dat is het sterkste argument van deze hele fase, en het staat hier
+omdat het gemakkelijk is om weg te rationaliseren — zie D37.
+
+#### Laag 5: een featuregat, en daarom géén bug
+
+Het register wordt bij synthesize op **één** veld geraadpleegd. Gemeten, niet
+afgeleid:
+
+```python
+# tts/voice_manager.py, synthesize()
+instruct = getattr(dialogue, "instruct", "") or ""   # uit de Dialogue, niet uit het register
+emotion = getattr(dialogue, "emotion", "") or ""
+voice   = self.resolve_voice(speaker, voice_override)   # dit is de enige register-look-up
+```
+
+En `Dialogue` heeft geen `emotion`-veld, en de hook- en RenPy-parsers krijgen hun
+`instruct` uit de wire respectively de aanroep. Kortom: `Speaker.instruct` en
+`Speaker.emotion` worden nu opgeslagen, teruggelezen en in `/speakers` getoond — en
+gebruikt voor niets.
+
+Dat is een **gat in het product**, geen defect: er is geen code die verkeerd doet,
+er ontbreekt code. `instruct` per spreker laten meewegen in de synthese is een
+feature met een ontwerpbeslissing erin (laat de spreker-winst de per-regel-instructie
+winnen, of maak het een template dat de regel kan overschrijven?). Die beslissing is
+niet in F9 genomen en hoort niet in een opruimfase die draait om "G5.5 fixen".
+
+Wat er wél staat is een eerlijke alinea in de docstring van `update()`, plus deze
+paragraaf, zodat de volgende agent die het gat wil sluiten het als een keuze ziet
+en niet als een vergeetigheid.
+
+#### G5.6 en G5.7: afgestreept, en waarom dat een resultaat is
+
+G5.6 vroeg om `update()` keyword-only te maken. Het is het al:
+
+```
+self, name: str, *, voice: str | None = None, instruct: str | None = None, emotion: str | None = None,
+```
+
+G5.7 vroeg om een `E303` in `main.py:451-453` te repareren. `ruff check` geeft 0
+fouten, en ook `ruff check --select E303` geeft 0 (met de waarschuwing dat E303
+zonder `preview` geen effect heeft — de regel bestaat in de huidige ruff niet meer
+als actieve controle).
+
+Beide afgestreept, niet "gesloten". Er is hier niets veranderd.
+
+#### G6.2 / D5 — de persoonlijke namen eruit, zonder de geschiedenis te slopen
+
+`data/speakers.json` zat in de tracking met zeven namen: `Anna`, `Brenda`, `D`,
+`Lilya`, `Narrator`, `Rick`, `Woman`. Wat het bestand **is**, bepaalt of het weg
+mag:
+
+```
+games.py, speakers_path():
+    if not g:
+        return Path(settings.speakers_file)     # data/speakers.json
+    return self.games_dir / g / "speakers.json"
+```
+
+Het is dus het **globale** register dat geldt wanneer er geen actieve game is —
+geen voorbeeldbestand, maar het echte werkbestand van de gebruiker. Precies
+dezelfde reden als `data/games/*/speakers.json`, dat al genegeerd was.
+
+De beslissing die de gebruiker nam: eruit de tracking en in `.gitignore`, en de
+geschiedenis met rust. Gemeten of dat gedaan is zonder gegevens kwijt te raken:
+
+| | |
+|---|---|
+| bestand na `git rm --cached` | staat nog op schijf, 7 sprekers |
+| `git check-ignore` | `data/speakers.json` wordt nu genegeerd |
+| overige `data/`-bestanden | blijven tracked (`active_game.json`, `blacklist.json`, de `*.example`-mappen) |
+| geschiedenis | ongemoeid; de namen blijven in oude commits vindbaar |
+
+Het laatste is een bewuste keuze en geen vergetelheid. De repo is nog nooit
+gepusht, dus een rewrite zou nu goedkoop zijn — maar het zou 30 commits herschrijven
+en alle hashes veranderen, waardoor de `pre-luna`-tag wijkt. Dat is een grotere
+ingreep dan het probleem waard is, en het is niet om te draaien.
+
+> Wel meegenomen en **niet** gedaan: `data/active_game.json` bevat
+> `{"active": "where_the_heart_is"}` en `data/blacklist.json` bevat
+> `{"custom_words": ["save", "*"], ...}`. Geen van beide is persoonlijke data in
+> de zin van D5 — een gamenaam en twee stopwoorden — dus ik heb ze laten staan
+> in plaats van de opdracht stilzwijgend te verbreden.
+
+#### F9 — wat hier níét in zat
+
+- **Geen GUI-veld voor `instruct`/`emotion`.** Uitbreiding van het product, geen
+  bugfix. Wel doorgegeven aan de API, zodat de drie velden die het register al
+  ondersteunt ook echt bereikbaar zijn.
+- **Geen geschiedenis herschreven.** Zie hierboven.
+- **Geen ruff-uitsluitingen geherevalueerd.** De persoonlijke hulpscripts staan
+  nog in de repo, dus de enige uitsluiting (`convert_vox_to_clone.py`, E701/E702)
+  is nog steeds nodig. Niets te doen.
+- **Niets gepusht.** Zoals bij elke fase.
 
 ---
 
@@ -1164,29 +1333,39 @@ andere is bewezen dat het *pad* klopt, niet dat het resultaat goed is.
 
 Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptatietest — geen checkbox is een vinkje waard.**
 
+**Bijgewerkt in F9**, na afronding van alle fasen. Drie statussen, want “áfgestreept” en “opgelost” zien er in een lijst identiek uit en betekenen het verschil:
+
+| teken | betekenis |
+|---|---|
+| ✅ | **gemeten**, met de meting erbij |
+| ⚠️ | **deels** — wat wél bewezen is en wat niet, uitdrukkelijk |
+| ⬜ | **niet gedaan**, met de reden |
+
+> Drie regels hieronder staan bewust **niet** op ✅. Ze staan open omdat ze waar zijn, en een DoD die groen gemaakt is door de regel te verzachten is geen DoD. Welke het zijn en waarom staat er: de module-limiet van 500 regels, de duurtest van een uur, en het punt dat een mens moet beoordelen of een stem goed klinkt.
+
 ### Functioneel
-- [ ] LunaTranslator + `textractor_websocket_x64.xdll` → `ws://127.0.0.1:6677` levert `Rick It's 2 parts.` → NovaTTS speelt **Ricks** gekloonde stem, geen leak naar andere speakers
-- [ ] Zelfde regel als JSON `{"name": "Rick", "text": "..."}` → speaker **Rick** (G3.1)
-- [ ] Multi-spreker `"Anne Hallo! Rick Mooi."` → 2 aparte turns met 2 stems, in volgorde (G3.2)
-- [ ] Narratie (`You have your shower.`, `Good night babe!`, `Meanwhile, back at…`) wordt **nooit** een speaker
-- [ ] RenPy-clipboard op `hook_mode=both` blijft 100% werken (geen regressie op Main)
-- [ ] `NOVATTS_FILE_WATCH=1` levert tekst als de ws en clipboard stil zijn
-- [ ] `GET /status` toont `hook_mode` + een correcte `hook_clients`
-- [ ] Per-game switch behoudt Luna-geschiedenis per game
-- [ ] `stop_all.cmd` doodt backend + GUI + tts-server, op **8765**
+- ⚠️ LunaTranslator + `textractor_websocket_x64.xdll` → `ws://127.0.0.1:6677` levert `Rick It's 2 parts.` → NovaTTS speelt **Ricks** gekloonde stem, geen leak naar andere speakers — **bewesen:** het ws-pad end-to-end (F8, echte `websockets`-client, unieke tekst → nieuw aud-bestand), de stemparameter bereikt het model (dezelfde tekst gaf twee verschillende cache-hashes), en *geen* leak want `Rick` wordt bij een gokte naam níet geregistreerd (D15). **Niet bewezen:** (a) dat Textractor deze frames écht produceert — geen spel en geen LunaTranslator in deze omgeving; (b) of de stem subjectief *goed* klinkt. (a) staat als stap 1–4 en (b) als stap 5 in de F8-checklist
+- ✅ Zelfde regel als JSON `{"name": "Rick", "text": "..."}` → speaker **Rick** (G3.1) — F8 stuurde `{"name":"Anne","text":"Good night babe!"}` over de ws en `Anne` verscheen in `/speakers`. De naamwaarde maakt niet uit, dus dit is dezelfde regel. De wire-shapes zitten ook in F2's unittests
+- ⚠️ Multi-spreker `"Anne Hallo! Rick Mooi."` → 2 aparte turns met 2 stems, in volgorde (G3.2) — **de 2 turns in volgorde zijn bewezen** (F8: `Anne: 'Hallo!'` en `Rick: 'Mooi.'`, in die volgorde). **“2 stems” is niet bewezen**, want op dat moment had geen van de sprekers een stem toegewezen, dus beide vielen terug op dezelfde. Wat wél bewezen is dat elke beurt een eigen speaker-veld heeft; de 2-stems-stap vraagt dezelfde `PATCH /speakers` als de stembewijs-meting uit F8
+- ✅ Narratie (`You have your shower.`, `Good night babe!`, `Meanwhile, back at…`) wordt **nooit** een speaker — `test_narration_registers_nothing` (gate) plus vier parserpinnen. Let op: dit gaat over *narratie wordt geen spreker*. Een ander, zwakker punt is wél waar en staat elders: interpunctie-afval wordt wél gesproken (F8)
+- ✅ RenPy-clipboard op `hook_mode=both` blijft 100% werken (geen regressie op Main) — F8, vóór de default-omzetting: 3 unieke RenPy-regels op het klembord → 3 WAV's van 1.4–2.4 s. En ná de omzetting nog eens, in `hook_mode=clipboard`: legacy-adapter start, poort 6677 blijft vrij, de log noemt `legacy_clipboard`
+- ✅ `NOVATTS_FILE_WATCH=1` levert tekst als de ws en clipboard stil zijn — F5: een dunne staart over dezelfde `HookTextProcessor`, 33/33 mutanten
+- ✅ `GET /status` toont `hook_mode` + een correcte `hook_clients` — F6 (9 tests, 3/3 mutanten) en F8 live: `hook_clients` 0 → 1 → 0 na het weghalen van de client, en de route zonder adapter geeft de getallen van de adapter die níet draait
+- ✅ Per-game switch behoudt Luna-geschiedenis per game — `test_main_wiring.py`, per-game registry swap
+- ✅ `stop_all.cmd` doodt backend + GUI + tts-server, op **8765** — F0 herstelde G5.1/G5.2/G5.3, F7 meet 13/13 cmd-gevallen inclusief de socket-op-6677-regel
 
 ### Kwaliteit
-- [ ] `pytest` groen — **7 bestaande suites + nieuwe Luna-suites**, 0 regressies
-- [ ] `ruff check` + `mypy --strict` + `npm run build` + `npm run check` groen
-- [ ] `main.py` blijft < 1100 regels; elk nieuw module < 500 regels (`ULTIMATE_PROMPT.md` §2)
-- [ ] `adapters/luna.py` **dood de event loop niet** tijdens synthese (G4.1) — aantoonbaar: 2 gelijktijdig verzonden regels komen allebei door
-- [ ] 1 uur ws-verbinding zonder crash, zonder thread-leak, zonder onbeperkte queue
+- ✅ `pytest` groen — **7 bestaande suites + nieuwe Luna-suites**, 0 regressies — **370 passed** (F0: 105 → F8: 355 → F9: 370)
+- ✅ `ruff check` + `mypy --strict` + `npm run build` + `npm run check` groen — 0 / 0 in 33 bestanden / build ok / svelte-check 0 en 0
+- [⚠️] `main.py` blijft < 1100 regels; elk nieuw module < 500 regels (`ULTIMATE_PROMPT.md` §2) — **de eerste helft klopt, de tweede niet.** `novatts/main.py` 1041 (limiet 1100, ✅); `novatts/parser/luna.py` **774** (❌); `novatts/adapters/luna.py` **516** (❌); `gate.py` 174 en `registry/speakers.py` 191 (✅). De limiet is niet gehaald en ga ik niet stilletjes aanpassen: eronder zit waarschijnlijk dat `parser/luna.py` in F2 van 11 naar 774 groeide omdat de multi-sprekersplit daar hoort, en `luna.py` in F3 en F5. De limiet is een maatstaf voor vindbaarheid en die is per bestand niet gehaald. **Beslissing voor de gebruiker, geen opruimwerk:** opsplitsen is omkeerbaar maar kost tijd, en beide bestanden zijn nu elk goed te lezen — laag-indeling en een docstring die de lagen benoemt
+- ✅ `adapters/luna.py` **dood de event loop niet** tijdens synthese (G4.1) — aantoonbaar: 2 gelijktijdig verzonden regels komen allebei door — `test_luna_adapter.py:536` stuurt twee frames en het tweede wordt verwerkt terwijl het eerste nog synthetiseert
+- [⬜] 1 uur ws-verbinding zonder crash, zonder thread-leak, zonder onbeperkte queue — **niet gedaan.** Geen enkele fase heeft dit gedraaid; het is een duurtest en die is nooit gestart. Bewust geen vinkje: er is geen meting, dus er valt niets te citeren
 
 ### Documentatie
-- [ ] README: pipeline, hook-config, LunaTranslator-setup, `hook_mode`, migratiepad
-- [ ] `INSTALL.md` + `data/README.md` bijgewerkt
-- [ ] `docs/COLLEGA_RAPPORT_CRLF.md` §5 afgevinkt
-- [ ] **`LUNA_EDITION_REFERENCE.md` (dit bestand) bijgewerkt: ✅ per fase, §9 ingekort, §10 aangevuld**
+- ✅ README: pipeline, hook-config, LunaTranslator-setup, `hook_mode`, migratiepad — F6 (pipeline, drie-statenkaart), F7 (vijf build-commando's, Qwen-sectie), F8 (nieuwe “Migrating from RenPy”-sectie, met elke claim ervan eerst gemeten)
+- ✅ `INSTALL.md` + `data/README.md` bijgewerkt — F7, en in F8 de hook-default
+- [⚠️] `docs/COLLEGA_RAPPORT_CRLF.md` §5 afgevinkt — drie van vier ✅; **punt 4 (functioneel testen) staat op “deels”** en blijft daar. De twee ontbrekende proeven zijn een koude `start_all.cmd --min` en een klik op *Save to .env*; die laatste herschrijft de echte `.env` van de gebruiker, dus die doe je niet vanuit een geautomatiseerde fase
+- ✅ **`LUNA_EDITION_REFERENCE.md` (dit bestand) bijgewerkt: ✅ per fase, §9 ingekort, §10 aangevuld**
 
 ---
 
@@ -1264,6 +1443,18 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D31** ✅ | **Twee routes in één proces mag niet als de vraag is welke route wat weigert.** Eén route per proces, en de log is geen bewijs. | F8. Gemeten in twee ronden en beide gaven een verkeerd antwoord: `both` in één proces liet de hook rommel spreken die het klembord blokkeert (een synthese uit de vorige meting viel in het meetvenster), en de log gaf "niets gesproken" voor regels die wél gesproken waren — deels omdat de applicatielog in `.err` staat en deels omdat een cache-hit op debug-niveau stil is. Drie keer dezelfde vorm: een bewijs dat de verkeerde route volgde. Nu een harnas-conventie, niet een tip voor deze ene meting. |
 | **D32** ✅ | **Een back-up die je ná de eerste meting maakt is geen back-up.** | F8. Om de stem te bewijzen wees ik `Samantha` een stem toe en zette ik daarna terug. Maar de eerste clipboard-E2E had al drie namen geregistreerd, en toen ik de "back-up" maakte was die dus al besmet. Ook mijn terugzetcontrole was zwak: ik las `$json.Samantha.voice`, maar het bestand is `{versions, speakers}` — dus die controle gaf een lege string en zou ook bij een mislukte terugzetting groen zijn geweest. Uiteindelijk met de juiste sleutel gecontroleerd en de drie meetnamen verwijderd. De les is niet "maak betere back-ups" maar: **controleer een terugzetting op de structuur die het bestand écht heeft**, anders bewijs je niets. |
 
+### 9.9 Uit F9 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D33** ✅ | **Alleen de laag repareren die in het audit-ticket staat is erger dan niets repareren.** | F9. G5.5 noemde `SpeakerRegistry.update()`. Die gerepareerd zou het *uitsluitend* erger hebben gemaakt: het register gaat dan `instruct` wél toewijzen, de signature nodigt uit om het te gebruiken, en de endpoint geeft het nog steeds niet door. De fout verhuist van duidelijk naar onzichtbaar. Vandaar een apart endpoint-testbestand (`test_speaker_patch_api.py`) naast de registrytests, en de regel dat een fix de **hele keten** volgt of geen van de lagen. Algemener: een ticket dat één regel van een keten noemt, is een ticket dat de helft van een bug beschrijft. **Het bleken er vier lagen, niet twee**, en de vierde ("_load() leest het veld niet terug") vond alleen een echte herstart-meting. |
+| **D34** ✅ | **Een grep-hit is geen meting van dát hij in de functie zit die je denkt.** | F9. Ik concludeerde "de API geeft `instruct` door" op basis van een `grep` op `instruct=body.instruct` — en las die treffer als `PATCH /speakers/{name}`, terwijl het `/speak` was. Dat is §12.14 in een nieuw vorm: een proef die de verkeerde plek volgde. Concreet gevolg voor de aanpak: de regel lezen kostte niets en gaf het antwoord meteen, terwijl de interpretatie van de zoekhit een fase kostte en fout was. Bij een bug die meerdere lagen kan hebben is *lezen* de meting en zoeken de aanwijzing. |
+| **D35** ✅ | **Een checklistregel die niemand herwaardeert gaat liegen, en een leugen is erger dan een ontbrekende regel.** | F9. G5.6 (kw-only) en G5.7 (ruff E303) stonden open terwijl beide al jaren waar waren — de signature bevat `*` en ruff geeft 0 fouten. Afgestreept, niet "gesloten": er is niets veranderd. Dat onderscheid staat nu in het document, want een afgestreept item en een opgelost item zien er in een lijst identiek uit en betekenen het verschil. |
+| **D36** ✅ | **D5 wordt opgelost door uit de tracking te halen, niet door de geschiedenis te herschrijven.** | F9. `data/speakers.json` is het **globale** register wanneer er geen actieve game is (`games.py:speakers_path()`), dus het is werkdata van de gebruiker en geen voorbeeld — precies de reden als het al genegeerde `data/games/*/speakers.json`. Nu uit de tracking en in `.gitignore`; de geschiedenis blijft ongemoeid, dus de namen blijven in oude commits vindbaar. Dat is een bewuste afweging, geen vergetelheid: de repo is nooit gepusht dus een rewrite zou nu goedkoop zijn, maar het herschrijft 30 commits en alle hashes, waardoor de `pre-luna`-tag wijkt. Niet omkeerbaar, en niet om te draaien voor het probleem dat het oplost. |
+| **D37** ✅ | **Een groene suite is geen bewijs dat een waarde een herstart overleeft — meet de round trip, niet de helften.** | F9. Na de derde laag waren 370 tests groen, waaronder een test die bewees dat de instructie *in het bestand* terechtkomt. Toen NovaTTS echt startte en herstartte, was de instructie weg — want `_load()` las alleen `voice`. Geen enkele test keek in die richting, dus er was niets om rood te worden. De regel die hieruit volgt: bij een waarde die moet *persisteren* is de vraag niet "wordt hij geschreven?" maar "komt hij na een nieuw proces terug?", en dat is een meting over twee processen. In de testvorm is dat `SpeakerRegistry(path)` twee keer maken, of één keer maken na een handgeschreven bestand. |
+| **D38** ✅ | **Een meetinstrument dat een gat melden kan is gevaarlijker dan een meetinstrument dat niets zegt.** | F9. Twee keer meldde een harnas een tekort dat er niet was. Eerst zocht het met een regex naar `<naam>…FAILED` terwijl pytest `FAILED…<naam>` schrijft, dus het vond niets terwijl de samenvatting erboven gewoon "1 failed" zei. Later zette ik `test_load_tolerates_a_null…` in de must-fail-lijst van mutatie C omdat hij thematisch hoorde — maar die test assertiont `== ""`, en zowel de kapotte als de goede code leveren exact `""`, dus hij kon C structureel niet zien. In beide gevallen was de **verwachting van het harnas** fout, niet de code. Een harnas dat teveel kan zien leidt tot een fix die niet nodig is; een harnas dat te weinig kan zien leidt tot een fix die ontbreekt. Daarom: elke mutatie heeft een must-fail- én een mag-niet-vallen-lijst, en een regel "NIET omgevallen" is een uitkomst om te onderzoeken, niet iets om weg te filteren. |
+
+
 ---
 
 ## 10. Baseline-logboek
@@ -1317,6 +1508,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F6 | *"F6: the GUI…"* | **354 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 345 → 354. **Eerste fase zonder nieuwe runtime-impact in de backend** — de GUI hangt aan `/status`, en `status()` kreeg alleen de file-route erbij. 9 nieuwe tests voor een methode die er vóór F6 **nul** had. `svelte-check` van 2 bestaande errors + 1 warning → **0/0**, met de oorzaak in `api.ts` gerepareerd i.p.v. de casts verzwakt. `npm run lint` bleek `&` te gebruiken en maskeerde de eerste opdracht (§12.13) — nu gemeten dat beide talen de gate kunnen laten falen. De 6 omgevingsfailures uit F5 zijn weg: poort 8080 gaf vrij. |
 | 2026-09-29 | F7 | *"F7: lifecycle…"* | **354 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | **354 → 354, opzettelijk.** Nul regels productie-Python en nul regels GUI (`git diff --stat -- backend/novatts gui/src` leeg), dus het aantal tests mag hier per definitie niet wijzigen — dat maakt deze regel de anti-regressiebewijs voor §12.9 in plaats van een herhaling. Buiten `pytest`: 13/13 cmd-gevallen, 6/6 PowerShell-gevallen, beide met een gedocumenteerde valse-groen achter de vingers. `websockets`-floor gemeten 12.0 crasht / 13.0 werkt. |
 | 2026-09-29 | F8 | *"F8: cutover…"* | **355 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 354 → 355: de +1 is `test_the_default_is_websocket_but_a_broken_value_still_falls_back_to_both`, dat de default en de fallback uit elkaar houdt (D29). Dit is de eerste fase die **gedrag omzet** — `hook_mode` staat nu op `websocket` — en daarom ook de eerste met functionele metingen buiten `pytest`. De kernclaim van de DoD is indirect bewezen: dezelfde tekst met en zonder toegewezen stem geeft twee verschillende cache-hashes, dus de stem bereikt het model; of die stem *goed* klinkt kan alleen een mens beoordelen. Drie meetinstrumenten gaven een zeker verkeerd antwoord en dat kostte meer tijd dan de hele cutover — zie §12.15. |
+| 2026-09-29 | F9 | *"F9: opruimen…"* | **370 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 355 → 370: 15 tests voor G5.5. **De +15 maskeerden een bug**: de instructie-tests bewzen het geheugen en het bestand, en zagen niet dat `_load()` het veld niet teruglas — 370 groen en het product stuk. Gevonden door de herstart-meting, niet door de suite (D37). Daarnaast G5.4/G5.5/G5.6/G5.7/G6.2/G6.3 herwaardeerd (4 van de 6 lagen al afgehandeld), `data/speakers.json` uit de tracking (D36), en de `description` naar `(LunaHook/RenPy/Qwen3)`. 33/33 mutanten. **G5.5 bleek vier lagen, niet één** — en de vijfde is een featuregat, bewust niet dichtgezet. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -1344,7 +1536,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F6 GUI | ✅ | Nieuwe sectie "Text hook" (9 velden, D23), Hook-kaart met **drie** toestanden i.p.v. één vlag (D25), `brand-sub` om (G6.3). `status()` kreeg de file-route erbij en had **nul** tests → `test_status_contract.py` (9). `svelte-check` als gate erbij, wat 2 bestaande type-errors aan het licht bracht: oorzaak in `api.ts` (responsformaat i.p.v. bestandsformaat), niet verzwakt met `as unknown as`. `npm run lint` maskeerde de eerste opdracht met `&` → §12.13. 345 → **354 tests**, alle gates groen, en de GUI één keer **echt bekeken** tegen een draaiende backend. |
 | F7 Lifecycle & docs | ✅ | De headline is een **cmd-bug die altijd "ja" zei**: `^|` binnen `( … )` maakt de pipe letterlijk, dus de check kon nooit "nog niet aan het binden" melden (§12.14). Gemeten met een `netstat`-stub: variant `^|` gaf 0 bij een vrije én een bezette poort, de kale `|` gaf 1 en 0. Tweede vondst: `NOVATTS_HOOK_PORT = 7300` werd door het script genegeerd terwijl de backend hem wél las — **het log noemde een poort waar niemand op luisterde**. `websockets>=12.0` bleek te laag (12.0 crasht op import, 13.0 werkt) → `>=13.0` (D26). `start_all.cmd` meldt de hook maar doodt hem nooit (D27). `setup.ps1` zwijgt op loopback en waarschuwt alleen bij een blootgesteld adres. Makefile-gate miste svelte-check. Docs: pipeline, 9 env-sleutels, `hook_mode`-tabel, Hook-kaart-drie-toestanden, LunaTranslator-stappen, `data/README.md`, en §5 van het CRLF-rapport — dat wees naar een pad (`NovaTTSLun@`) dat niet meer bestaat en is herschreven met bewijs per punt, punt 4 bewust **deels**. Twee doc-claims bleken onjuist en zijn door meting gecorrigeerd (D28). **354 → 354 tests, opzettelijk.** |
 | F8 Cutover RenPy→LunaHook | ✅ | De vijf stappen in de geplande volgorde, wat het verschil maakt: **stap 1 was de nulmeting, vóór het default omging**, want een meting ná de wijziging meet de nieuwe situatie en noemt het een bewijs. `hook_mode` staat nu op `websocket`; het klembord start niet meer mee (bewezen met een regel die wél audio oplevert, en daarna één die dat níet doet). `clipboard.py` → `legacy_clipboard.py` via `git mv`, klasse naam bewust ongewijzigd (D30), legacy-badge zichtbaar in de GUI in plaats van begraven in `.env`. Kernclaim indirect bewezen via de cache-hash: dezelfde tekst geeft twee audiostreamen met en zonder stem — of die stem *goed klinkt* kan alleen een mens beoordelen, en dat staat als 8-staps checklist overgedraven. Ook gemeten: **beide routes laten interpunctie door** — bestaand Main-gedrag, dus gedocumenteerd en niet "opgelost". De mypy-waarschuwing uit het plan bleek onnodig (`Dialogue.source` is een `str`). **355 tests.** Drie meetinstrumenten gaven een zeker verkeerd antwoord (§12.15). |
-| F9 Opruimen | ⬜ | `vntts/` en G5.8 zijn al afgehandeld in F0. |
+| F9 Opruimen | ✅ | `vntts/` en G5.8 al in F0. **G5.5 bleek vier lagen diep** (toewijzing · `SpeakerPatchBody` · endpoint · `_load()`), niet één zoals de audit noteerde; de vierde vond alleen een echte herstart-meting, met 370 groene tests erboven (D37). Een vijfde laag bleek een *featuregat* — niets gebruikt `Speaker.instruct` voor synthese — en is bewust niet dichtgezet, want dat is een ontwerpbeslissing. 4 van de 6 herwaardeerde checklistregels lagen al afgehandeld zonder dat iemand dat bijhield (D35). `data/speakers.json` uit de tracking met de geschiedenis ongemoeid (D36). Twee DoD-regels bewust **niet** op ✅ gezet: de module-limiet van 500 regels wordt gehaald door twee van de vier nieuwe modules niet, en de duurtest is nooit gedraaid. |
 
 ---
 
@@ -1385,3 +1577,17 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
     En de vorm die het meeste opleverde: **één route per proces als de vraag is welke route wat doet.** Twee routes in één proces is verleidelijk omdat het dan zeker "dezelfde omgeving" is, maar het is precies die gedeelde omgeving die het meetvenster van de ene route in het antwoord van de andere laat vallen. Ook het gemakkelijkste om te vergeten: de eerste draai gaf een tabel die met de code niet kon kloppen, en alleen de tweede draai — één route per keer, eigen proces — gaf de waarheid.
 
     Tot slot de vorm die het meest tijd kostte en het minste opleverde: **geloof niet in een terugzetting die je niet op de juiste sleutel hebt gecontroleerd.** Het spelregister is `{versions, speakers}`, dus `$json.Samantha.voice` geeft een lege string — ook wanneer de terugzetting mislukt was. Mijn eigen back-up bleek bovendien al besmet op het moment dat ik hem maakte (D32). Een terugzetcontrole die de structuur raakt die het bestand *niet* heeft, is net zo'n dode check als een `^|` in een blok.
+16. **Nooit een keten repareren op de laag die in het ticket staat, en nooit een persisterende waarde bewijzen met een halve round trip.** F9 was een no-op van één regel en bleek vier lagen (D33), waarvan de vierde — `_load()` las `instruct` niet terug — alleen zichtbaar werd door NovaTTS echt te starten, te herstarten en opnieuw te lezen. **370 tests waren groen toen die bug werd gevonden** (D37). Twee regels staan er dus naast: (a) loop de keten van ingang tot gebruik af voordat je "klaar" zegt — hier was dat `update()` → body → endpoint → `_load()` → synthese; (b) bij een waarde die moet overleven is de slotproef een **tweede instantie** die dezelfde file opent, want binnen één proces is de waarde per definitie nog warm. En als de keten uitkomt bij "niets gebruikt dit eigenlijk", dan is dat een gat in het product en geen defect: zeg het en laat het staan, in plaats van het als bijwerking van een bugfix te repareren.
+17. **Een conversie die haar eigen resultaat niet opnieuw meet is geen conversie.** F9 vond vier regels met `\r\r\n` in `LUNA_EDITION_REFERENCE.md`, en die bleven overeind door vier opeenvolgende scripts heen die allemaal "klaar" meldden. Twee oorzaken, en ze versterken elkaar:
+
+    | oorzaak | gevolg |
+    |---|---|
+    | `f9_doc.py` riep zijn `prep()` (zet `\n` om in het regeleinde van het bestand) óók op de **vervangende** tekst, terwijl daar al `eol` met de hand was ingevoegd | er ontstond `\r\n` + `\r\n` = `\r\r\n` |
+    | `\r\r\n` is een **vast punt** van de gebruikelijke twee-staps conversie (`-replace "\r\n","\n"` en daarna `-replace "\n","\r\n"`) | de eerste stap maakt er `\r\n` van, de tweede maakt het weer `\r\r\n`, voor altijd |
+
+    Het patroon is het punt, niet het incident: **noem na een conversie het getal opnieuw.** Niet "ik heb het omgezet", maar "er staan nog 4 CRLF-regels". Een vreemde regeleinde is bovendien stil — het document rendert gewoon, en het valt pas op bij `git diff`, waar het dan het hele bestand als gewijzigd toont in plaats van de echte wijziging.
+
+    En de vraag die hier meestal achter zit, is niet "welk regeleinde" maar "welke vorm wil dit project". Voor deze repo is dat gemeten en niet afgeleid: **alle 17 blobs staan als LF, alle 17 working-tree-bestanden als CRLF**, wat komt door de globale `core.autocrlf=true` van de gebruiker en niet door een besluit van het project. De eigen `.gitattributes` zegt letterlijk *"overig consistent Unix (behalve Windows-specifieke tooling)"* en regelt alleen `cmd`/`bat`/`iss`/`ps1`. Voor zestien van de zeventien bestanden valt dat samen; voor `LUNA_EDITION_REFERENCE.md` niet — git maakte daar de brug niet en zette CRLF in de index, met een diff van 1580/1387 in plaats van 225/32. `git add --renormalize` veranderde daar niets aan. Opgelost door het bestand terug te zetten op LF, wat is wat de `.gitattributes` voorschrijft.
+
+    Eén bijvangst bij het controleren: **twee diff-algoritmen vergelijken op gelijkheid is een kapotte controle.** `difflib` en `git` vonden 226/33 en 225/32 op hetzelfde paar bestanden, één regel verschil, en dat is niet een afwijking maar twee verschillende algoritmen die geen van beide het minimale edit-script hoeven te vinden. De zinvolle controle is op orde van grootte: is de diff klein, of is het het hele bestand? Daar is geen tweede algoritme voor nodig.
+

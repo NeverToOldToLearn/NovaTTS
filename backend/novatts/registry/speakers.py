@@ -79,6 +79,33 @@ class SpeakerRegistry:
     def update(
         self, name: str, *, voice: str | None = None, instruct: str | None = None, emotion: str | None = None,
     ) -> Speaker | None:
+        """Set one or more fields on a known speaker. ``None`` means "leave
+        this field alone", so an absent key is not a request to clear it.
+        Use ``""`` to clear a field.
+
+        ``instruct`` was accepted here and then silently dropped (G5.5): the
+        parameter was in the signature and the assignment was simply missing.
+        To clear it, send ``""`` -- an empty string is stored as-is, which is
+        why ``None`` must not be treated as a clear.
+
+        What the audit called one bug was four, and the extra three are all in
+        the chain this method sits in:
+
+        1. this assignment, missing;
+        2. ``SpeakerPatchBody`` had no ``instruct``/``emotion`` field at all;
+        3. ``update_speaker()`` forwarded only ``voice``;
+        4. ``_load()`` read only ``voice`` back, so even a value that reached
+           the file was gone again after a restart.
+
+        2, 3 and 4 are why the docstring originally claimed the endpoint
+        forwarded ``instruct``: it did not, and the claim was read off a grep
+        hit that belonged to ``/speak``. See D33 and D34.
+
+        Tests: ``test_update_stores_the_instruct`` (this method),
+        ``test_speaker_patch_api.py`` (the endpoint), and
+        ``test_load_restores_the_instruct`` (the restart direction, which
+        the other two cannot see).
+        """
         with self._lock:
             speaker = self._speakers.get(name)
             if speaker is None:
@@ -86,6 +113,8 @@ class SpeakerRegistry:
                 return None
             if voice is not None:
                 speaker.voice = voice
+            if instruct is not None:
+                speaker.instruct = instruct
             if emotion is not None:
                 speaker.emotion = emotion
             self._mark_dirty_locked()
@@ -191,7 +220,25 @@ class SpeakerRegistry:
                     raw_voice = cfg.get("voice", "")
                     if raw_voice == "default":
                         raw_voice = ""
-                    speakers[name] = Speaker(name=name, voice=raw_voice)
+                    # ``instruct`` and ``emotion`` are written by
+                    # ``Speaker.to_dict()`` on every save, and for years this
+                    # line threw them away -- only ``voice`` was read back.
+                    # So a speaker saved with an instruction came up empty
+                    # after a restart, and ``GET /speakers`` then reported
+                    # ``""`` for a file that plainly said otherwise. The API
+                    # was confidently wrong, which is the same failure class
+                    # as the missing assignment in ``update()`` (G5.5), just
+                    # one restart later and in the opposite direction.
+                    #
+                    # ``or ""`` / ``or "neutral"`` also absorb a literal
+                    # ``null`` in a hand-edited file, which would otherwise
+                    # put a None where the dataclass promises a str.
+                    speakers[name] = Speaker(
+                        name=name,
+                        voice=raw_voice,
+                        instruct=cfg.get("instruct") or "",
+                        emotion=cfg.get("emotion") or "neutral",
+                    )
             if self.fallback_speaker not in speakers:
                 speakers[self.fallback_speaker] = Speaker(name=self.fallback_speaker)
             self._speakers = speakers
