@@ -46,6 +46,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterable
+from dataclasses import replace
 
 import websockets
 import websockets.asyncio.client
@@ -338,14 +339,12 @@ class HookTextProcessor:
         # and fell back to parse_luna; that ordering drops space-form
         # lines that happen to contain a colon, and the RenPy parser is
         # the stricter of the two, so the fallback never recovered them.
+        # replace(), not a hand rebuild. A hand rebuild here silently
+        # dropped `speaker_is_guess`, which made the F4 trust gate inert
+        # on this -- the only path the hook actually uses. replace() copies
+        # every field, so the next field added to Dialogue is carried too.
         return [
-            Dialogue(
-                speaker=d.speaker,
-                text=d.text,
-                source=self.source,
-                raw=raw,
-                instruct=d.instruct,
-            )
+            replace(d, source=self.source, raw=raw)
             for d in self.parser.parse_turns(text)
             if d.is_voiceable
         ]

@@ -606,6 +606,10 @@ def parse_luna(
                     source=source,
                     raw=text,
                     instruct=instruct,
+                    # "Rick Hello" names Rick by inference; "Rick: Hello"
+                    # states him. A registered name is the user overriding
+                    # the heuristic, so that is not a guess.
+                    speaker_is_guess=registered is None,
                 )
 
     return Dialogue(speaker=None, text=normalized, source=source, raw=text, instruct=instruct)
@@ -637,6 +641,33 @@ def split_speaker_turns(
         return []
     if not space_form:
         return [text.strip()]
+
+    return [segment for segment, _guessed in _split_turns(text, known_names=known_names, space_form=space_form)]
+
+
+def _split_turns(
+    text: str,
+    *,
+    known_names: Iterable[str] = (),
+    space_form: bool = True,
+) -> list[tuple[str, bool]]:
+    """:func:`split_speaker_turns`, plus a per-segment "was that name guessed?" flag.
+
+    The flag is ``True`` when the turn was opened by a name the *heuristic*
+    accepted, and ``False`` when it was opened by a name already in the
+    registry -- or when the line was not split at all, in which case
+    :func:`parse_luna` decides the shape itself from the original text.
+
+    Keeping it here rather than re-deriving it at the call site is not
+    tidiness. The split rewrites the line into colon form before the
+    per-turn parse, so "Rick Hello" (a guess) and "Rick: Hello" (stated)
+    are indistinguishable by the time a caller sees the result. This is
+    the only place that still knows which one it was.
+    """
+    if not text or not text.strip():
+        return []
+    if not space_form:
+        return [(text.strip(), False)]
 
     known = _name_map(known_names)
 
@@ -678,7 +709,9 @@ def split_speaker_turns(
     joined = " ".join(merged)
 
     # 2) Find validated speaker boundaries inside the joined line.
-    bounds: list[tuple[int, int, str]] = []
+    #    Each bound records whether the name was looked up in the registry
+    #    or accepted by the heuristic; that difference is the "guessed" flag.
+    bounds: list[tuple[int, int, str, bool]] = []
     for match in _NAME_TOKEN_SPACE.finditer(joined):
         candidate = match.group(1)
         after = joined[match.end(0) :].strip()
@@ -701,18 +734,39 @@ def split_speaker_turns(
                 continue
             if not _starts_fresh_sentence(after):
                 continue
-        bounds.append((match.start(1), match.end(1), candidate))
+        bounds.append((match.start(1), match.end(1), candidate, resolved is None))
 
     if not bounds:
-        return [joined]
+        return [(joined, False)]
 
-    # 3) Normalise to colon form, rightmost first so earlier offsets stay
-    #    valid, then split at the "Name:" boundaries.
-    normalized = joined
-    for _, end, _name in reversed(bounds):
-        normalized = normalized[:end] + ":" + normalized[end:]
-    segments = re.split(r"(?<=[.!?\u2026])\s+(?=[A-Z][A-Za-z]+:)", normalized)
-    return [segment.strip() for segment in segments if segment.strip()]
+    # 3) Cut at the recorded boundaries and colon-normalise each cut turn.
+    #
+    #    The cut happens on `joined` and the colon goes in afterwards, so
+    #    there is exactly one coordinate system in play. Doing it the
+    #    other way round -- inserting every colon first and then slicing
+    #    -- puts the cuts in `joined`'s coordinates while indexing
+    #    `normalized`, and every inserted colon silently shifts the
+    #    bounds after it by one. That reads as a dropped full stop at the
+    #    end of a turn, which is exactly the kind of defect that looks
+    #    like a parsing bug and gets "fixed" in the wrong place.
+    #
+    #    Only the turns opened by a bound get a colon. The first turn keeps
+    #    the shape the original line had, so parse_luna() reads it directly
+    #    and decides its own provenance instead of having one imposed.
+    out: list[tuple[str, bool]] = []
+    for index in range(len(bounds) + 1):
+        start = 0 if index == 0 else bounds[index - 1][0]
+        end = len(joined) if index == len(bounds) else bounds[index][0]
+        segment = joined[start:end].strip()
+        if not segment:
+            continue
+        if index == 0:
+            out.append((segment, False))
+            continue
+        _, name_end, name, guessed = bounds[index - 1]
+        body = segment[name_end - start :].strip()
+        out.append((f"{name}: {body}" if body else f"{name}:", guessed))
+    return out
 
 
 def parse_luna_turns(
@@ -739,7 +793,7 @@ def parse_luna_turns(
     off correctly and then immediately rejected as a stopword.
     """
     dialogues: list[Dialogue] = []
-    for segment in split_speaker_turns(text, known_names=known_names, space_form=space_form):
+    for segment, guessed in _split_turns(text, known_names=known_names, space_form=space_form):
         parsed = parse_luna(segment, source=source, known_names=known_names)
         if parsed is None:
             continue
@@ -752,6 +806,10 @@ def parse_luna_turns(
                 source=source,
                 raw=text,
                 instruct=instruct,
+                # The segment was rewritten to colon form, so parse_luna
+                # sees every name as stated. Only the splitter knows which
+                # ones it invented, so its answer wins where it has one.
+                speaker_is_guess=parsed.speaker_is_guess or (guessed and parsed.speaker is not None),
             )
         )
     return dialogues

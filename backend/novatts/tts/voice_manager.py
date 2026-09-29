@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from ..config import settings
@@ -146,7 +147,7 @@ class VoiceManager:
         cleaned = clean_emotion_text(dialogue.text)
         if cleaned == dialogue.text:
             return dialogue
-        return Dialogue(speaker=dialogue.speaker, text=cleaned, source=dialogue.source, instruct=dialogue.instruct)
+        return replace(dialogue, text=cleaned)
 
     def health(self) -> bool:
         return self.backend.is_available()

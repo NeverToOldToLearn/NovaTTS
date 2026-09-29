@@ -33,6 +33,22 @@ class Dialogue:
     instruct: str = ""
     """Optional voice-design instruction hint for the TTS model."""
 
+    speaker_is_guess: bool = False
+    """True when ``speaker`` was inferred rather than stated.
+
+    The RenPy clipboard says "Rick: Hello", so the name is explicit. The
+    LunaHook route often says only "Rick Hello", and there the name is
+    our inference from a capitalised first word -- which is a good guess
+    most of the time and wrong the rest. ``False`` (the default) means
+    "trust this name"; only the parser's space-form branch sets it.
+
+    This lives on the model rather than being re-derived by the caller
+    because the multi-speaker splitter rewrites "Anne Hallo! Rick Mooi."
+    into colon form before the per-turn parse, so by the time a caller
+    holds the result the original shape is gone and the only honest
+    source left is the parser that saw it. Same reasoning as ``raw``.
+    """
+
     @property
     def is_voiceable(self) -> bool:
         return bool(self.text.strip())

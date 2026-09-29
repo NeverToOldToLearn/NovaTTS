@@ -201,6 +201,32 @@ class TestHookTextProcessor:
         p = HookTextProcessor(min_text_length=3)
         assert p.push("Rick Hello there")[0].source == "luna"
 
+    @pytest.mark.parametrize(
+        ("text", "guess"),
+        [
+            ("Rick: Hello there", False),  # the colon states the name
+            ("Rick Hello there", True),  # space form infers it
+            ("Anne Hallo! Rick Mooi.", True),  # both turns are inferences
+        ],
+    )
+    def test_provenance_survives_the_rebuild(self, text: str, guess: bool) -> None:
+        """push() rebuilds each Dialogue to stamp source and raw.
+
+        The parser sets ``speaker_is_guess``; a hand rebuild dropped it.
+        Because every gate test built its Dialogue directly, both layers
+        stayed green over a trust gate that was inert on this, the only
+        path the hook actually uses.
+        """
+        p = HookTextProcessor(min_text_length=3)
+        out = p.push(text)
+        assert out and all(d.speaker_is_guess is guess for d in out)
+
+    def test_registered_name_is_stated_not_guessed(self) -> None:
+        """A registry hit is the user overruling the heuristic."""
+        p = HookTextProcessor(min_text_length=3, known_names=["Rick"])
+        (dialogue,) = p.push("Rick Hello there")
+        assert dialogue.speaker_is_guess is False
+
     def test_known_names_reach_the_parser(self) -> None:
         p = HookTextProcessor(min_text_length=3, known_names=["Dr"])
         out = p.push("Dr Watts is in.")

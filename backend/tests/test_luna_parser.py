@@ -390,3 +390,100 @@ def test_max_name_len_is_enforced() -> None:
     too_long = "Bartholomew" * 2
     assert len(too_long) > _MAX_NAME_LEN
     assert not is_plausible_character_name(too_long)
+
+
+# --- speaker provenance (F4) ------------------------------------------------
+
+
+class TestSpeakerProvenance:
+    """``Dialogue.speaker_is_guess``: was the name stated or inferred?
+
+    The gate uses this to decide whether a speaker may be written to
+    ``speakers.json``, so it has to be exact rather than approximate. It
+    lives on the model because the multi-speaker splitter rewrites the
+    line into colon form before the per-turn parse, which erases the
+    difference -- by the time a caller holds the result, the parser is the
+    only witness left.
+    """
+
+    def test_colon_form_is_stated(self) -> None:
+        d = parse_luna("Rick: Hello")
+        assert d is not None
+        assert d.speaker == "Rick"
+        assert d.speaker_is_guess is False
+
+    def test_space_form_is_inferred(self) -> None:
+        d = parse_luna("Rick Hello")
+        assert d is not None
+        assert d.speaker == "Rick"
+        assert d.speaker_is_guess is True
+
+    def test_registered_name_is_never_a_guess(self) -> None:
+        """The user naming "Rick" outranks the heuristic that would have
+        guessed him anyway."""
+        d = parse_luna("Rick Hello", known_names=["Rick"])
+        assert d is not None
+        assert d.speaker_is_guess is False
+
+    def test_renpy_shaped_name_is_stated(self) -> None:
+        """The clipboard route sends "Rick: Hello", so nothing it produces
+        is ever flagged -- which is what keeps the RenPy path's
+        auto-registration unchanged."""
+        d = LunaParser().parse("Rick: Hello")
+        assert d is not None
+        assert d.speaker_is_guess is False
+
+    def test_narration_is_never_a_guess(self) -> None:
+        d = parse_luna("You have your shower.")
+        assert d is not None
+        assert d.speaker is None
+        assert d.speaker_is_guess is False
+
+    def test_split_marks_only_the_invented_names(self) -> None:
+        """In "Anne: Hallo! Rick Mooi." Anne is stated, Rick is not.
+
+        No caller could reconstruct this afterwards: the splitter has
+        already rewritten the line so both names look stated.
+        """
+        turns = parse_luna_turns("Anne: Hallo! Rick Mooi.")
+        assert [(t.speaker, t.speaker_is_guess) for t in turns] == [
+            ("Anne", False),
+            ("Rick", True),
+        ]
+
+    def test_bare_space_form_split_marks_every_name(self) -> None:
+        turns = parse_luna_turns("Anne Hallo! Rick Mooi.")
+        assert [(t.speaker, t.speaker_is_guess) for t in turns] == [
+            ("Anne", True),
+            ("Rick", True),
+        ]
+
+    def test_a_registered_name_in_a_split_is_not_a_guess(self) -> None:
+        turns = parse_luna_turns("Anne Hallo! Rick Mooi.", known_names=["Rick"])
+        assert [(t.speaker, t.speaker_is_guess) for t in turns] == [
+            ("Anne", True),
+            ("Rick", False),
+        ]
+
+    def test_split_keeps_text_and_provenance_aligned(self) -> None:
+        """Regression for the offset cut added alongside the flag.
+
+        Cutting the pre-colon text while indexing the colon-normalised
+        text shifts every bound after each inserted colon by one, which
+        showed up as a turn losing its final character. Because the flag
+        is attached by position, that same bug would also have attached
+        the wrong provenance to each turn -- a silently wrong answer
+        rather than a visible one.
+        """
+        turns = parse_luna_turns("Anne Hallo! Rick Mooi. Anne Bye.", known_names=["Rick"])
+        assert [(t.text, t.speaker_is_guess) for t in turns] == [
+            ("Hallo!", True),
+            ("Mooi.", False),
+            ("Bye.", True),
+        ]
+
+    def test_split_speaker_turns_public_contract_is_unchanged(self) -> None:
+        """The provenance-aware cut is internal; the documented return
+        type stays a list of colon-normalised strings."""
+        assert split_speaker_turns("Anne Hallo! Rick Mooi.") == ["Anne: Hallo!", "Rick: Mooi."]
+        assert split_speaker_turns("  ") == []

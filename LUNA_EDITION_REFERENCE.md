@@ -413,7 +413,7 @@ Doel bereikt: de ruimte-vorm parser draait en is getest. **Nog steeds niets aang
 
 **Mutatiecheck** (5 mutanten, alle gevangen): mention-guard uit → 9 failures · `raw=text`→`raw=normalized` → 11 failures · normalisatie weg → 1 failure · register genegeerd → 1 failure · split-lookahead weg → 1 failure (die mutant overleefde de eerste ronde en kostte twee nieuwe tests, `test_trailing_sentence_stays_with_the_last_speaker` + `test_speaker_may_speak_twice`).
 
-**Openstaande vraag D9** (`/status` met de laatste ruwe hook-regel) is F3.
+**Openstaande vraag D9** (`/status` met de laatste ruwe hook-regel) is niet in F3 maar in **F4** ingebouwd — daar wordt `LunaAdapter.last_raw` pas aangesloten.
 
 ---
 
@@ -474,19 +474,65 @@ Twee mutanten waren **no-ops en telden niet mee**: een `; _ = 0` die ik als "syn
 
 ---
 
-### ⬜ F4 — Bedrading in `NovaApp`
+### ✅ F4 — Bedrading in `NovaApp` *(gereed 2026-09-29)*
 
-Doel: de hook-pipeline is live, zonder de RenPy-pipeline te raken.
+Doel bereikt: de hook-pipeline is live naast de RenPy-pipeline, en elke regel die spreekt is door één poort gegaan. **De RenPy-route houdt dezelfde adapter, dezelfde parser en dezelfde registratie** — `hook_mode=clipboard` gedraagt zich als vóór F4, met één bewuste toevoeging: de dedup van 500 ms geldt nu óók voor de clipboard (`A → B → A` binnen een halve seconde sprak vroeger twee keer `A`, want de adapter onderdrukt alleen een onveranderde herhaling).
 
-- [ ] `NovaApp.__init__` / `start()`: adapter-keuze uit `settings.hook_mode` — `clipboard` / `websocket` / `both` (default `both`). **B's inline `app.py` NIET overnemen** (G4.1); Main's `dialogue-worker` + `_wake` + `_pending_seq` blijft de enige synthese-route
-- [ ] Dedup: `_dedup: dict[tuple[str, str], float]` met `dedup_window_ms` (500), gedeeld door clipboard + luna + file (B's `_is_duplicate`, overgenomen)
-- [ ] Trust-gate op auto-registratie: `source == "clipboard"` (RenPy `Name:` is expliciet → vertrouwd) **of** `is_plausible_character_name(name)`. Luna space-form is een gok → mag geen permanent stem koppelen (faalveilig-principe uit `ULTIMATE_PROMPT.md` §2)
-- [ ] `is_blacklisted_name()` toevoegen aan `blacklist.py` (B heeft 'm, Main niet) — of expliciet afvinken als scope
-- [ ] `status()` uitbreiden: `hook_mode`, `hook_clients`, `source` in het `dialogue`-event
-- [ ] G5.4 fixen: `dialogue.source` i.p.v. de hardcode `"clipboard"`
-- [ ] `stop()`: LunaAdapter netjes afsluiten (event loop stoppen, thread joinen) vóór `qwen_mgr.stop()`
+- [x] `NovaApp._start_adapters()`: adapter-keuze uit `settings.hook_mode` — `clipboard` / `websocket` / `both` (default `both`). **B's inline `app.py` NIET overgenomen** (G4.1); Main's `dialogue-worker` + `_wake` + `_pending_seq` blijft de enige synthese-route
+- [x] Dedup — maar niet als `dict` in `NovaApp`: ondergebracht in `novatts/gate.py`
+- [x] Trust-gate op auto-registratie — **anders dan het plan voorschreef**; zie D15 en "wat onderweg duidelijk werd" punt 1. De geplande regel (`is_plausible_character_name`) is gemeten een **no-op**
+- [x] `is_blacklisted_name()` **bewust niet toegevoegd** — zie D18
+- [x] `status()` uitgebreid: `hook_mode`, `hook_clients`, `hook_dropped`, `hook_last_raw` (D9). Het `dialogue`-event heeft nu `source` + `guess`
+- [x] G5.4 gefixt: alle vier de hardcoded `"source": "clipboard"` zijn nu `dialogue.source`
+- [x] `stop()`: LunaAdapter eerst, dan clipboard, dan worker, dan player, dan qwen, dan `gate.forget()`, dan registry-autosave
+- [x] **`novatts/gate.py`** (nieuw, ~230 regels): `DialogueGate.admit()` → `Admission(dialogue, reason, new_speaker, guess_only, accepted)`
+- [x] **55 nieuwe tests**: `test_dialogue_gate.py` (27, inclusief de 2 naad-tests), `test_luna_parser.py` +10, `test_main_wiring.py` (13), `test_luna_adapter.py` +4, `test_voice_manager.py` +1. `NovaApp` had tot F4 **nul** tests
 
-**Gate:** `pytest` volledig groen **inclusief** alle 7 bestaande suites. Handmatig: RenPy-game werkt nog steeds op `hook_mode=clipboard`.
+**Gate:** `ruff` schoon · `mypy --strict` schoon (32 bestanden) · `pytest` **263 → 318** · `npm run build` groen. **27 mutanten, 27 gevangen.** Handmatige RenPy-smoke: zie F8 (D14).
+
+#### F4 — waarom er een `gate.py` is en niet een `dict` in `NovaApp`
+
+Het plan zei: dedup als `self._dedup: dict[tuple[str, str], float]` in `NovaApp`. Dat is precies één van de redenen waarom `NovaApp` in het donor-project een ononderhoudbare prop werd: elke beslissing over "mag deze regel klinken" zat in één methode van 40 regels, en dus kon geen enkele beslissing apart getest worden.
+
+De poort is daarom een eigen klasse met één publieke methode. Dat levert drie dingen op die `NovaApp` zelf niet kan geven:
+
+1. **De beslissingen zijn testbaar zonder de app.** Geen `AudioPlayer`, geen `QwenManager`, geen pygame: `DialogueGate(registry, blacklist, dedup_window_ms, clock)` is genoeg. De `clock` is injecteerbaar, dus geen enkele test slaapt voor een venster van 500 ms.
+2. **De volgorde van de checks is expliciet.** Exception → leeg → dedup → blacklist → vertrouwen. Die volgorde *is* de logica, en in een lange `if`-keten in `on_dialogue` was hij nergens vastgelegd.
+3. **Er is één plek voor F5.** De file-watch-route voedt `on_dialogue`, dus hij erft alle regels automatisch. Zonder poort zou hij een tweede, licht afwijkende kopie van de checks krijgen — en dan is "dezelfde regel klinkt anders via een andere bron" een kwestie van tijd.
+
+`on_dialogue` houdt wat écht over deze app gaat: events uitsturen en de regel aan de worker geven.
+
+#### F4 — wat onderweg duidelijk werd
+
+1. **De geplande trust-gate was een no-op — gemeten, niet vermoed.** Het plan wilde registreren toestaan als `is_plausible_character_name(name)`. Meting op echte hook-vormen: **élke** naam die de parser als spreker accepteert, slaagt ook voor die functie. De regel zou dus nooit iets tegenhouden. Wat de meting wél liet zien: `Speaker(name=X)` krijgt `voice=""`, niets in backend of GUI kent ooit een stem toe aan een nieuw geregistreerde naam, en een junk-naam (`"Kitchen"`) verandert de splits niet. **Conclusie: de gate gaat niet over verkeerd geluid maar over registerhygiëne** — een bestand dat de gebruiker met de hand onderhoudt mag niet vollopen met woorden die de heuristiek één keer zag. Nieuwe regel: registreer alleen als de naam **gesteld** was (`speaker_is_guess is False`); een gok spreekt op de modelstem maar wordt niet bewaard. Zie D15.
+
+2. **De registry-docstring beloofde al wat de code niet deed.** `registry/speakers.py` (Main's eigen bestand, nooit van B overgenomen) zegt in zijn modulebeschrijving: *"Unknown speakers NEVER get a new voice slot; they fall back to `Narrator` at call sites and are never auto-registered from Luna."* Die belofte stond er al en `on_dialogue` deed het tegendeel. Dit is de variant van F2-punt 3 die je niet zelf schrijft: **een bestaand contract dat de code overtreedt.** De gate maakt de docstring waar voor gegokte namen — en de formulering "never auto-registered from Luna" was blijkbaar al geschreven door iemand die de juiste regel kende.
+
+3. **`NovaApp` had nul tests, en dat is waarom twee echte bugs er jaren konden zitten.** Geen van de 9 bestaande suites raakt `on_dialogue`, `_synth_emotion_aware` of de adapters. Twee gevolgen, beide gemeten:
+   - **`raw` ging verloren** in het `_synth_emotion_aware`-pad: segmenten werden met de hand opnieuw opgebouwd en alleen `speaker`/`text`/`source`/`instruct` doorgegeven. Het forensische record uit F1 verdween dus precies wanneer een emotie-tag in de tekst stond. Opgelost met `_segment_dialogue()`, dat ook `speaker_is_guess` meeneemt.
+   - De hierboven genoemde **ontbrekende trust-gate** kon onopgemerkt blijven, want niemand controleerde `registry.names()` na een hook-regel.
+   
+   **Les:** de poort-tests zijn niet "extra" — ze zijn de eerste tests die deze code ooit heeft gehad.
+
+4. **`_refresh_known_speakers()`: drie call sites, twee daarvan hadden het gat al.** Bij het schrijven van de mutant voor de start-volgorde bleek `set_known_speakers` op **drie** plekken te staan: `_start_adapters`, `switch_game` en `POST /speakers`. Alleen de eerste was in F4 aangepast aan de hook. De andere twee kenden `luna` niet — dus:
+   - een **gamewissel** liet de hook de oude cast houden (de clipboard kreeg wel de nieuwe);
+   - een **handmatige registratie** via de GUI bereikte de hook nooit.
+   
+   Dat tweede is niet theoretisch: de trust-gate vraagt de gebruiker letterlijk om een gegokte naam zelf te registreren. Als die registratie de hook niet bereikt, heeft de gebruiker het juiste gedaan en ziet hij niets veranderen — **de remedie die de gate aanwijst werkt dan niet.** Nu één helper voor alle drie de plekken, plus de invariant "namen vóór threads" (beide adapters parsen in een thread die pollt zodra `start()` terugkeert) vastgelegd in een test.
+5. **De parser had een tweede coördinatenstelsel.** De multi-spreker-split voegde eerst overal een `:` in (waardoor de tekst langer werd) en sneed daarna met offsets die op de tekst *zonder* die `:` waren berekend. Elke ingevoegde `:` verschoof dus alle latere grenzen met één — zichtbaar als een beurt die zijn puntverlies verloor (`test_speaker_may_speak_twice` ving het). Omdat de herkomstvlag op **positie** wordt gezet, zou dezelfde fout ook de vlag van de verkeerde beurt hebben gezet: een stil fout antwoord in plaats van een zichtbare fout. Nu wordt er op de originele tekst gesneden en gaat de `:` er per segment achteraan.
+6. **De dedup-sleutel is de ruwe vorm, en dat is een bewuste beperking.** De sleutel is `(speaker or "", raw or text)`, want de ruwe aanvoer is wat twee leveringen herkenbaar dezelfde uiting maakt. Gevolg: als de hook `"Rick Answer the door."` stuurt en de clipboard `"Rick: Answer the door."` bevat, zijn het voor de poort twee uitingen. Dat is vastgespeld in `test_differing_raw_text_defeats_dedup_today` in plaats van "opgelost" — de vergelijking zou de parser binnen een venster van 500 ms nodig hebben, en dat is de verkeerde laag. Kandidaat voor een latere stap **met echte captures**.
+7. **Mijn meetinstrument vergiftigde zijn eigen proefstuk.** De mutatie-harness schreef de bron terug binnen dezelfde seconde en met dezelfde byte-lengte (`[0]` → `[1]`), en Python's `.pyc`-validatie is `(mtime in seconden, size)`. De **herstelde originele** bron kreeg dus de **gemuteerde** bytecode voorgeschoteld, en een volgende testrun leek een echte regressie te tonen die niet bestond. Gevolg: alle mutantmetingen zijn opnieuw gedaan met caching uit (`-B`) en een schone pycache per meting. Permanente regel §12.10.
+8. **De `filtered`-payload is verbreed en dat is veilig.** De GUI roept `/events` wel aan in `api.ts`, maar verbruikt nergens in de codebase een `filtered`/`speaker_discovered`/`unassigned_speaker`-type; `EventEntry.payload` is `Record<string, unknown>` en wordt niet uitgelezen. De nieuwe `source`/`speaker`-keys zijn dus additief zonder consument.
+
+9. **De gevaarlijkste bug zat tússen twee geteste lagen, niet erin.** De trust-gate las `speaker_is_guess`; de parsertests controleerden dat de parser de vlag zet; de gate-tests bouwden hun `Dialogue` met de hand en controleerden dat de gate hem respecteert. Alles groen — en toch was de gate op het echte hook-pad **inert**, want `HookTextProcessor.push()` bouwde elke `Dialogue` opnieuw op en gaf `speaker_is_guess` niet door. Geen enkele test voerde de uitvoer van de processor ooit aan de gate. Gemeten: `"Rick Hello there"` via `push()` gaf `speaker_is_guess=False`, dus élke space-vorm spreker werd geregistreerd — precies wat D15 verbiedt. De vlag was gemeten aan het ene uiteinde en vertrouwd aan het andere, en niemand liep de draad na. **Les:** twee lagen die elk groen zijn bewijzen niets over de verbinding ertussen; de nieuwe klasse `TestTheHookProcessorSeam` voert de echte processor in de echte gate.
+
+10. **Daarna bleek "Dialogue met de hand herbouwen" de rode draad.** Dezelfde fout zat op drie plekken: de emotie-segmenten, de blacklist-rebuild in de poort, en `voice_manager.clean_dialogue`. `Dialogue` is een frozen dataclass, dus alle reconstructies zijn nu `dataclasses.replace(...)`: dat kopieert élk veld, dus een veld dat later aan `Dialogue` wordt toegevoegd kan niet meer stil verdwijnen. Zie §12.11. (De mutanten G2 en G7 uit de eerste ronde moesten worden herricht: ze muteerden de handmatige code die nu weg is.)
+
+**Mutatiecheck** (27 mutanten, alle 27 gevangen — 10 in `gate.py`, 3 in `parser/luna.py`, 1 in `adapters/luna.py`, 12 in `main.py`, 1 in `voice_manager.py`): o.a. trust-gate uit · `raw`-behoud weg · dedup-prune weg · venstergrens `<` i.p.v. `<=` · dedup-uit-stand weg · herkomst in de filter-rebuild weg · dedup-sleutel op tekst alleen · `hook_mode`-takken verwisseld · stop-volgorde om · adapters niet bijgepraat · namen ná start i.p.v. ervoor · `POST /speakers` praat de hook niet bij · en de naad zelf: `push()` die de herkomst laat vallen · het emotie-segment dat de herkomst wist · `clean_dialogue` dat de herkomst wist.
+
+**Openstaand:** D10 (`qwen_autostart` hook-aware) is F7.
+
+**Gate-handtekening:** RenPy-handmatige smoke is bewust F8 (D14); de geautomatiseerde RenPy-dekking is `test_clipboard_mode_starts_only_the_clipboard` + de bestaande `test_renpy_parser.py`-suite, die ongewijzigd groen is.
 
 ---
 
@@ -607,7 +653,7 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 
 | # | Vraag | Wanneer het antwoord nodig is |
 |---|---|---|
-| **D9** | Krijgt de hook-route een eigen `/status`-veld voor de *laatste ontvangen raw_text* (handig om de ws-verbinding zonder game te debuggen)? | F3 — goed moment om het in te bouwen |
+| **D9** ✅ | **Ja** — en hij is in **F4** ingebouwd, niet F3. `status()` geeft `hook_last_raw`: de laatste ruwe regel die de hook aanleverde, vóór parsing. Het is het enige veld dat "er komt niets binnen" scheidt van "het komt binnen en wordt verkeerd geparseerd"; elk ander veld in `/status` ziet die twee gevallen identiek. | Afgevinkt in F4. |
 | **D10** | Moet `qwen_autostart` in de toekomst `both`-aware zijn? Met `hook_mode=websocket` start de Qwen-server soms terwijl er niets op de ws komt. | F7 — niet blokkerend voor de port |
 | **D11** ✅ | **Uitgevoerd in F0:** `backend/vntts/` verwijderd in een eigen commit. Reden: nul functionele impact, 35 bestanden, nul verwijzingen — makkelijk terug te draaien als het toch nodig blijkt. De "eigen commit"-vorm is bovendien waardevoller dan de inhoud: het bevestigt dat er in deze repo een dode 171 KB template lag die drie jaar niemand had opgemerkt. | F9 hoeft dit niet meer te doen. |
 
@@ -618,6 +664,15 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D12** ✅ | **De Makefile-gates worden afnemend gemaakt vóór enige productiecode wijzigt.** | F0. `|| true` weg, nieuw `gate`-target. Nu permanente anti-regressieregel §12.8. |
 | **D13** ✅ | **Ruff-uitsluitingen worden per-bestand en per-regelcode gegeven, nooit globaal.** | Alleen `convert_vox_to_clone.py` → `["E701", "E702"]`, met comment. De echte fouten in dat bestand (`E722`, `F841`) zijn gerepareerd, niet uitgehaald — als er iets wordt genegeerd, moet de rest van dat bestand wel schoon zijn. |
 | **D14** ✅ | **De RenPy-functionele smoke verhuist van F0 naar F8.** | F0 heeft geen game, geen GPU en geen qwentts; een smoke zonder spel zou een no-op zijn die groen lijkt. F8 is waar de ws-route daadwerkelijk naast RenPy komt te staan. |
+
+### 9.4 Uit F4 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D15** ✅ | **Trust-gate = "gesteld, niet gegokt".** Registreer een spreker alleen als `Dialogue.speaker_is_guess is False`. De geplande regel (`is_plausible_character_name`) is gemeten een **no-op**: élke naam die de parser als spreker accepteert, slaagt er ook voor. De gate gaat dus over **registerhygiëne**, niet over verkeerd geluid — auto-registratie koppelt sowieso nooit een stem (`voice=""`). | F4. De vlag leeft op `Dialogue`, niet her-afgeleid door de caller, want de multi-spreker-split herschrijft de regel naar colonvorm vóór de per-beurt-parse. Een gok spreekt op de modelstem maar wordt niet bewaard; het `speaker_guessed`-event maakt hem zichtbaar. |
+| **D16** ✅ | **`hook_mode` wordt één keer gelezen, bij start.** Later wisselen kost een herstart. | F4, zelfde precedent als `hook_host`. De ws opnieuw binden zou LunaTranslator's verbinding droppen; een herstart die de gebruiker kent is beter dan een stil weggevallen hook midden in een scène. De GUI-hint "herstart vereist" is F6. |
+| **D17** ✅ | **`HookTextProcessor` houdt zijn constructor-snapshot** van `hook_dual_hook` / `hook_space_form`. | F4. Maakt `push()` testbaar zonder `settings`; live-herladen is een F7-vraag, geen F4-bug. |
+| **D18** ✅ | **`is_blacklisted_name()` wordt niet toegevoegd.** | F4. De poort weigert al zodra de blacklist de regel leegmaakt (`REASON_BLACKLIST`) — dat is de waarneembare faalvorm. Een tweede, naam-gebaseerde blacklist zou een tweede waarheid naast `filter_text` zetten. B's versie is dus expliciet afgevinkt i.p.v. stil vergeten. |
 
 ---
 
@@ -665,6 +720,9 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F0 | `38f2a57` | **105 ✅** | **27 ❌** | **2 ❌** | ✅ | **Nulmeting.** Gates niet-afnemend → §10.2. |
 | 2026-09-29 | F0 | *"F0: make the gates real…"* | **105 ✅** | **0 ✅** | **0 ✅** | ✅ | **Eindmeting F0.** Gates nu afnemend. `pytest` onveranderd 105 → de 27+2 fixes hebben geen test geraakt, wat bewijst dat het om stijl ging en niet om gedrag. |
 | 2026-09-29 | F1 | *"F1: foundation…"* | **153 ✅** | **0 ✅** | **0 ✅** | ✅ | 105 → 153: 48 tests voor de nieuwe logica. **Stijging is gedocumenteerd, per anti-regressieregel §12.9.** |
+| 2026-09-29 | F2 | `1e0971b` | **195 ✅** | **0 ✅** | **0 ✅** | ✅ | 153 → 195. Parser 11 → ~800 regels, 5 mutanten gevangen. 3 gaten bewust vastgespeld. **0 runtime-impact** — er is nog niets aangesloten. |
+| 2026-09-29 | F3 | `aa67c6e` | **263 ✅** | **0 ✅** | **0 ✅** | ✅ | 195 → 263. Ws-server in drie lagen, 11 mutanten gevangen. **Nog 0 runtime-impact** — de adapter is nog niet aangesloten. |
+| 2026-09-29 | F4 | *"F4: gate…"* | **318 ✅** | **0 ✅** | **0 ✅** | ✅ | 263 → 318. **Eerste fase met runtime-impact.** Nieuwe `gate.py` + bedrading; **27/27 mutanten** met caching uit (§12.10). RenPy-route houdt dezelfde adapter, parser en registratie. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -685,9 +743,9 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 |---|---|---|
 | F0 Baseline & veiligheid | ✅ | Gates konden niet falen (`|| true`) → gerepareerd. 27 ruff → 0, 2 mypy → 0, dev-deps compleet, `vntts/` weg, `stop_all.cmd` op poort 8765. Eindstand **105 ✅ / 0 / 0 / ✅**. |
 | F1 Foundation | ✅ | 9 hook-velden + `Dialogue.raw` + `_env_bool` (een echte valkuil: `bool("False")` is `True`). 105 → **153 tests**, alle 3 mutanten gevangen. Nog 0 runtime-impact. |
-| F2 `parser/luna.py` | ⬜ | |
-| F3 `adapters/luna.py` | ⬜ | |
-| F4 `NovaApp`-bedrading | ⬜ | |
+| F2 `parser/luna.py` | ✅ | 11 → ~800 regels, 5 woordensets + 16 UI-regexen, multi-spreker-split. 153 → **195 tests**, 5 mutanten gevangen. Drie gaten bewust vastgespeld i.p.v. "opgelost". 0 runtime-impact. |
+| F3 `adapters/luna.py` | ✅ | Drie lagen (pure functies · `HookTextProcessor` · `LunaAdapter`). Eigen event loop + dispatch-thread; synthese blijft van de loop af (G4.1). 195 → **263 tests**, 11 mutanten gevangen. Nog niet aangesloten. |
+| F4 `NovaApp`-bedrading | ✅ | Nieuwe `gate.py`: één poort voor alle bronnen. Trust-gate = "gesteld, niet gegokt" (het plan was een gemeten no-op). `hook_mode`-selectie, `status()`-velden, G5.4, stop-volgorde, `_refresh_known_speakers`. 263 → **318 tests**, **27/27 mutanten**. `NovaApp` had hiervoor nul tests. Twee naad-bugs gevangen (`push()` en de handmatige `Dialogue`-rebuilds) → §12.11. |
 | F5 `file_monitor.py` | ⬜ | |
 | F6 GUI | ⬜ | |
 | F7 Lifecycle & docs | ⬜ | |
@@ -707,3 +765,5 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 7. **Nooit een `.wav`/`.spk`/`.rvq`/persoonlijke mapping committen.** Zoals `e48c8ef` al besloot voor de emotion-map.
 8. **Nooit `|| true` (of een andere exitcode-demping) op een gate zetten.** Dat is de koorts van dit project: `Makefile` deed precies dat, waardoor `make lint`/`make test` 27 ruff-errors en 2 mypy-errors als "✓" afvinkten. **Een gate die niet kan falen is geen gate.** Als een gate hinderlijk is, is de oplossing *repareren wat hij vindt*, niet hem dempen.
 9. **Nooit de baseline-testcount als toevalligheid behandelen.** `105` is het getal. Verandert het, dan staat in de commit-message welke test is toegevoegd of weggevallen en waarom.
+10. **Nooit een mutant-controle draaien zonder bytecode-caching uit.** Python valideert een `.pyc` op `(mtime in seconden, size)`. Een harness die de bron terugzet met dezelfde lengte binnen dezelfde seconde (`[0]` → `[1]`) laat de **herstelde** bron de **gemuteerde** bytecode laden — en dan toont een volgende testrun een regressie die niet bestaat. Dit is in F4 echt gebeurd en kostte een uur zoeken naar een bug in correcte code. **Draai elke mutant met `python -B` (`PYTHONDONTWRITEBYTECODE=1`) en ruim de project-`__pycache__` op vóór elke meting.** De regel is de algemene vorm van §12.8: een meting die niet kan falen is geen meting — maar een meting die *iets anders* meet dan je denkt is erger, want hij liegt met een getal.
+11. **Nooit een `Dialogue` met de hand herbouwen — gebruik `dataclasses.replace(dialogue, ...)`.** `Dialogue` is een frozen dataclass, dus `replace` kopieert elk veld, ook een veld dat pas later wordt toegevoegd. Een handmatige `Dialogue(...)` naast de originele was drie keer exact dezelfde fout: `raw` verdween in de emotie-segmenten, `speaker_is_guess` in `HookTextProcessor.push()`, en beide in `voice_manager.clean_dialogue`. Gevolg: de F4-trust-gate was op het enige pad dat de hook echt gebruikt **inert**, terwijl parser- én gatetests groen waren. De reconstructie-plekken (`push`, `gate.admit`, `_segment_dialogue`, `clean_dialogue`) gebruiken nu alle vier `replace`.

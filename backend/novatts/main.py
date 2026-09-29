@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +14,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .adapters import ClipboardAdapter
-from .blacklist import Blacklist, is_renpy_exception
+from .adapters.luna import LunaAdapter
+from .blacklist import Blacklist
 from .config import settings
 from .cutter_api import router as cutter_router
 from .emotions import EmotionSounds
 from .games import GameManager
+from .gate import DialogueGate
 from .models import Dialogue, Event, SpeakRequest
 from .player.audio import AudioPlayer
 from .qwen_manager import QwenManager
@@ -139,8 +142,14 @@ class NovaApp:
         self.player = AudioPlayer()
         self.emotions = EmotionSounds(player=self.player)
         self.blacklist = Blacklist()
+        self.gate = DialogueGate(
+            registry=self.registry,
+            blacklist=self.blacklist,
+            dedup_window_ms=settings.dedup_window_ms,
+        )
         self.player.on_finished = lambda _p: None  # reserved for event emit
         self.clipboard: ClipboardAdapter | None = None
+        self.luna: LunaAdapter | None = None
         self._event_history: list[Event] = []
         import threading
 
@@ -165,15 +174,78 @@ class NovaApp:
         self._running = True
         self._worker = threading.Thread(target=self._dialogue_worker, name="dialogue-worker", daemon=True)
         self._worker.start()
-        self.clipboard = ClipboardAdapter(on_dialogue=self.on_dialogue)
-        self.clipboard.set_known_speakers(self.registry.names())
-        self.clipboard.start()
-        log.info("NovaTTS started (qwen_online=%s)", self.qwen.is_available())
+        self._start_adapters()
+        log.info(
+            "NovaTTS started (qwen_online=%s, hook_mode=%s)",
+            self.qwen.is_available(),
+            settings.hook_mode,
+        )
+
+    def _start_adapters(self) -> None:
+        """Start the raw_text sources enabled by ``settings.hook_mode``.
+
+        ``clipboard`` is the RenPy route, ``websocket`` the LunaHook route,
+        and ``both`` -- the default -- runs them side by side so the hook
+        can be proven against a route that already works.
+
+        The mode is read once, here. Switching it later takes a restart:
+        the websocket cannot be re-bound without dropping LunaTranslator's
+        connection, and a restart the user is told about is better than a
+        silently dropped hook mid-scene.
+        """
+        mode = settings.hook_mode
+        if mode in ("clipboard", "both"):
+            self.clipboard = ClipboardAdapter(on_dialogue=self.on_dialogue)
+        else:
+            log.info("hook_mode=%r: RenPy clipboard adapter not started", mode)
+        if mode in ("websocket", "both"):
+            self.luna = LunaAdapter(on_dialogue=self.on_dialogue)
+        else:
+            log.info("hook_mode=%r: LunaHook websocket adapter not started", mode)
+        # Names before threads. Both adapters parse inside a worker that is
+        # already polling when start() returns, and the known-name set is
+        # what lets a parser trust a speaker it would otherwise reject or
+        # guess. Priming after start would leave a window where the first
+        # line of the session is misread -- and "the first line is wrong" is
+        # the hardest kind of bug to reproduce.
+        self._refresh_known_speakers()
+        if self.clipboard is not None:
+            self.clipboard.start()
+        if self.luna is not None:
+            self.luna.start()
+
+    def _refresh_known_speakers(self) -> None:
+        """Re-prime every running adapter with the current registry.
+
+        Every adapter must hold the same name set, because the parser
+        trusts a registered name over all of its heuristics. An adapter
+        left holding a stale set keeps guessing names the user has already
+        assigned.
+
+        That is not a rare corner for the hook route: the trust gate
+        deliberately refuses to persist a guessed name, so registering
+        the name by hand is the remedy it asks for. If that registration
+        does not reach the adapter, the fix the gate points at does
+        nothing.
+
+        One place, so the next adapter added cannot be missed in three.
+        """
+        names = self.registry.names()
+        for adapter in (self.clipboard, self.luna):
+            if adapter is not None:
+                adapter.set_known_speakers(names)
 
     def stop(self) -> None:
+        # Adapters first, and before the worker and the backend. A luna
+        # dispatch thread can be inside on_dialogue, and stopping the
+        # synthesis backend under it turns a clean shutdown into a pile of
+        # errors from work that no longer matters. Each adapter joins its
+        # own threads, so this also guarantees nothing new arrives after.
+        self._running = False
+        if self.luna:
+            self.luna.stop()
         if self.clipboard:
             self.clipboard.stop()
-        self._running = False
         with suppress(Exception):
             self._wake.set()
         if self._worker:
@@ -191,6 +263,7 @@ class NovaApp:
             # Ephemeral raw clipboard log: same policy — nothing persists.
             if self.clipboard:
                 self.clipboard.raw_log.clear()
+        self.gate.forget()
         self.registry.maybe_autosave()
 
     def _synth_emotion_aware(self, dialogue: Dialogue) -> list[Path]:
@@ -209,11 +282,11 @@ class NovaApp:
             seg = text[last:pos].strip()
             if seg:
                 try:
-                    path = self.voices.synthesize(Dialogue(speaker=dialogue.speaker, text=seg, source=dialogue.source, instruct=dialogue.instruct))
+                    path = self.voices.synthesize(self._segment_dialogue(dialogue, seg))
                     paths.append(path)
                 except Exception as exc:
                     log.error("Synthesis failed: %s", exc)
-                    self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
+                    self._emit(Event("error", {"source": dialogue.source, "error": str(exc)}))
             ep = self.emotions.resolve_path(tag)
             if ep is not None:
                 paths.append(ep)
@@ -221,18 +294,30 @@ class NovaApp:
         seg2 = text[last:].strip()
         if seg2:
             try:
-                path2 = self.voices.synthesize(Dialogue(speaker=dialogue.speaker, text=seg2, source=dialogue.source, instruct=dialogue.instruct))
+                path2 = self.voices.synthesize(self._segment_dialogue(dialogue, seg2))
                 paths.append(path2)
             except Exception as exc:
                 log.error("Synthesis failed: %s", exc)
-                self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
+                self._emit(Event("error", {"source": dialogue.source, "error": str(exc)}))
         if not paths and cleaned.strip():
             try:
                 paths.append(self.voices.synthesize(dialogue))
             except Exception as exc:
                 log.error("Synthesis failed: %s", exc)
-                self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
+                self._emit(Event("error", {"source": dialogue.source, "error": str(exc)}))
         return paths
+
+    @staticmethod
+    def _segment_dialogue(dialogue: Dialogue, text: str) -> Dialogue:
+        """One emotion-delimited segment of ``dialogue``.
+
+        A segment differs from its parent only in the text it speaks.
+        ``raw`` and ``speaker_is_guess`` describe the source line, not the
+        segment, so they must survive the split -- and a hand rebuild is
+        exactly where each of them was dropped once. ``replace`` copies
+        every field, so the next field added to Dialogue is carried too.
+        """
+        return replace(dialogue, text=text)
 
     def _dialogue_worker(self) -> None:
         import time
@@ -265,7 +350,7 @@ class NovaApp:
                     continue
             except Exception as exc:
                 log.error("Synthesis failed: %s", exc)
-                self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
+                self._emit(Event("error", {"source": dialogue.source, "error": str(exc)}))
                 continue
             with self._pending_lock:
                 latest2 = self._pending_seq
@@ -280,42 +365,71 @@ class NovaApp:
 
     # -- dialogue pipeline ---------------------------------------------
 
-    def _check_exception_filter(self, raw_text: str) -> bool:
-        if is_renpy_exception(raw_text):
-            log.debug("Skipping RenPy exception dump")
-            self._emit(Event("filtered", {"reason": "renpy_exception", "text": raw_text[:120]}))
-            return True
-        return False
-
     def on_dialogue(self, dialogue: Dialogue) -> None:
-        raw = dialogue.text
-        if self._check_exception_filter(raw):
+        """Accept a line from any adapter, or report why it was refused.
+
+        This is the single entry point shared by the clipboard, websocket
+        and (F5) file-watch routes, so everything that decides whether a
+        line speaks lives behind it. The decisions themselves are in
+        :class:`~novatts.gate.DialogueGate`; what stays here is the part
+        that is genuinely about *this* app: emitting events, and handing
+        the line to the dialogue worker, which is still the only path to
+        synthesis.
+        """
+        admission = self.gate.admit(dialogue)
+        if not admission.accepted:
+            self._emit(
+                Event(
+                    "filtered",
+                    {
+                        "reason": admission.reason,
+                        "source": dialogue.source,
+                        "speaker": dialogue.speaker,
+                        "text": (dialogue.raw or dialogue.text)[:120],
+                    },
+                )
+            )
             return
-        filtered = self.blacklist.filter_text(raw)
-        if not filtered.strip():
-            self._emit(Event("filtered", {"reason": "blacklist", "speaker": dialogue.speaker, "text": raw[:80]}))
+        line = admission.dialogue
+        if line is None:
             return
-        if filtered != raw:
-            dialogue = Dialogue(speaker=dialogue.speaker, text=filtered, source=dialogue.source, instruct=dialogue.instruct)
-        if not dialogue.is_voiceable:
-            return
-        seen_new = False
-        if dialogue.speaker:
-            try:
-                if dialogue.speaker not in self.registry.names():
-                    self.registry.register(dialogue.speaker)
-                    self.registry.save()
-                    seen_new = True
-                    self._emit(Event("speaker_discovered", {"speaker": dialogue.speaker}))
-            except Exception:
-                pass
-        voice = self.registry.lookup_voice(dialogue.speaker) if dialogue.speaker else ""
-        if dialogue.speaker and not voice:
-            self._emit(Event("unassigned_speaker", {"speaker": dialogue.speaker, "text": dialogue.text[:80]}))
-        self._emit(Event("dialogue", {"speaker": dialogue.speaker, "text": dialogue.text[:120], "new": seen_new}))
+        if admission.new_speaker:
+            with suppress(Exception):
+                self.registry.save()
+            self._emit(Event("speaker_discovered", {"speaker": line.speaker, "source": line.source}))
+        elif admission.guess_only:
+            # The name is our inference, so it is not persisted -- but the
+            # user should be able to see that the guess happened, because
+            # otherwise the only evidence is a voice that sounds wrong.
+            self._emit(
+                Event(
+                    "speaker_guessed",
+                    {"speaker": line.speaker, "source": line.source, "text": line.text[:80]},
+                )
+            )
+        voice = self.registry.lookup_voice(line.speaker) if line.speaker else ""
+        if line.speaker and not voice:
+            self._emit(
+                Event(
+                    "unassigned_speaker",
+                    {"speaker": line.speaker, "source": line.source, "text": line.text[:80]},
+                )
+            )
+        self._emit(
+            Event(
+                "dialogue",
+                {
+                    "speaker": line.speaker,
+                    "text": line.text[:120],
+                    "source": line.source,
+                    "new": admission.new_speaker,
+                    "guess": line.speaker_is_guess,
+                },
+            )
+        )
         with self._pending_lock:
             self._pending_seq += 1
-            self._pending_dialogue = dialogue
+            self._pending_dialogue = line
         with suppress(Exception):
             self.player.stop_current()
         self._wake.set()
@@ -344,8 +458,7 @@ class NovaApp:
         new_path = self.games.speakers_path(safe)
         self.registry = SpeakerRegistry(new_path)
         self.voices.registry = self.registry
-        if self.clipboard:
-            self.clipboard.set_known_speakers(self.registry.names())
+        self._refresh_known_speakers()
         self._emit(Event("game_switched", {"game": safe, "speakers": len(self.registry.names())}))
         return {"game": safe, "speakers": self.registry.to_dict(), "path": str(new_path)}
 
@@ -374,6 +487,14 @@ class NovaApp:
             "game": self.games.active(),
             "games": self.games.list_games(),
             "clipboard": self.clipboard.is_running() if self.clipboard else False,
+            "hook_mode": settings.hook_mode,
+            "hook_clients": self.luna.client_count if self.luna else 0,
+            "hook_dropped": self.luna.dropped if self.luna else 0,
+            # D9: the last raw line the hook delivered, before parsing.
+            # "Nothing is arriving" and "it arrives and is misparsed" look
+            # identical from every other field here, and this is the only
+            # one that tells them apart.
+            "hook_last_raw": self.luna.last_raw if self.luna else "",
             "queue_size": self.player.queue_size(),
             "current": str(self.player.current()) if self.player.current() else None,
             "speaker_count": len(self.registry.names()),
@@ -554,8 +675,7 @@ async def create_speaker(body: SpeakerCreateBody) -> dict[str, Any]:
     rt = get_runtime()
     speaker = rt.registry.register(body.name)
     rt.registry.save()
-    if rt.clipboard:
-        rt.clipboard.set_known_speakers(rt.registry.names())
+    rt._refresh_known_speakers()
     return speaker.to_dict()
 
 

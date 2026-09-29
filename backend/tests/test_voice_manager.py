@@ -135,3 +135,29 @@ def test_clear_cache_absent_dir_is_noop(tmp_path):
     shutil.rmtree(mgr.cache_dir, ignore_errors=True)
     mgr.clear_cache()  # must not raise
     assert not mgr.cache_dir.exists()
+
+
+def test_clean_dialogue_keeps_the_source_line_and_provenance(tmp_path):
+    """Cleaning changes only the spoken text.
+
+    ``clean_dialogue`` used to rebuild the Dialogue by hand, which would
+    have dropped ``raw`` and ``speaker_is_guess``. Nothing calls it today,
+    but a hand rebuild is the exact bug class that already cost two silent
+    failures -- the emotion segments and the hook processor -- so it uses
+    ``replace()`` like they do.
+    """
+    _, _, mgr = make_ctx(tmp_path)
+    parent = Dialogue(
+        speaker="Rick",
+        text="Haha Hello",
+        source="luna",
+        raw="Rick Haha Hello",
+        speaker_is_guess=True,
+    )
+
+    cleaned = mgr.clean_dialogue(parent)
+
+    assert cleaned.text == "Hello"
+    assert cleaned.speaker == "Rick"
+    assert cleaned.raw == "Rick Haha Hello"
+    assert cleaned.speaker_is_guess is True
