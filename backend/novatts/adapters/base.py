@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from ..models import Dialogue
 
@@ -25,6 +25,17 @@ class InputAdapter(abc.ABC):
     @abc.abstractmethod
     def name(self) -> str:
         """Pipeline identifier, e.g. "clipboard" or "luna"."""
+
+    @abc.abstractmethod
+    def set_known_speakers(self, names: Iterable[str]) -> None:
+        """Sync the registry-backed name set this adapter's parser trusts.
+
+        ``NovaApp`` primes every adapter from one place, because a parser
+        holding a stale set keeps guessing names the user has already
+        registered. Declared here rather than left to each adapter: a
+        source added later cannot silently skip the priming, and the loop
+        that does it stays type-checked instead of duck-typed.
+        """
 
     @abc.abstractmethod
     def start(self) -> None:

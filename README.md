@@ -148,13 +148,23 @@ loopback traffic. Check with `netsh winhttp show proxy`; the fix is
 | `NOVATTS_HOOK_SPACE_FORM` | `1` | Textractor sends `Rick It's 2 parts.` (space form). Set to `0` only for `Rick:`-style games — the RenPy parser is tried first regardless. |
 | `NOVATTS_HOOK_DUAL_HOOK` | `0` | attach the hook twice; some games need it, but it doubles traffic |
 | `NOVATTS_LUNA_WS_URL` | *(empty)* | empty = serve; non-empty (e.g. `ws://127.0.0.1:6678`) = connect to that instead |
-| `NOVATTS_FILE_WATCH` | `0` | tertiary route: tail a Textractor output file |
+| `NOVATTS_FILE_WATCH` | `0` | tertiary route: tail a Textractor output file. Independent of `hook_mode`; off means no file is ever read |
 | `NOVATTS_FILE_WATCH_PATH` | `textractor_output.txt` | path for that file route |
 | `NOVATTS_DEDUP_WINDOW_MS` | `500` | drop an identical line repeated within this window (Textractor re-emits on window change and re-focus) |
 
 > `hook_host` is shown in the settings view but is **not** editable there:
 > it is the websocket bind address, and changing it live would need the
 > server restarted to take effect.
+
+### The file route in one paragraph
+
+`NOVATTS_FILE_WATCH=1` makes NovaTTS poll `NOVATTS_FILE_WATCH_PATH` and
+parse every **new line** with exactly the same parser the websocket route
+uses. Both writers that occur in practice work: a scratch file overwritten
+with the current line, and a log that only grows. The one shape it does not
+recover on its own is a writer that puts a name and its text on separate
+lines — `"Rick"` then `"Answer the door."` is two lines, and the name has no
+body to attach to. Set `NOVATTS_HOOK_DUAL_HOOK=1` and the two lines rejoin.
 
 ## Build checks
 

@@ -536,16 +536,77 @@ De poort is daarom een eigen klasse met één publieke methode. Dat levert drie 
 
 ---
 
-### ⬜ F5 — `adapters/file_monitor.py` (tertiair)
+### ✅ F5 — `adapters/file_monitor.py` (tertiair) *(gereed 2026-09-29)*
 
-Doel: derde vangnet, achter een vlag.
+Doel bereikt: een derde vangnet dat iets toevoegt zonder een **tweede interpretatie** van "wat betekent deze regel" te introduceren.
 
-- [ ] Nieuw bestand uit B (68 regels), aangepast aan `InputAdapter` + `name` + `Dialogue.raw`
-- [ ] Alleen actief als `NOVATTS_FILE_WATCH=1`
-- [ ] `source="file"`, zelfde parserketen, zelfde dedup
-- [ ] 3 tests
+**Dit is bewust géén port van B's bestand.** B's `file_monitor.py` (68 regels) wordt niet overgenomen maar doorgedronken tot een dunne laag **over** de in F3 gebouwde `HookTextProcessor` (D19). B's route heeft bovendien **geen referentiegedrag**: `VN_Suite.py` kent géén file-route, dus er viel niets te verifiëren — alleen te verzinnen, en dan zo dun mogelijk.
 
-**Gate:** 4 gates groen.
+- [x] `new_file_text(previous, current) -> str` — pure functie, de enige *nieuwe* beslissing in de hele route, zonder filesystem te testen
+- [x] `FileMonitorAdapter(InputAdapter)` — `name = "file"`, `source="file"`, `last_raw`, warn-eenmalig bij ontbrekend bestand
+- [x] Alleen actief als `NOVATTS_FILE_WATCH=1`; **niet** onderdeel van `hook_mode` (zie keuze 3)
+- [x] Zelfde processor, zelfde poort, zelfde dedup — F4 wordt geërfd, niet gekopieerd
+- [x] **23 tests** in `tests/test_file_monitor.py` (incl. één die de échte poll-thread draait) + 4 in `test_main_wiring.py`
+- [x] **`NovaApp._adapters()`**: één plek voor de adapterlijst, gebruikt door prime/start/stop
+
+**Gate:** `ruff` schoon · `mypy --strict` schoon (33 bestanden) · `pytest` **318 → 345**, waarvan **6 omgevingsafhankelijk falen** (zie "de meting die niet groen kon zijn") · `npm run build` groen. **33 mutanten, 33 gevangen** (+6 nieuw voor F5, waarvan 2 op de `_adapters()`-tuple).
+
+#### F5 — de meting die niet groen kon zijn, en wat dat wél was
+
+De volledige suite gaf **339 passed, 6 failed**, alle zes in `tests/test_openai_speech.py`. Dat is geen F5-probleem, en dat is **gemeten** in plaats van geargumenteerd:
+
+| meting | uitkomst |
+|---|---|
+| zelfde 6 tests op de **schone F4-boom** (`git stash -u`) | **6 failed, 6 passed** — identiek |
+| `Get-NetTCPConnection -LocalPort 8080` | pid 7528, `python`, gestart 09:27 — **Open WebUI**, niet `tts-server.exe` |
+| `GET http://127.0.0.1:8080/` | **200** + Open-WebUI-branding-HTML |
+| `POST http://127.0.0.1:8080/v1/audio/speech` | **405** |
+
+`NOVATTS_QWEN_URL=http://127.0.0.1:8080`, en die poort hoort inmiddels aan Open WebUI. `maybe_autostart()` weigert terecht een tweede server op een bezette poort (`.env` zegt er zelf bij: *"If that port is busy, start qwentts with --port 8081"*), waarna de request bij Open WebUI belandt en 405 krijgt.
+
+Die zes tests zijn **integratietests zonder mock**: de fixture start een échte `NovaApp` en doet een échte HTTP-call. Zonder levende qwen-server kunnen ze niet groen zijn. Ze zijn dus niet onderdrukt en niet gemarkeerd — §12.8 is hier geen aanleiding voor een `skip`, want dan zou de gate een kapotte omgeving verbergen in plaats van hem benoemen. F5 zelf is groen: `pytest --ignore=tests/test_openai_speech.py` → **333 passed**.
+
+#### F5 — de drie ontwerpkeuzes, alle drie gemeten
+
+**1. Eén regel per delivery, niet de hele wijziging in één keer.** Gemeten voordat er code was:
+
+| aanvoer | `parse_luna_turns()` | `HookTextProcessor.push()` |
+|---|---|---|
+| `"Rick Hello\nAnne Bye"` | `[("Rick", "Hello Anne Bye", True)]` | idem |
+| `"Rick\nAnswer the door."` | `[("Rick", "Answer the door.", True)]` | idem |
+
+De parser splitst **niet** op newlines; hij plakt ze aan elkaar. Dat is ontwerp uit F2 (de `Rick\n…`-vorm moet juist weer aan elkaar), maar het maakt "de hele wijziging als één regel sturen" ongeschikt voor een groeiend log: regel twee wordt dan de tekst van spreker één. **Fout geluid met de verkeerde stem** is erger dan een regel die als tekst inleest. Daarom per regel pushen — dezelfde eenheid als een socket-frame.
+
+**2. Append herkennen mag alleen op een regeleinde.** De donor en de eerste opzet gebruikten simpelweg `current.startswith(previous)`. Dat is stuk bij een overschrijvend bestand: `"Rick"` gevolgd door `"Rick Hello"` levert dan `"Hello"` op — de naam wordt opgegeten en de regel komt als vertelstem binnen. De regel is nu dat er een `suffix` pas bij een regeleinde voor een append telt; anders is het een vervanging.
+
+**3. `file_watch` staat buiten `hook_mode`.** `hook_mode` kiest tussen clipboard en websocket. De file-route is geen derde keuze in die rij, maar het vangnet voor wanneer **geen van beide** kan draaien — anders zou `hook_mode=websocket` de fallback uitschakelen, precies in de situatie waarvoor hij bedoeld is. Eigen vlag, eigen beslissing; vastgelegd in `test_the_file_route_is_independent_of_hook_mode`.
+
+#### F5 — de gedocumenteerde limiet (vastgespeld, niet verzwegen)
+
+Per regel leveren betekent dat een schrijver die naam en tekst op **aparte** regels zet de naam geen lichaam geeft:
+
+| bestandsinhoud | zonder `hook_dual_hook` | met `hook_dual_hook` |
+|---|---|---|
+| `"Rick\nAnswer the door."` | `[("Answer", "the door.")]` | `[("Rick", "Answer the door.")]` |
+
+Zonder dual-hook wordt `"Rick"` als kale naam weggegooid en wordt `"Answer"` — een plausibele karakternaam — tot spreker. Dat is exact de vorm waarvoor `hook_dual_hook` bestaat (die buffert een kale naam en plakt hem aan de volgende regel), dus de handleiding is niet "het werkt niet" maar "zet deze vlag". **Beide helften zijn tests** (`TestTheNameOnItsOwnLine`), zodat een volgende agent dit niet als ontbrekende functionaliteit gaat repareren.
+
+#### F5 — de vier donorfouten die hier níét zijn overgenomen
+
+| B's `file_monitor.py` | Waarom niet |
+|---|---|
+| `mtime != _last_mtime` als hek | Op een filesystem met grove timestamps wordt een herschrijving binnen dezelfde tick gemist — de valkuil is een **stil** dood vangnet. Nu: elke tick lezen en vergelijken; het bestandje is klein. |
+| `except Exception: pass` | Stilzwijgen bij een fout in een vangnet is precies wat je niet wilt. Nu `log.exception`. |
+| Handmatig `Dialogue(...)` herbouwen | Z §12.11, F4-punt 10. Er is hier helemaal geen rebuild: de processor geeft de regels door. |
+| `parse_renpy` in de keten | De F3-beslissing: de file-route gebruikt **dezelfde** luna-processor als de ws-route, anders heeft NovaTTS twee interpretaties van dezelfde regel. |
+
+#### F5 — wat onderweg duidelijk werd
+
+1. **`InputAdapter` miste `set_known_speakers`; mypy ving het zodra de lus getypeerd werd.** `_refresh_known_speakers` riep de methode duck-typed aan. Zodra F5 `_adapters() -> tuple[InputAdapter, ...]` introduceerde, werd de aanname een typefout in plaats van een stil werkende aanname: *"InputAdapter has no attribute set_known_speakers"*. De methode staat nu **op de interface** (abstract, met contract-docstring). Dat is precies de winst van D16/F3's regel "maak invarianten tot typen": een bron die later wordt toegevoegd kan de priming niet meer overslaan, en de drie call sites hoeven niet meer elk te weten dát er geprimd moet worden.
+
+2. **F4's "drie call sites, twee ervan hadden het gat"-bevinding had een derde call site verborgen.** F4 voegde `_refresh_known_speakers` toe om het gat in drie plekken te dichten. F5 voegt een route toe en daarmee een **tweede** plek waar de lijst met adapters nodig is — en de eerste was `_start_adapters`/`stop`, die de adapters tot nu toe individueel benoemden. Opgelost met één `_adapters()`-helper; de 4 nieuwe wiring-tests dekken flag-uit, flag-aan, onafhankelijkheid van `hook_mode` en de stop-volgorde.
+
+3. **De vier tests van `test_main_wiring.py` kregen een autouse fixture.** Zonder die zou één test die `NOVATTS_FILE_WATCH` aanzet een latere adapter-selectietest een extra adapter kunnen laten zien en die op een andere plek laten falen. De hele file hanteert al "per test zelf beslissen" voor `hook_mode`; de vlag hoort daar net zo goed bij.
 
 ---
 
@@ -674,6 +735,14 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D17** ✅ | **`HookTextProcessor` houdt zijn constructor-snapshot** van `hook_dual_hook` / `hook_space_form`. | F4. Maakt `push()` testbaar zonder `settings`; live-herladen is een F7-vraag, geen F4-bug. |
 | **D18** ✅ | **`is_blacklisted_name()` wordt niet toegevoegd.** | F4. De poort weigert al zodra de blacklist de regel leegmaakt (`REASON_BLACKLIST`) — dat is de waarneembare faalvorm. Een tweede, naam-gebaseerde blacklist zou een tweede waarheid naast `filter_text` zetten. B's versie is dus expliciet afgevinkt i.p.v. stil vergeten. |
 
+### 9.5 Uit F5 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D19** ✅ | **F5 = een dunne file-tailer óver `HookTextProcessor`, geen letterlijke port van B's `file_monitor.py`.** | F5. Er viel geen referentiegedrag te kopiëren (`VN_Suite.py` kent geen file-route), dus "overnemen" zou een tweede, licht afwijkende kopie van de interpretatie van een regel zijn — precies wat F3 met `app.py` afkeerde. De enige nieuwe beslissing is `new_file_text`, en die is pure. |
+| **D20** ✅ | **Eén regel per delivery.** | F5, gemeten: de parser plakt regels binnen één aanvoer aan elkaar, dus "de hele wijziging als één regel" laat regel twee de tekst van spreker één worden. Verkeerde stem op verkeerde tekst is erger dan een regel die als vertelstem inleest. Alle regels van een groeiend log komen nu los binnen. |
+| **D21** ✅ | **`set_known_speakers()` komt op `InputAdapter`, abstract.** | F5. Het was duck-typing; zodra `_adapters()` de lus typecheckt, wordt de aanname een mypy-fout in plaats van een stille werkende aanname. Een volgende bron kan de priming niet meer overslaan. |
+
 ---
 
 ## 10. Baseline-logboek
@@ -723,6 +792,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F2 | `1e0971b` | **195 ✅** | **0 ✅** | **0 ✅** | ✅ | 153 → 195. Parser 11 → ~800 regels, 5 mutanten gevangen. 3 gaten bewust vastgespeld. **0 runtime-impact** — er is nog niets aangesloten. |
 | 2026-09-29 | F3 | `aa67c6e` | **263 ✅** | **0 ✅** | **0 ✅** | ✅ | 195 → 263. Ws-server in drie lagen, 11 mutanten gevangen. **Nog 0 runtime-impact** — de adapter is nog niet aangesloten. |
 | 2026-09-29 | F4 | *"F4: gate…"* | **318 ✅** | **0 ✅** | **0 ✅** | ✅ | 263 → 318. **Eerste fase met runtime-impact.** Nieuwe `gate.py` + bedrading; **27/27 mutanten** met caching uit (§12.10). RenPy-route houdt dezelfde adapter, parser en registratie. |
+| 2026-09-29 | F5 | *"F5: file tailer…"* | **333 ✅** (+6 ❌ omgevingsafhankelijk) | **0 ✅** | **0 ✅** | ✅ | 318 → 345. Dunne laag over `HookTextProcessor` i.p.v. een port (D19). **33/33 mutanten**, waarvan 6 nieuw. De 6 failures bestonden al op de F4-boom: Open WebUI zit op 8080 waar `NOVATTS_QWEN_URL` wijst — zie de F5-sectie. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -746,7 +816,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F2 `parser/luna.py` | ✅ | 11 → ~800 regels, 5 woordensets + 16 UI-regexen, multi-spreker-split. 153 → **195 tests**, 5 mutanten gevangen. Drie gaten bewust vastgespeld i.p.v. "opgelost". 0 runtime-impact. |
 | F3 `adapters/luna.py` | ✅ | Drie lagen (pure functies · `HookTextProcessor` · `LunaAdapter`). Eigen event loop + dispatch-thread; synthese blijft van de loop af (G4.1). 195 → **263 tests**, 11 mutanten gevangen. Nog niet aangesloten. |
 | F4 `NovaApp`-bedrading | ✅ | Nieuwe `gate.py`: één poort voor alle bronnen. Trust-gate = "gesteld, niet gegokt" (het plan was een gemeten no-op). `hook_mode`-selectie, `status()`-velden, G5.4, stop-volgorde, `_refresh_known_speakers`. 263 → **318 tests**, **27/27 mutanten**. `NovaApp` had hiervoor nul tests. Twee naad-bugs gevangen (`push()` en de handmatige `Dialogue`-rebuilds) → §12.11. |
-| F5 `file_monitor.py` | ⬜ | |
+| F5 `file_monitor.py` | ✅ | D19: dunne laag over `HookTextProcessor`, géén port — B's route heeft geen referentiegedrag. D20: één regel per delivery, **gemeten** (de parser plakt regels aan elkaar). `set_known_speakers` van duck-typing naar `InputAdapter` (D21). `_adapters()` vervangt drie losse adapterslijsten. 318 → **345 tests**, **33/33 mutanten** — waarvan 2 herricht na de refactor (§12.12). Limiet rond `Rick\nTekst` bewust gedocumenteerd én vastgespeld. |
 | F6 GUI | ⬜ | |
 | F7 Lifecycle & docs | ⬜ | |
 | F8 Cutover RenPy→LunaHook | ⬜ | Bevat de handmatige RenPy-smoke die uit F0 is gehaald. |
@@ -767,3 +837,4 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 9. **Nooit de baseline-testcount als toevalligheid behandelen.** `105` is het getal. Verandert het, dan staat in de commit-message welke test is toegevoegd of weggevallen en waarom.
 10. **Nooit een mutant-controle draaien zonder bytecode-caching uit.** Python valideert een `.pyc` op `(mtime in seconden, size)`. Een harness die de bron terugzet met dezelfde lengte binnen dezelfde seconde (`[0]` → `[1]`) laat de **herstelde** bron de **gemuteerde** bytecode laden — en dan toont een volgende testrun een regressie die niet bestaat. Dit is in F4 echt gebeurd en kostte een uur zoeken naar een bug in correcte code. **Draai elke mutant met `python -B` (`PYTHONDONTWRITEBYTECODE=1`) en ruim de project-`__pycache__` op vóór elke meting.** De regel is de algemene vorm van §12.8: een meting die niet kan falen is geen meting — maar een meting die *iets anders* meet dan je denkt is erger, want hij liegt met een getal.
 11. **Nooit een `Dialogue` met de hand herbouwen — gebruik `dataclasses.replace(dialogue, ...)`.** `Dialogue` is een frozen dataclass, dus `replace` kopieert elk veld, ook een veld dat pas later wordt toegevoegd. Een handmatige `Dialogue(...)` naast de originele was drie keer exact dezelfde fout: `raw` verdween in de emotie-segmenten, `speaker_is_guess` in `HookTextProcessor.push()`, en beide in `voice_manager.clean_dialogue`. Gevolg: de F4-trust-gate was op het enige pad dat de hook echt gebruikt **inert**, terwijl parser- én gatetests groen waren. De reconstructie-plekken (`push`, `gate.admit`, `_segment_dialogue`, `clean_dialogue`) gebruiken nu alle vier `replace`.
+12. **Nooit een mutant als "gevangen" tellen die niet is toegepast.** De harness moet het zoekpatroon in de bron verifiëren vóór hij meet, en anders `MIS … PATROON 0x (verwacht 1)` melden. In F5 gebeurde precies dat: de `_adapters()`-refactor maakte W3 en W10 stuk, hun `old`-strings bestonden niet meer, dus de mutatie werd **niet geschreven** en de test "faalde" omdat de bron onveranderd was. Dat is het gevaarlijkste soort groen: een meting die niet faalt om de verkeerde reden. Het alarm is wat het aan het licht bracht — daarom is het een harde eis in de harness en geen netheidje. Algemene vorm: **elke meting moet kunnen zeggen "ik deed niets"**, anders is haar "ik slaagde" betekenisloos.

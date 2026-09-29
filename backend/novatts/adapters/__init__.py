@@ -2,10 +2,12 @@
 
 from .base import InputAdapter
 from .clipboard import ClipboardAdapter
+from .file_monitor import FileMonitorAdapter
 from .luna import HookTextProcessor, LunaAdapter, decode_wire_message
 
 __all__ = [
     "ClipboardAdapter",
+    "FileMonitorAdapter",
     "HookTextProcessor",
     "InputAdapter",
     "LunaAdapter",

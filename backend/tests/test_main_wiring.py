@@ -1,11 +1,11 @@
-"""Tests for the NovaApp wiring that F4 added.
+"""Tests for the NovaApp adapter wiring that F4 added and F5 extended.
 
 ``NovaApp`` is normally built by the server's lifespan hook, and building
 a real one pulls in the TTS backend, the audio player and the on-disk
-speaker registry. None of that is needed to answer the two questions this
-file asks, so the app is created with ``__new__`` and given doubles: which
-adapters start for a given ``hook_mode``, and in what order shutdown
-happens.
+speaker registry. None of that is needed to answer the questions this file
+asks, so the app is created with ``__new__`` and given doubles: which
+adapters start for a given ``hook_mode`` (plus the independent file flag),
+and in what order shutdown happens.
 
 Both questions matter more than they look. If ``_start_adapters`` picks
 the wrong branch, ``hook_mode=both`` is indistinguishable from a hook that
@@ -13,6 +13,11 @@ silently never bound -- the same class of silent failure F3 spent a phase
 hunting. And if the hook is not stopped before the synthesis backend, a
 dispatch thread blocked in a request wakes up to a dead backend on every
 shutdown.
+
+F5 added a third route and, with it, a third chance to be missed: priming,
+starting and stopping each need the full adapter list. ``NovaApp`` now
+builds that list in one place (``_adapters``), and the tests here are what
+keep it that way.
 """
 
 from __future__ import annotations
@@ -87,7 +92,7 @@ class Recorder:
 
 
 def _install_adapters(monkeypatch: pytest.MonkeyPatch, order: list[str]) -> dict[str, list[FakeAdapter]]:
-    made: dict[str, list[FakeAdapter]] = {"clipboard": [], "luna": []}
+    made: dict[str, list[FakeAdapter]] = {"clipboard": [], "luna": [], "file": []}
 
     def factory(kind: str) -> Any:
         def make(*, on_dialogue: Any) -> FakeAdapter:
@@ -99,7 +104,20 @@ def _install_adapters(monkeypatch: pytest.MonkeyPatch, order: list[str]) -> dict
 
     monkeypatch.setattr(main_mod, "ClipboardAdapter", factory("clipboard"))
     monkeypatch.setattr(main_mod, "LunaAdapter", factory("luna"))
+    monkeypatch.setattr(main_mod, "FileMonitorAdapter", factory("file"))
     return made
+
+
+@pytest.fixture(autouse=True)
+def _file_route_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test here decides its own sources; never inherit the file flag.
+
+    Without this, one test turning ``NOVATTS_FILE_WATCH`` on could make a
+    later adapter-selection test see an extra adapter and fail somewhere
+    else entirely -- which is exactly the kind of cross-test coupling the
+    rest of this file avoids by setting ``hook_mode`` per test.
+    """
+    monkeypatch.setattr(settings, "file_watch", False)
 
 
 def _shell(order: list[str], registry: Any = None) -> Any:
@@ -108,6 +126,7 @@ def _shell(order: list[str], registry: Any = None) -> Any:
     app = main_mod.NovaApp.__new__(main_mod.NovaApp)
     app.clipboard = None
     app.luna = None
+    app.filemon = None
     app.registry = registry if registry is not None else FakeRegistry(order, "Rick")
     app.on_dialogue = lambda dialogue: None
     app._running = True
@@ -176,6 +195,68 @@ def test_both_adapters_feed_the_same_entry_point(monkeypatch: pytest.MonkeyPatch
 
     assert app.clipboard.on_dialogue == app.on_dialogue
     assert app.luna.on_dialogue == app.on_dialogue
+
+
+# --- the tertiary file route ------------------------------------------------
+
+
+def test_the_file_route_stays_off_without_its_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    made = _install_adapters(monkeypatch, order)
+    monkeypatch.setattr(settings, "hook_mode", "both")
+    app = _shell(order)
+
+    app._start_adapters()
+
+    assert made["file"] == []
+    assert app.filemon is None
+
+
+def test_the_file_route_starts_and_is_primed_when_its_flag_is_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    made = _install_adapters(monkeypatch, order)
+    monkeypatch.setattr(settings, "hook_mode", "both")
+    monkeypatch.setattr(settings, "file_watch", True)
+    app = _shell(order)
+
+    app._start_adapters()
+
+    assert len(made["file"]) == 1
+    assert made["file"][0].started is True
+    assert made["file"][0].known_at_start == ["Rick"]
+
+
+def test_the_file_route_is_independent_of_hook_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """hook_mode chooses between the clipboard and the websocket. The file
+    route is the fallback for when neither can run, so its own flag
+    decides, and hook_mode must not turn it off."""
+    order: list[str] = []
+    made = _install_adapters(monkeypatch, order)
+    monkeypatch.setattr(settings, "hook_mode", "websocket")
+    monkeypatch.setattr(settings, "file_watch", True)
+    app = _shell(order)
+
+    app._start_adapters()
+
+    assert made["clipboard"] == []
+    assert len(made["luna"]) == 1
+    assert len(made["file"]) == 1
+
+
+def test_stop_stops_the_file_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    _install_adapters(monkeypatch, order)
+    monkeypatch.setattr(settings, "hook_mode", "both")
+    monkeypatch.setattr(settings, "file_watch", True)
+    app = _shell(order)
+    app._start_adapters()
+
+    app.stop()
+
+    assert "stop:file" in order
+    assert order.index("stop:file") < order.index("stop:qwen_mgr")
 
 
 def test_adapters_receive_the_registered_speakers(monkeypatch: pytest.MonkeyPatch) -> None:

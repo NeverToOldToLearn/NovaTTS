@@ -13,7 +13,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .adapters import ClipboardAdapter
+from .adapters import ClipboardAdapter, InputAdapter
+from .adapters.file_monitor import FileMonitorAdapter
 from .adapters.luna import LunaAdapter
 from .blacklist import Blacklist
 from .config import settings
@@ -150,6 +151,7 @@ class NovaApp:
         self.player.on_finished = lambda _p: None  # reserved for event emit
         self.clipboard: ClipboardAdapter | None = None
         self.luna: LunaAdapter | None = None
+        self.filemon: FileMonitorAdapter | None = None
         self._event_history: list[Event] = []
         import threading
 
@@ -202,17 +204,36 @@ class NovaApp:
             self.luna = LunaAdapter(on_dialogue=self.on_dialogue)
         else:
             log.info("hook_mode=%r: LunaHook websocket adapter not started", mode)
-        # Names before threads. Both adapters parse inside a worker that is
+        # The file route is not part of hook_mode: it is not a source the
+        # user picks *between*, it is the last resort for when the other
+        # two cannot run at all. Its own flag keeps it off unless asked for.
+        if settings.file_watch:
+            self.filemon = FileMonitorAdapter(on_dialogue=self.on_dialogue)
+        else:
+            log.info("NOVATTS_FILE_WATCH is off: file adapter not started")
+        # Names before threads. Every adapter parses inside a worker that is
         # already polling when start() returns, and the known-name set is
         # what lets a parser trust a speaker it would otherwise reject or
         # guess. Priming after start would leave a window where the first
         # line of the session is misread -- and "the first line is wrong" is
         # the hardest kind of bug to reproduce.
         self._refresh_known_speakers()
-        if self.clipboard is not None:
-            self.clipboard.start()
-        if self.luna is not None:
-            self.luna.start()
+        for adapter in self._adapters():
+            adapter.start()
+
+    def _adapters(self) -> tuple[InputAdapter, ...]:
+        """Every configured raw_text source, in lifecycle order.
+
+        Read from one place on purpose. Three call sites need the list --
+        priming, starting and stopping -- and when the hook route was added
+        it was missed by two of the three (F4). A tuple built from the
+        attributes means a new route cannot half-exist.
+        """
+        return tuple(
+            adapter
+            for adapter in (self.clipboard, self.luna, self.filemon)
+            if adapter is not None
+        )
 
     def _refresh_known_speakers(self) -> None:
         """Re-prime every running adapter with the current registry.
@@ -231,9 +252,8 @@ class NovaApp:
         One place, so the next adapter added cannot be missed in three.
         """
         names = self.registry.names()
-        for adapter in (self.clipboard, self.luna):
-            if adapter is not None:
-                adapter.set_known_speakers(names)
+        for adapter in self._adapters():
+            adapter.set_known_speakers(names)
 
     def stop(self) -> None:
         # Adapters first, and before the worker and the backend. A luna
@@ -242,10 +262,8 @@ class NovaApp:
         # errors from work that no longer matters. Each adapter joins its
         # own threads, so this also guarantees nothing new arrives after.
         self._running = False
-        if self.luna:
-            self.luna.stop()
-        if self.clipboard:
-            self.clipboard.stop()
+        for adapter in self._adapters():
+            adapter.stop()
         with suppress(Exception):
             self._wake.set()
         if self._worker:
