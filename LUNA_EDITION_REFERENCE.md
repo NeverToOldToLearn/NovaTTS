@@ -1521,6 +1521,136 @@ sha256 gecontroleerd.
 
 ---
 
+### ✅ F14 — De echte clipboard-vorm, en de websocket-route die om niets vroeg *(gereed 2026-09-29)*
+
+F14 begon als één klacht — *de naam wordt voorgelezen* — en eindigde als drie vondsten,
+waarvan de derde de opzet van het hele project raakte.
+
+#### 1. De naam stond er al. Alleen de parser kon er niet bij.
+
+`data/logs/clipboard_raw.log` van de gebruiker: 77 entry's, waarvan 61 met een regeleinde.
+Het echte spel levert de naam **op een eigen regel**, soms in `<b>`:
+
+```
+Tatsuo
+Consider it your lucky day.
+
+<b>Tatsuo</b>
+The girl with the bag of groceries says something about how healthy she eats.
+```
+
+`RenPyParser` plakte die regels aan elkaar, vond geen dubbele punt, en leverde dus vertelling:
+de naam werd met de stem van de verteller voorgelezen. **De informatie is nooit weggegooid
+geweest — hij stond in het klembord en werd niet gelezen.** Dat is een andere klasse fout dan
+een route die niets levert, en hij was in F12 en F13 onopgemerkt gebleven omdat beide fasen
+naar de *websocket*-kant keken.
+
+`RenPyParser.parse` kreeg `_bare_name_form` (D50) en `_strip_markup` (D51). De eerste regel
+telt alleen als naam als hij door dezelfde strikte regels komt als een dubbele-punt-prefix én
+niet op zinpunctuatie eindigt — anders blijft het vertelling, want `. . .` is een zin en geen
+naam. De bare-name-tak staat vóór de dubbele-punt-tak, en de registry gaat vóór beide.
+
+Gemeten op de 61 echte payloads door de echte `ClipboardAdapter` met de echte registratie:
+`stem: M-Brian_Griffin` — de stem die de gebruiker aan Tatsuo gaf. Eén payload leest nog een
+naam, en dat is terecht: `. . . I know you can hear me, Chronos` is vertelling.
+
+#### 2. De `.env` van deze machine had een hele `KEY=`-regel in een veld getypt
+
+```
+NOVATTS_LUNA_WS_URL=NOVATTS_LUNA_WS_URL=ws://127.0.0.1:6677
+```
+
+Een niet-lege `luna_ws_url` schakelt de adapter van server- naar clientmodus. De hook bond dus
+**nooit meer**, en `start()` logde "gestart" vóórdat hij iets deed — waardoor `/status` er
+gezond uitzag. Gevolg: **9 tests in `test_luna_adapter.py` stonden rood op een onaangeraakte
+commit**, 3 van de 3 runs, met `ConnectionRefusedError [WinError 1225]`.
+
+Gemeten, niet vermoed: de keten is op de **ongewijzigde F13-bron** vastgesteld, niet op een
+gecorrigeerde hypothese. Drie lagen dicht — `config` herstelt de prefix en weigert een URL die
+niet te bellen is (met waarschuwing, D29), de adapter doet dat zelf ook, en `start()` wacht nu
+op een signaal dat de socket écht gebonden is (D48). De suite oordeelde daarnaast over de
+desktop van de ontwikkelaar; `conftest.py` pint de hook-instellingen op hun default en
+`helpers.py` levert `make_settings()`, met een negatieve test die bewijst dat de isolatie vuurt
+(D49).
+
+#### 3. De websocket-route vroeg niet om Textractor. LunaTranslator doet het zelf.
+
+De gebruiker wees op `docs.lunatranslator.org/en/apiservice.html`, en dat veranderde de
+opzet. LunaTranslator heeft een **eigen netwerkservice** met twee websocket-endpoints op
+`networktcpport` (standaard **2333**): `/api/ws/text/origin` en `/api/ws/text/trans`. Die
+stuurt de vertaalde tekst als een **kale tekstframe** — `textio/textoutput/websocket.py` roept
+`handle.send_text(text)` zonder JSON-wrapper — en `decode_wire_message` nam dat al aan.
+
+Dus `textractor_websocket.dll` is voor deze route niet nodig. LunaTranslator hakt het spel zelf
+al en duust de tekst naar ons.
+
+**Wat hier gemeten is en wat niet.** Niet gemeten: het berichtformaat en de standaardpoort, want
+die zijn uit de bron van LunaTranslator (`main`) gelezen en de service draaide hier niet. Het
+is dus een **versie-gebonden** claim, en de poort is instelbaar. Wel gemeten: of de vorm van
+de gebruiker's payload's door de ontvangende code heen komt, want die code is ongewijzigd.
+
+**En toen bleek dat de twee routes hun markupgedrag niet deelden.** De F14-fix zat in
+`parser/renpy.py`; `parser/luna.py` had geen `import html`. Op 140 entry's, 90 payload's met
+een regeleinde:
+
+| | voor | na |
+|---|---|---|
+| websocket-route goed | **73/90** | **89/90** |
+| daarvan de vorm `<b>Tatsuo</b>` | 16 stuk misgelezen als vertelling | alle 16 goed |
+
+De 17de was `. . . I know you can hear me, <b>Chronos</b>` en die is *correct* vertelling. Dus
+16/16 echte fouten hersteld, en niets overgehaald wat geen fout was.
+
+De oorzaak was niet "markup wordt verkeerd afgehandeld" maar **"gedeeld gedrag hangt aan de
+bestandsindeling"**. `strip_markup` is daarom verhuisd naar `novatts/parser/markup.py`, waar
+beide routes hem gebruiken, en dat gat is nu op één plek onmogelijk.
+
+#### 4. De tag-voorwaarde was te ruim — en dat had de meting kunnen voorkomen
+
+Bij het schrijven van een eigen test voorspelde ik dat `"a < b and c > d"` onveranderd zou
+blijven, omdat het patroon toch een letter verlangt. **Gemeten: het werd `"a   d"`.** En
+`"5<10 and 10>5"` werd `"5 5"`. Het oude patroon `<[^<>]{0,200}>` matcht een vergelijking.
+
+Een echte tag begint met een letter, eventueel na een slash, dus de voorwaarde is
+aangescherpt. Gemeten op de log vóór de wijziging: elke hoekbracket die erin voorkomt is een
+echte tag (26× `<b>`, 26× `</b>`, 0 afwijkend), en de strakkere voorwaarde verandert **0 van
+130** payload's. Nul kosten, een klasse fout minder.
+
+#### F14 — de meting die de tests heeft gevormd, niet omgekeerd
+
+De eerste versie van de mutatielijst meldde **8 problemen, allemaal mijn eigen verwachtingen**,
+en één mutatie die niet was wat zijn eigen label zei. `f14_probe.py` past elke mutatie toe en
+drukt af welke tests er werkelijk vallen; de lijst is daarop herschreven. Twee bevindingen
+hebben de *tests* bepaald in plaats van de andere kant op:
+
+- **Een vergelijkingstest ziet verschil, niet twee identiek fouten.** Als de gedeelde helper
+  voor beide routes tegelijk stukgaat, blijft `test_both_routes_give_the_same_turn` groen, want
+  twee routes die hetzelfde verkeerd doen zijn het eens. Dat is de reden dat er naast een
+  overeenkomsttest ook een verwardewaarde-test staat.
+- **Een test die maar één route aanroept ziet de andere niet verouderen.** M6 breekt de
+  clipboard-route en laat elke luna-test groen. Beide routes hebben dus een eigen test nodig.
+
+En de mutatie die zichzelf tegensprak: `NOSLASH` was `r"/?[A-Za-z]..."` om de `/` in `</?` te
+verwijderen, wat de `<` óók weghield. Ze brak tagherkenning volledig en meldde 9 failures terwijl
+ze beweerde één teken te veranderen. Niets twijfelde aan het getal omdat het plausibel leek; wat
+het verloor was een test die viel terwijl het label zei dat dat onmogelijk was. D51 → §12.28.
+
+#### F14 — wat er níét in deze fase zat
+
+- **De 5% multi-paire blijft staan**, op uitdrukkelijke keuze van de gebruiker. 3 van 61
+  payload's bevatten twee of drie naam/tekst-paren in één kopieeractie; dat wordt één beurt, dus
+  de tweede naam wordt voorgelezen. Oplossen vergt een contractwijziging van
+  `RenPyParser.parse`, en dat is een ontwerpbeslissing die nog niet gemaakt is. Vastgepind in
+  `test_a_block_of_pairs_stays_one_turn`.
+- **De websocket-route is niet tegen een draaiende LunaTranslator gemeten**, want die draaide
+  niet. De serverkant van F12/F13 is wél end-to-end bewezen, met een echte `websockets`-client.
+- **`test_openai_speech.py` kost ~50 s** en dat is de hele looptijd van de suite. Gemeten A/B op
+  de ongewijzigde bron (49,99 s) tegen de gewijzigde (50,22 s): ruis, bestaand, en niet hier
+  ontstaan. De oorzaak is dat `setup_runtime` een echte `NovaApp` start en de bezette
+  TTS-server proeft.
+
+---
+
 ## 8. Definition of Done
 
 Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptatietest — geen checkbox is een vinkje waard.**
@@ -1667,6 +1797,18 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 
 ---
 
+### 9.12 Uit F14 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D45** ✅ | **Een route die "inert" lijkt is inert totdat zijn voorwaarden zijn nagelopen, en het log van de gebruiker is daar een betere bron dan het dossier.** | F14. `textractor_websocket.dll` in `LunaTranslator_x64\files\DLL64` doet niets: geen `TransControl.exe`, geen `GameHook.exe`, niets op 6677, en die map is LunaTranslator's eigen native bibliotheekmap. Toch was de conclusie "de websocket-route is onmogelijk" te vroeg, want de vraag die achter de vraag stond was niet *welke DLL* maar *wie levert de tekst*. |
+| **D46** ✅ | **Een claim die zegt "de informatie is onvangbaar" moet getest worden tegen de vraag of de informatie onvangbaar is of alleen ongelezen.** | F14. `legacy_clipboard.py` deed alsof de naam-voor-op-eigen-regen-vorm alleen te redden viel met `NOVATTS_HOOK_DUAL_HOOK=1`. Onwaar: het klembord bevat beide regels. De route leverde de naam al twee fasen lang, en F12 en F13 keken allebei naar de websocket-kant. Uitbreiding van §12.25. |
+| **D47** ✅ | **Een schakelaar die uit één niet-lege tekenreeks bestaat moet de toestand die hij aanneemt ook toetsen.** | F14. `if self.ws_url` is de enige overgang naar clientmodus, dus een *onbruikbare* waarde zette een luisterende server stilzwijgend om in een bellende client die noch luistert noch verbindt. `config` repareert de prefix en weigert een URL die niet te bellen is, met een waarschuwing; de adapter doet dat onafhankelijk daarvan ook. Uitbreiding van D29: land op de route die niets externs nodig heeft. |
+| **D48** ✅ | **"Gestart" is een bewering over een socket, niet over een logregel.** | F14. `start()` logde "gestart" voor de event loop iets deed, waardoor een hook die nooit bond niet te onderscheiden was van een die merely idle stond. Nu wacht het op een `_ready`-signaal en rapporteert het de foutreden op ERROR in plaats van te slikken. **Niet fataal**: in modus `both` werkt het klembord gewoon door, dus een mislukte websocket is een gedeeltelijke uitval, geen storing. |
+| **D49** ✅ | **Het oordeel van de suite hoort bij de code, niet bij de `.env` van één ontwikkelaar.** | F14. Negen tests stonden rood op een onaangeraakte commit door de eigen `.env` van deze machine. `conftest.py` pint 11 hook-velden op hun dataclass-default, en `helpers.py` levert `make_settings()` dat zowel `backend/.env` (`_env_file=None`) als de `NOVATTS_*`-omgevingsvariabelen uitsluit. De **negatieve** test is wat dit draagbaar maakt: zonder hem klopt de claim ook als deze machine schoon is, en veroudert de isolatie stilletjes (D43). |
+| **D50** ✅ | **Een naam op een eigen regel is een naam alleen als hij door dezelfde strikte regels komt als een dubbele-punt-prefix én niet op zinpunctuatie eindigt — en die tak wordt vóór de dubbele-punt-tak geprobeerd.** | F14. Anders wordt `. . .` een personage dat `...` heet. De registry gaat vóór beide, zodat een geregistreerde naam wint van de heuristiek. Gemeten op 61 echte payloads: 60 goed, 1 terecht vertelling. |
+| **D51** ✅ | **Markup wordt verwijderd vóórdat entities worden gedecodeerd, en de helper woont op één plek die beide routes gebruiken.** | F14. Anders wordt een ontsnapt `&lt;b&gt;` een tag die vervolgens wordt weggegooid, en verdwijnt de tekst. De tweede helft is de belangrijkere: het F14-gat bestond niet uit een fout in de strip maar uit het feit dat de strip in `parser/renpy.py` stond en `parser/luna.py` hem niet had. Gedeeld gedrag hoort niet aan een bestandsnaam te hangen. |
+
 ## 10. Baseline-logboek
 
 ### 10.1 Nulmeting — gemeten op 2026-09-29, commit `38f2a57` (vóór enige codewijziging)
@@ -1723,6 +1865,8 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F11 | *"F11: een lege map…"* | **370 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | Ontstaan doordat iemand `start_all.cmd --min` draaide en vroeg of de CMD kapot was. **Het script was niet kapot; de melding was onjuist.** `start_all.cmd` testte `gui\node_modules`, een map die dit project nooit vult: de root `package.json` heeft `"workspaces": ["gui"]`, dus npm hoist alles naar `node_modules\.bin` in de root. De test vuurde dus bij élke start, meldde een ontbrekende install en draaide daarna een `npm install` die "up to date" zegt en niets verandert (gemeten: 0,8 s, geen `gui/node_modules` erna, lockfiles schoon). Het script sprak zichzelf tegen, want het tauri-blok eronder kijkt wél op beide plekken. Vervangen door een test op een echt binair (`vite.cmd`) op beide plekken, plus een waarschuwing wanneer de install de zaak niet repareert. **5/5 cmd-gevallen, en het discriminatiebewijs is meegeleverd: de oude conditie haalt 2 gevallen om, de nieuwe 0** — anders beweest 5/5 niets. Het F7-cmd-harnas bleek onderweg **stuk op drie manieren zonder één fout te geven** (verouderde slotmarker die op hing · `call :label` met regeleinden, wat een grondige cmd-beperking is · `STUB_PORT` pas ná het bouwen van de stub); de claim "13/13" is teruggezet naar 8/8, zie de F7-testsectie. Eén correctie op mezelf, want de tussenmeting loog om de eindstand: een meting halverwege gaf **364 + 6 rode tests** en dat stond bijna in dit document als de uitkomst, terwijl de eindmeting **370 groen** geeft. Die 6 waren de bekende omgevingsgroep — Open WebUI, een `python`-proces, op 8080 waar `NOVATTS_QWEN_URL` wijst, `405` op `/v1/audio/speech` — en de eindmeting zag ze niet omdat de poort inmiddels vrij was. Twee metingen, twee uitkomsten, één oorzaak: de omgeving, niet de code. |
 | 2026-09-29 | F12 | *"F12: het rode lampje…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 370 → 377: 4 clientmodus-tests plus 3 vastgespelde gaten. **Deze fase voegde geen functionaliteit toe maar trok een documentatie-claim onderuit die op zeven plekken stond en op alle zeven fout was** — `textractor_websocket` is de *server* en NovaTTS de client, dus de hele setup stond om (D39). De rode lampje-melding is eerst zelf nagegaan in plaats van aangenomen: de serverkant bleek end-to-end werkend (echte `websockets`-client, `hook_clients` 0→1→0, WAV van 241,964 B) en de oorzaak was dat de extensie niet geïnstalleerd is. Twee zelfcorrecties: de GUI praat wél met déze worktree (zes `/status`-velden die alleen in deze code bestaan), en ik had "geen LunaTranslator in deze omgeving" geschreven terwijl die wél draaide. Clientmodus had nul tests en leverde twee echte gaten op, beide gemeten en beide **vastgespeld in plaats van gefixt**. Drie mutaties met must-fail én mag-niet-vallen; de derde legde een bestaande teller-test bloot die een teller die nooit meet niet kon zien. `npm run build` gemeten **schoon** voor de Tauri-schema's, dus de LF-vervuiling komt van de Tauri-CLI en niet van de build-gate. `LunaTranslator_x64/` in `.gitignore`. **Gepusht**, op uitdrukkelijk verzoek — tot en met F11 was er in geen enkele fase gepusht. |
 | 2026-09-29 | F13 | *"F13: de drie clientgaten…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 377 → 377: drie gaten dicht, drie tests erbij en de drie vastegrul uit `TestKnownGaps` eraf. **Eén gat erbij gevonden dat F12 niet noemde:** `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming die `main.py` bij elke gamesswitch doet werd weggegooid — zonder exception, zonder logregel (D44). Twee reparaties in de GUI en twee in de broncommentaren, want de foute topologie-claim stond daar ook nog: `SettingsPanel.svelte` droeg de `.xdll`-instructie nog en `Dashboard.svelte` gaf een label dat de docs tegenspraken (D42). **Vier mutaties: 1 / 1 / 1 / 2 FAIL, elk precies de bedoelde test**, waarvan de vierde een terugval op de serverteller is en dus bewijst dat de fixes de serverkant niet hebben aangeraakt. En het harnas sprak zichzelf tegen op de eerste ronde door een slashverschil in zijn eigen vergelijking (D43), wat de regel §12.24 opleverde. |
+| 2026-09-29 | F14 | *"F14: parseer de echte clipboard-vorm…"* | **426 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 377 → 426: 18 parsertests + 6 end-to-end `ClipboardAdapter`-tests met een pyperclip-double en echte payloads. **Deze fase begon als één klacht en vond een `.env` met een dubbele `KEY=`-regel**, wat 9 tests rood zette op een onaangeraakte commit — 3 van de 3 runs, gemeten op de ongewijzigde F13-bron met `ConnectionRefusedError [WinError 1225]`. De reparatie is in drie lagen gelegd, en de suite pint de hook-instellingen nu op hun defaults zodat het oordeel van de code komt en niet van de desktop. 13 mutaties over drie bestanden, elke met een gemeten must-fail- én mag-niet-vallen-lijst; twee controls blijven op 0 failures. **De suite loopt van 14 s naar 60 s** — `test_openai_speech` start een echte `NovaApp` en proeft de bezette TTS-server; gemeten A/B op de ongewijzigde bron (49,99 s) tegen de gewijzigde (50,22 s) is dat ruis, dus bestaand en niet hier ontstaan. |
+| 2026-09-29 | F14 | *"F14: strip_markup gedeeld…"* | **450 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 426 → 450: 24 tests, waarvan de belangrijkste `test_both_routes_give_the_same_turn` — dezelfde payload door beide routes, want dat was de regressie die zichzelf herhaalde. **De websocket-route vroeg niet om Textractor**: LunaTranslator publiceert zelf `/api/ws/text/trans` op poort 2333 met kale tekstframes, en dat formaat nam `decode_wire_message` al aan. Uit de bron gelezen, niet gemeten (de service draaide niet), dus versie-gebonden. Het echte gat: de markupfix zat alleen in `parser/renpy.py`, en op 90 multiline payload's gaf de websocket-route er 17 mis, waarvan 16 de vorm `<b>Tatsuo</b>`; na de fix 89/90, en de ene die overblijft is correct vertelling. De tag-voorwaarde bleek ook te ruim — `"5<10 and 10>5"` werd `"5 5"` — en de strakkere voorwaarde verandert 0 van 130 payload's. 9 mutaties, alle discriminerend, 3 controls op 0 failures. De eerste versie van die lijst had 8 fouten die allemaal mijn eigen verwachtingen waren, en één mutatie die niet was wat zijn label zei. `docs/LUNATRANSLATOR_HOOK.md` erbij, met de `0.0.0.0`-binding eruit gehaald. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -1755,8 +1899,17 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F11 De valse alarmmelding | ✅ | Ontstaan doordat iemand `start_all.cmd --min` draaide en vroeg of de CMD kapot was. Het script was niet kapot, de melding wel: de controle vroeg naar `gui\node_modules`, een map die een npm-workspace nooit vult. Dus iedere start meldde een ontbrekende install en draaide daarna een install die niets doet. Het script sprak zichzelf tegen, want het tauri-blok eronder kijkt wél op beide plekken. Vervangen door een controle op een echt binair, plus een waarschuwing wanneer de install niet helpt. **5/5 cmd-gevallen, met discriminatie: de oude conditie haalt er 2 om.** Onderweg bleek het F7-cmd-harnas **stuk zonder één fout te geven** — verouderde marker (hing op), `call :label` met regeleinden (onmogelijk in cmd), en `STUB_PORT` te laat toegewezen (bezette tak nooit getest) — dus de "13/13" is teruggezet naar 8/8 (§12.19, en de F7-testsectie). **370 tests**, want er viel geen regel Python of GUI om te schrijven. |
 | F12 Het rode lampje | ✅ | Ontstaan uit een gebruikersmelding: de Hook-kaart liet een rood *niet verbonden*-lampje zien. **Dat was correct, en de documentatie was fout.** Eerst de aanwijzing zelf nagegaan (§12.24) — de serverkant bleek end-to-end werkend met een echte client. Oorzaak: de hook-extensie staat niet op deze machine, en LunaTranslator draait wél. Onderweg twee zelfcorrecties: de GUI praat wél met déze worktree, en de eerdere zin "geen LunaTranslator in deze omgeving" was onwaar. **De topologie stond om** — `textractor_websocket` is de server, NovaTTS de client (D39) — en zeven foute claims in vier bestanden plus `start_all.cmd` zijn hersteld en per stuk geverifieerd. Clientmodus had nul tests en leverde twee echte gaten op: `client_count` blijft 0, waardoor de kaart misleidend is terwijl er tekst binnenkomt, en `stop()` duurt de volle join-timeout bij een stille open verbinding. Beide **vastgespeld, niet gefixt**. Eén bestaande teller-test bleek onvoldoende en is versterkt. **370 → 377 tests.** |
 | F13 De clientgaten | ✅ | De twee gaten die F12 had vastgespeld, dichtgezet, plus een derde dat F12 niet noemde: `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming van `main.py` (bij start, gamesswitch én kamerwissel) werd weggegooid zonder één foutmelding. `client_count` telt zichzelf nu in plaats van permanent 0 te staan, en `stop()` racet het pompen tegen het stop-event zodat een stille verbinding geen 5 seconden kost. Vier mutaties met must-fail én mag-niet-vallen: 1/1/1/2 FAIL, elk precies de bedoelde test, waarvan de vierde een terugval op de serverteller is. Daarnaast de foute topologie-claim ook uit de bron en de GUI gehaald (D42). **377 → 377 tests.** |
+| F14 De echte vorm | ✅ | Ontstaan uit één klacht: *de naam wordt voorgelezen*. Het bleek dat de naam al in het klembord stond en alleen door de parser werd overgeslagen — terwijl F12 en F13 allebei naar de websocket-kant keken (D46). `RenPyParser` kreeg de bare-name-vorm en markup-stripping. Onderweg de `.env` van deze machine als oorzaak van 9 rode tests op een onaangeraakte commit, gemeten op de ongewijzigde bron en in drie lagen gedicht. En de websocket-route bleek **niet** om Textractor te vragen: LunaTranslator publiceert zelf `/api/ws/text/trans` op 2333. Het F14-gat was dat de twee routes hun markupgedrag niet deelden — puur een kwestie van bestandsindeling — dus `strip_markup` is verhuisd naar `parser/markup.py`. **377 → 426 → 450 tests.** De 5% multi-paire blijft vastgepind op eigen keuze; de websocket-route is niet tegen een draaiende LunaTranslator gemeten, want die draaide niet. |
 
 ---
+
+25. **Nooit een vorm die de gebruiker levert afhandelen op de vorm die de documentatie beschrijft.** F12 en F13 repareerden de websocket-kant, en F14 vond de fout in de clipboard-kant, waar de naam al twee fasen lang werd geleverd en niet gelezen. De test die dit had kunnen vangen stond niet in de suite, want de suite had de echte payload's niet. **Lees het log van de gebruiker als een invoerspecificatie**, en zet de gemeten vormen letterlijk in een test; een payload die je in een test typt is een aanname, een payload uit `data/logs/` is een meting (D46).
+26. **Nooit de omgeving van één ontwikkelaar als randvoorwaarde van de suite nemen.** Zie D49. Het patroon is herkenbaar: de `.env` van de machine waarop je draait is ook de `.env` van de suite, en een test die een *default* assert, assert in feite "de default, tenzij iemands bureau iets anders zegt". Dat is geen abstracte testfout — het is hoe 9 tests rood werden op een commit die niets deed.
+27. **Nooit "gestart" loggen voor het ding dat gestart moet zijn werkelijk gebeurd is.** Zie D48. De regel is de ruimere vorm van §12.13: het gaat niet om `|| true`, maar om elke constructie waarmee een controle zijn eigen uitkomst weglost. Een optimistische logregel is zo'n constructie — hij rapporteert de intentie in plaats van de toestand.
+28. **Nooit een must-fail-lijst schrijven die niet gemeten is, en een plausibel getal niet opvragen.** F14: de eerste mutatielijst meldde 8 problemen, allemaal mijn eigen verwachtingen, en één mutatie die niet was wat haar eigen label zei — `r"/?[A-Za-z]..."` om de `/` in `</?` te verwijderen haalde de `<` ook weg, brak tagherkenning volledig en meldde 9 failures. Het getal was plausibel dus niets twijfelde; wat het verloor was één test die viel terwijl het label zei dat dat onmogelijk was. **Schrijf eerst een probe die de mutatie toepast en de vallende tests afdrukt, en vul de lijst daarna in.** Algemene vorm van §12.12: een lijst die je niet hebt gemeten is een wenslijst, en een wenslijst die "9 failures" oplevert leest als een bewijs.
+29. **Nooit gedeeld gedrag aan één bestand vastmachten.** F14: `strip_markup` stond in `parser/renpy.py`, en `parser/luna.py` had geen `import html`. Twee routes die dezelfde tekst moeten kunnen lezen deelden hun markupgedrag dus niet, en dat gaf 16 van 90 payload's een verkeerde stem op de websocket-route. De oorzaak was geen fout in de strip maar de **bestandsindeling** — en die oorzaak verdwijnt niet door de strip te repareren, alleen door hem te verplaatsen. Bij de derde route die ooit ruwe hooktekst aanvaardt hoort dit dan ook.
+30. **Nooit een regex schrijven en de uitkomst ervan voorspellen in plaats van meten.** F14: ik schreef een test die beweerde dat `"a < b and c > d"` onveranderd blijft, omdat het patroon toch een letter verlangt. Gemeten: het werd `"a   d"`, en `"5<10 and 10>5"` werd `"5 5"`. Dat de test eruit moest, was precies de reden om hem te schrijven — en hij stond er nog niet toen de vraag op tafel lag. **Een test die een aanname over een regex bevat, is een test die kan slagen terwijl de regex fout is**, want hij vergelijkt met de aanname.
+
 
 ## 12. Anti-regressie-regels (permanent)
 
