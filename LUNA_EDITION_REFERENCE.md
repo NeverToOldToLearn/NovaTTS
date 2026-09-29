@@ -417,24 +417,60 @@ Doel bereikt: de ruimte-vorm parser draait en is getest. **Nog steeds niets aang
 
 ---
 
-### ⬜ F3 — `adapters/luna.py` (ws-server)
+### ✅ F3 — `adapters/luna.py` (ws-server) *(gereed 2026-09-29)*
 
-Doel: LunaHook kan verbinden en een regel doorkomt als `Dialogue`.
+Doel bereikt: een echte server, een echte client, een regel die binnenkomt als `Dialogue`. **Nog niet aangesloten op `NovaApp` — F4 doet dat.**
 
-- [ ] `backend/novatts/adapters/luna.py` **vervangen** (de placeholder is 30 regels `NotImplementedError`; dit is een overwrite, geen patch)
-- [ ] `class LunaAdapter(InputAdapter)` **met** `name`-property → `"luna"` (G4.3)
-- [ ] Eigen daemon thread + eigen `asyncio` event loop (B's patroon). `start()` / `stop()` / `is_running()` / `client_count`
-- [ ] **Server-modus** (default): `websockets.serve(handler, host, port)`, meerdere clients, `client_count` met lock
-- [ ] **Client-modus** alleen als `luna_ws_url` gezet is
-- [ ] `_as_text()` uitbreiden met G3.1 (`name`/`speaker`/`character` → `f"{name}: {body}"`) en G3.7 (`content`/`data`-keys)
-- [ ] Garbage-guard: `is_renpy_exception` (altijd-aan, vóór alles) + `min_text_length` + `_NAME_STOPWORDS`
-- [ ] Dual-hook: `hook_dual_hook` **wel** doorgeven en het daadwerkelijk conditioneel maken (G3.4 — B doet dit niet)
-- [ ] Proxy-guard (G3.5): zet `NO_PROXY=127.0.0.1,localhost` voor de loop + één `netsh winhttp show proxy`-check met `warning()` in het log
-- [ ] `on_dialogue()` aanroepen via de **worker** (F6), nooit synchroon in de event loop (G4.1)
-- [ ] `adapters/__init__.py`: `LunaAdapter` toevoegen
-- [ ] Tests: 1 gesimuleerde ws-server + 1 client, `test_luna_adapter.py`, deels naast bestaande suites
+- [x] `backend/novatts/adapters/luna.py` **vervangen** (30 regels `NotImplementedError` → 590 regels; overwrite, geen patch)
+- [x] `class LunaAdapter(InputAdapter)` met `name`-property → `"luna"` (G4.3)
+- [x] Eigen daemon thread + eigen `asyncio` event loop. `start()` / `stop()` / `is_running()` / `client_count` (met lock)
+- [x] **Server-modus** (default) op `websockets.asyncio.server.serve`, meerdere clients
+- [x] **Client-modus** alleen als `luna_ws_url` gezet is, met reconnect
+- [x] `decode_wire_message()` met G3.1 (`name`/`speaker`/`character` → `f"{name}: {body}"`) en G3.7 (`content`/`data`)
+- [x] Garbage-guard: `is_renpy_exception` (altijd-aan, vóór alles) + `min_text_length` + het UI-gat uit de parser
+- [x] Dual-hook: `hook_dual_hook` **wél** doorgeven en daadwerkelijk conditioneel (G3.4 — B deed dit niet)
+- [x] Proxy-guard (G3.5): `NO_PROXY=127.0.0.1,localhost` voor het proces + één `netsh winhttp show proxy`-check met `warning()`
+- [x] `on_dialogue()` via een **eigen dispatch-thread**, nooit synchroon in de event loop (G4.1)
+- [x] `adapters/__init__.py`: `LunaAdapter`, `HookTextProcessor`, `decode_wire_message` in `__all__`
+- [x] **68 tests** in `backend/tests/test_luna_adapter.py`, inclusief een echte ws-server + client op een echte socket
 
-**Gate:** alle 4 gates groen. Handmatig: `wscat`/`websocat` op `ws://127.0.0.1:6677` → regel komt binnen als event.
+**Gate:** ruff schoon · mypy --strict schoon (31 bestanden) · pytest **195 → 263** · `npm run build` groen.
+
+#### F3 — de ontwerpkeuze die het verschil maakt: drie lagen, één module
+
+Het donor-bestand doet alles in één klasse: wire-decoding, naam-guards, parsing en de aanroep van `on_dialogue` zitten allemaal in `_handle_text`, en die wordt aangeroepen vanuit `async for msg in ws`. Daardoor draait **de volledige TTS-synthese op de event-loop-thread** — `qwen_timeout` is 300 seconden — en één trage synthese bevriest alle verbonden clients.
+
+Hier is de module in drie lagen gesplitst, en de verdeling is niet willekeurig: **langzaam werk hoort zo ver mogelijk van de event loop af.**
+
+| laag | wat | waarom apart |
+|---|---|---|
+| `decode_wire_message()`, `check_and_fix_proxy()` | pure functies over één bericht | testbaar zonder socket, thread of loop |
+| `HookTextProcessor` | alle beslissingen + de enige mutable state (dual-hook-buffer) | `push()` in een lus aanroepen test het hele beslispad, geen server nodig |
+| `LunaAdapter` | event loop, socket, dispatch-thread | verplaatst bytes en niets anders |
+
+De event loop doet alleen: decoderen, filteren, in de wacht zetten, terug. Een aparte dispatch-thread doet `on_dialogue`. De wacht is begrensd (64) en **dropt** bij volle loop — blokkeren zou de event-loop-stall terugbrengen, onbeperkt groeien zou een weggelaten regel ruilen voor een out-of-memory uren later. `adapter.dropped` maakt dat zichtbaar.
+
+**Waarom dit de juiste prioriteit was.** Het hele doel van de hoofdsom is onderhoudbaarheid, en dit is de plek waar de oorspronkelijke alles-in-eén-aanpak pijnlijk is: de ontwerpbeslissing is niet uit de code af te lezen, dus hij verdwijnt bij de eerste refactor en komt later terug als een sporadische "het hapert vast"-klacht. Hier is hij een type, een klassenaam en een test.
+
+#### F3 — vier dingen die onderweg duidelijk werden
+
+1. **Dual-hook at zijn eigen tekst op.** `is_name_only("Hello there")` was `True` — twee gekapitaliseerde woorden voldoen aan de naamvorm. Gevolg: de *body*-regel werd ook gebufferd, de merge vuurde nooit, en **elke regel verdween stilzwijgend** in plaats van verkeerd toegeschreven. De regel is nu *positief bewijs*: een colon is expliciet, een enkel plausibel woord is ambigu genoeg op zichzelf, en een kale meerwoords regel moet een geregistreerde naam zijn. "Miss Brooks" werkt daardoor nog (met colon, of na registratie) maar "Rick Hello" niet meer.
+
+2. **Een bug in mijn eigen fix, gevonden door een test.** Ik strip de colon vóór ik ernaar test, dus `candidate.endswith(":")` was permanent `False` en de colon-tak van regel 1 deed niets. Dit is de derde keer in twee fasen dat een plausibele fix stilletjes dood was — de rode draad is niet voorzichtigheid maar **meten**: elke keer bleek de aanname waarop ik had gebouwd onjuist, en de test was het enige dat dat aan het licht bracht.
+
+3. **Met dual-hook uit werd `"Rick:"` hardop voorgelezen.** De parser las het als narratie en zei het woord "Rick" hardop. Een naam zonder tekst is nu altijd een drop, ongeacht de merge-instelling: er valt niets te zeggen, en zonder dual-hook komt de body sowieso als aparte regel.
+
+4. **B's parser-keten is vervangen, niet uitgebreid.** B deed `parse_renpy` eerst en `parse_luna` als terugval. De strikte RenPy-parser weigert ruimte-vorm, dus de terugval haalde die regels nooit in. `HookTextProcessor` roept `parse_turns` aan, één ingang die beide vormen en de multi-speker-regel aankan.
+
+**Websockets 17.1** (F1 zette `>=12.0`): de legacy `websockets.serve`-shim bestaat nog maar is deprecated. Hier wordt `websockets.asyncio.server.serve` gebruikt, de nieuwe asyncio-implementatie. De vloer moet omhoog naar `>=14.0` — dat staat als todo in F7, waar de deps-explicitie hoort.
+
+**Mutatiecheck** (11 mutanten, alle gevangen): synchroon in de loop (= B's ontwerp) → 1 failure · `name`-keys weg → 9 · `data`-key weg → 1 · dual-hook genegeerd → 1 · dual-hook altijd uit → 2 · TTL genegeerd → 1 · queue onbeperkt → 1 · registry-eis 2 woorden weg → 1 · min-length genegeerd → 1 · name-only valt door → 2.
+
+Twee mutanten waren **no-ops en telden niet mee**: een `; _ = 0` die ik als "synchrone callback" introduceerde (niets veranderde) en het verwijderen van een `log.debug` vlak vóór een `return []`. Beide overleefden dus terecht. Een mutatiecheck die stille no-ops telt, is een controlesom die groen kleurt zonder iets te controleren — de eerste helft van elke mutatie moet gecontroleerd worden op of zij het gedrag werkelijk verandert.
+
+**D9 is deels beantwoord.** `adapter.last_raw` bewaart de laatste ruwe regel vóór parsing, omdat "er komt niets aan" en "het komt aan en wordt verkeerd geparseerd" er van buitenaf identiek uitzien. F4 beslist of `/status` dit exposeert.
+
+**Openstaand voor F4:** de trust-gate op auto-registratie. `source == "luna"` moet géén permanent stem koppelen, want de space-vorm is een gok.
 
 ---
 
