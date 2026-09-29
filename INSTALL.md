@@ -190,6 +190,49 @@ $exe = "gui/src-tauri/target/release/novatts-gui.exe"
   - `NOVATTS_HOST`, `NOVATTS_PORT` — API luister-adres
   - `NOVATTS_QWEN_URL` — Qwen3-TTS server (default: `http://127.0.0.1:8080`)
   - `NOVATTS_QWEN_BIN`, `NOVATTS_QWEN_MODEL` — Paden naar TTS-binary & model
+  - `NOVATTS_HOOK_MODE` — `clipboard` | `websocket` | `both` (default `both`)
+  - `NOVATTS_HOOK_HOST`, `NOVATTS_HOOK_PORT` — websocket bind-adres (default `127.0.0.1:6677`)
+  - `NOVATTS_HOOK_SPACE_FORM`, `NOVATTS_HOOK_DUAL_HOOK` — zie "Hook-input" hieronder
+  - `NOVATTS_FILE_WATCH`, `NOVATTS_FILE_WATCH_PATH` — de bestandsroute
+  - `NOVATTS_DEDUP_WINDOW_MS` — dubbele regels binnen dit venster (default `500`)
+
+> De volledige tabel met betekenis en defaults staat in `README.md` →
+> *Hook input (LunaTranslator / Textractor)*, en elk van deze sleutels is met
+> commentaar aanwezig in `backend/.env.example`.
+
+### Hook-input: LunaTranslator / Textractor (apart programma)
+
+NovaTTS leest gametekst, maar is zelf géén Textractor. Dat is een losse
+installatie, en dat is het enige dat je handmatig moet doen. De koppeling is in
+beide richtingen belangrijk:
+
+- **NovaTTS is de server.** Het bindt `127.0.0.1:6677`.
+- **LunaTranslator is de client.** Die verbindt *naar* NovaTTS toe.
+
+Stappen:
+
+1. Start NovaTTS (`start_all.cmd`). Het log zegt welk adres hij gebruikt; met de
+   standaardconfiguratie is dat `ws://127.0.0.1:6677`.
+2. Installeer LunaTranslator. In de map `extensions` van LunaTranslator staat
+   `textractor_websocket_x64.xdll` — die voeg je toe via
+   `Extensions` → `Add`.
+3. Zet in die extensie het adres uit stap 1 en laat vertaling **uit**: NovaTTS wil
+   de oorspronkelijke regel.
+4. Start Textractor op je spel. De Hook-kaart in het dashboard hoort dan een
+   client te tonen.
+
+Drie dingen die het vaakst tegenzitten, in de volgorde waarin je ze moet
+uitsluiten:
+
+| Symptoom | Oorzaak | Controle |
+|---|---|---|
+| Dashboard blijft `waiting` | LunaTranslator is niet toegevoegd, of het verkeerde adres | de Hook-kaart toont altijd het adres; controleer of LunaTranslator echt verbonden is |
+| Wel verbonden, maar nooit een regel | de hook zit niet aan het **spelvenster** | de kaart waarschuwt hier zodra de verbinding er is zonder dat er iets binnenkomt |
+| Verbinding valt er meteen af | een WinHTTP-proxy onderschept ook loopback | `netsh winhttp show proxy`; oplossen met `netsh winhttp reset proxy` (admin) |
+
+> Zet `NOVATTS_HOOK_HOST` nooit op `0.0.0.0` tenzij je het echt nodig hebt: dan
+> lees je gametekst over het netwerk. `setup.ps1` waarschuwt wanneer je dat toch
+> doet, maar blokkeert nooit.
 
 ### Qwen3-TTS Server (optioneel)
 Als je lokale TTS wilt:

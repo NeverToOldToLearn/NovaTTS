@@ -61,3 +61,34 @@ drive the emotion overlay, and the bare patterns are used by the text cleaner
 to strip the leftovers. `"tag": null` means "match but play nothing", which is
 how sound-effect words get removed from the text without noise. The default
 set is a reasonable starting point for Dutch and English.
+
+## What the hook route changes in this folder
+
+Almost nothing — and the one thing it does change is worth knowing before you
+wonder why a name showed up in your speakers.
+
+**No hook-specific file is ever written here.** The hook is configured entirely
+in `backend/.env` (`NOVATTS_HOOK_*`), not in `data/`, so there is nothing here to
+clean up and nothing to back up when you switch between the clipboard and the
+websocket route.
+
+**`speakers.json` can grow while you play.** When a line arrives over the hook
+and its speaker is *stated* — `"Rick: Hello"` — NovaTTS registers that name with
+the default voice so it can speak from the very next line, instead of waiting
+for you to add it by hand. The **Characters** tab reads the registry live, so
+reloading that tab is enough to see it; there is nothing to restart. The file on
+disk catches up within about half a minute, and always when NovaTTS closes
+cleanly — so do not be surprised if a name you just heard is not in the file
+immediately after a crash.
+
+It is deliberately conservative about *guessed* names. Textractor's space form
+(`Rick Hello`, no colon) makes it genuinely ambiguous whether `Rick` is the
+speaker, so those lines are **not** registered — you get audio with a fallback
+voice rather than a registry polluted with every fragment of a sentence. Only
+`Name: Text` and the JSON form (`{"name": …, "text": …}`) register. Same rule on
+all routes, so turning the hook on does not quietly change what your registry
+contains.
+
+Everything else in this folder is route-independent: `blacklist.json`,
+`emotion_patterns.json`, the generated emotion files and `games/*/speakers.json`
+behave identically no matter where the text came from.

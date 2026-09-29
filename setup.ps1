@@ -159,6 +159,40 @@ if (Test-Path $envFile) {
   }
 }
 
+# --- Hook-poort -----------------------------------------------------------------
+# NOOIT blokkeren. Dit is een waarschuwing, geen gate: de standaardconfiguratie
+# bindt op loopback, en daar treft de Windows Firewall niets aan omdat
+# loopback-verkeer niet door de filter gaat. Alleen als de gebruiker het
+# bind-adres heeft uitgezet naar iets anders, is er iets te zeggen.
+$hookPort = 6677
+$hookHost = "127.0.0.1"
+if (Test-Path $envFile) {
+  foreach ($line in (Get-Content $envFile -ErrorAction SilentlyContinue)) {
+    if ($line -match "^\s*NOVATTS_HOOK_PORT\s*=\s*(.+?)\s*$")   { $hookPort = $Matches[1].Trim('"') }
+    if ($line -match "^\s*NOVATTS_HOOK_HOST\s*=\s*(.+?)\s*$")   { $hookHost = $Matches[1].Trim('"') }
+  }
+}
+if ($hookPort -notmatch "^\d+$") { $hookPort = 6677 }
+
+# Drie uitkomsten, en de naam zegt welke:
+#   loopback      -> niets te melden; de firewall ziet loopback-verkeer niet
+#   0.0.0.0       -> waarschuwing: niet alleen bereikbaar, maar ook ongewenst
+#   ander adres    -> waarschuwing: bereikbaar, dus mogelijk een firewall-regel nodig
+if ($hookHost -in @("127.0.0.1", "localhost", "::1")) {
+  # Standaard. Niets te doen en niets te zeggen.
+} elseif ($hookHost -eq "0.0.0.0") {
+  Warn "NOVATTS_HOOK_HOST=0.0.0.0 zet de hook-poort $hookPort open voor het hele netwerk."
+  Warn "  Dat is zelden de bedoeling: het leest ruwe gametekst. Laat het op 127.0.0.1 staan"
+  Warn "  tenzij je het echt via een andere machine wilt bereiken."
+  Warn "  Let op: op 0.0.0.0 vraagt Windows om een firewall-regel. Staat die er niet,"
+  Warn "  dan komt er niets aan. Maak hem eventueel zelf aan (als beheerder):"
+  Warn "    netsh advfirewall firewall add rule name=NovaTTS-hook dir=in action=allow protocol=TCP localport=$hookPort"
+} else {
+  Warn "NOVATTS_HOOK_HOST=$hookHost is geen loopback-adres. De hook-poort $hookPort is dan"
+  Warn "  vanuit het netwerk bereikbaar en Windows vraagt daarvoor om een firewall-regel."
+  Warn "  Werkt de hook niet op afstand, controleer dan eerst of die regel bestaat."
+}
+
 # --- Shortcuts --------------------------------------------------------------
 if ($Shortcuts) {
   Info "Shortcuts aanmaken..."

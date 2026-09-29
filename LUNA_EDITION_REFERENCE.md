@@ -462,7 +462,7 @@ De event loop doet alleen: decoderen, filteren, in de wacht zetten, terug. Een a
 
 4. **B's parser-keten is vervangen, niet uitgebreid.** B deed `parse_renpy` eerst en `parse_luna` als terugval. De strikte RenPy-parser weigert ruimte-vorm, dus de terugval haalde die regels nooit in. `HookTextProcessor` roept `parse_turns` aan, één ingang die beide vormen en de multi-speker-regel aankan.
 
-**Websockets 17.1** (F1 zette `>=12.0`): de legacy `websockets.serve`-shim bestaat nog maar is deprecated. Hier wordt `websockets.asyncio.server.serve` gebruikt, de nieuwe asyncio-implementatie. De vloer moet omhoog naar `>=14.0` — dat staat als todo in F7, waar de deps-explicitie hoort.
+**Websockets 17.1** (F1 zette `>=12.0`): de legacy `websockets.serve`-shim bestaat nog maar is deprecated. Hier wordt `websockets.asyncio.server.serve` gebruikt, de nieuwe asyncio-implementatie. **F7 heeft de vloer gemeten en op `>=13.0` gezet, niet op `>=14.0`** — zie D26 en de meting in de F7-sectie. Kort: 12.0 crasht op import, 13.0 werkt, en 14.0 was een comfortgrens die ik eerst had willen nemen zonder te weten waarom.
 
 **Mutatiecheck** (11 mutanten, alle gevangen): synchroon in de loop (= B's ontwerp) → 1 failure · `name`-keys weg → 9 · `data`-key weg → 1 · dual-hook genegeerd → 1 · dual-hook altijd uit → 2 · TTL genegeerd → 1 · queue onbeperkt → 1 · registry-eis 2 woorden weg → 1 · min-length genegeerd → 1 · name-only valt door → 2.
 
@@ -530,7 +530,7 @@ De poort is daarom een eigen klasse met één publieke methode. Dat levert drie 
 
 **Mutatiecheck** (27 mutanten, alle 27 gevangen — 10 in `gate.py`, 3 in `parser/luna.py`, 1 in `adapters/luna.py`, 12 in `main.py`, 1 in `voice_manager.py`): o.a. trust-gate uit · `raw`-behoud weg · dedup-prune weg · venstergrens `<` i.p.v. `<=` · dedup-uit-stand weg · herkomst in de filter-rebuild weg · dedup-sleutel op tekst alleen · `hook_mode`-takken verwisseld · stop-volgorde om · adapters niet bijgepraat · namen ná start i.p.v. ervoor · `POST /speakers` praat de hook niet bij · en de naad zelf: `push()` die de herkomst laat vallen · het emotie-segment dat de herkomst wist · `clean_dialogue` dat de herkomst wist.
 
-**Openstaand:** D10 (`qwen_autostart` hook-aware) is F7.
+**Openstaand:** niets. D10 (`qwen_autostart` hook-aware) is in F7 beantwoord — **nee**, zie D10 en §9.2; de kosten van die keuze staan nu in de README in plaats van weggenomen.
 
 **Gate-handtekening:** RenPy-handmatige smoke is bewust F8 (D14); de geautomatiseerde RenPy-dekking is `test_clipboard_mode_starts_only_the_clipboard` + de bestaande `test_renpy_parser.py`-suite, die ongewijzigd groen is.
 
@@ -712,17 +712,226 @@ Er is bewust **niet** op *Save to .env* geklikt: dat zou de echte `.env` van de 
 
 ---
 
-### ⬜ F7 — Lifecycle, build & documentatie
+### ✅ F7 — Lifecycle, build & documentatie
 
-- [ ] `start_all.cmd`: dood de ws-poort 6677 niet bij start; meld in de log wel of de hook wacht op LunaHook
-- [ ] `stop_all.cmd`: **G5.1/G5.2/G5.3 fixen** (poort 8765, `2>&1`-redirects, `novatts-gui.exe` meedoden) — samen met F0
-- [ ] `setup.ps1`: `NOVATTS_HOOK_PORT`-firewallcheck — **warn only**, nooit blokkeren
-- [ ] `NovaTTS.iss`: `data\emotion_sound_map.json` / `emotion_aliases.json` / `data\games\*` / `data\perfect_cut.json` blijven uitgesloten (bestaand, behouden)
-- [ ] `README.md`: pipeline-diagram, hook-sectie, LunaTranslator-installatie-stappen (`Extensions → Add → textractor_websocket_x64.xdll` → `ws://127.0.0.1:6677`), de 9 env-sleutels, `hook_mode`-tabel
-- [ ] `INSTALL.md`: LunaHook-paragraaf
-- [ ] `data/README.md`: hook-uitleg erbij
-- [ ] `docs/COLLEGA_RAPPORT_CRLF.md` §5 afvinken (`.gitattributes`, CRLF-fix, `.gitignore`) — staat er nog open
-- [ ] `Makefile`: `test` / `lint` / `type` blijven de gates; `install` moet nu ook `websockets` pakken
+Nul regels productie-Python en nul regels GUI (`git diff --stat -- backend/novatts gui/src`
+is leeg), dus de testcount moest **exact 354** blijven. Dat is §12.9 in de praktijk: deze fase
+mocht niets aan het gedrag raken, en als er wél iets was veranderd had dat in deze sectie
+gestaan.
+
+#### F7 — de headline: een poort-check die altijd "ja" zei
+
+Het meldingsblok van `start_all.cmd` (na de wachttijd) moest zeggen of de hook al aan het
+binden was. Ik schreef:
+
+```cmd
+) else (
+  netstat -ano ^| findstr ":%HOOK_PORT%" ^| findstr "LISTENING" >nul 2>&1
+  if errorlevel 1 ( echo ... luistert nog niet ... ) else ( echo ... luistert op ws:// ... )
+)
+```
+
+Binnen een `( … )`-blok heeft cmd **geen escape nodig** voor `|`. Door er toch `^` voor te
+zetten wordt de pipe letterlijk: de hele regel draait als **één** commando, de uitkomst wordt
+genegeerd, en de exitcode is altijd `0`. Gemeten, met een `netstat`-stub op PATH zodat de
+uitkomst reproduceerbaar was en niet van deze machine afhing:
+
+| Variant | poort vrij | poort bezet |
+|---|---|---|
+| A: `netstat -ano ^| findstr … ^| findstr …` | **"iets gevonden"** ❌ | "iets gevonden" |
+| B: `netstat -ano \| findstr … \| findstr …` | **"niets gevonden"** ✅ | "iets gevonden" ✅ |
+
+Variant A is niet "kapot in één richting" — hij is kapot in de richting die het best **lijkt**
+te werken. Hij zegt altijd dat er iets luistert. Erger: mijn eerste testrun gaf **groen** voor
+het geval "geen busy-poort". Dat geval haalde zijn groenheid uit dezelfde bug (een kapotte
+check gaf toevallig het gewenste antwoord). Drie regels code, twee gemeten oorzaken, één
+valse groen — dit is de algemene vorm van §12.8/§12.12 in een taal waar de toolchain ons
+niets opleverde.
+
+De fix is één teken, maar het verschil zit in de **regel ernaast**: de `for /f … in ('…')`
+ elders in hetzelfde bestand heeft de `^|` juist wél nodig, omdat die tekst wél door de
+ parser van het `for` gaat. Twee plaatsen in één bestand, tegengestelde regel, en de
+ gemeten reden staat als commentaar bij beide — Z §12.14.
+
+> De `for /f`-regel in het *andere* blok (de busy-warning bij start) was correct. Ik had die
+> ook verdacht en had het uit de greep gelaten op grond van "het is hetzelfde teken" — gemeten
+> blijkt de betekenis plaats-gebonden, niet bestand-gebonden.
+
+#### F7 — `start_all.cmd`: de hook is geen dienst om te doodgaan
+
+Het oorspronkelijke plan was "dood de ws-poort 6677 niet bij start". Dat is uitgebreider dan
+één regel weglaten: het *start*-script doodde toen nog elke luisteraar op een poort. Voor 8765
+is dat terecht (dat is ons eigen backend-proces, en G5.1/2/3 zijn in F0 al gerepareerd), maar
+hetzelfde trucje op **6677** zou ook een *vorig* NovaTTS-instantie kunnen slaan — of iets dat
+helemaal geen NovaTTS is. Dus:
+
+| Wat | Waarom |
+|---|---|
+| Geen blanket-kill op 6677 | 6677 is een gedeelde poort; "dood alles wat erop luistert" is een andere operatie dan "dood ons eigen proces" |
+| Wél een waarschuwing vóór start | een bezette bind-poort faalt **stil** — de backend blijft draaien, alleen is er geen hook. Dat is de ergste faalvorm: geen error, geen regel |
+| De waarschuwing noemt het pid + `stop_all.cmd` | een melding zonder handeling is een klacht, geen hulp |
+
+Het script leest `NOVATTS_HOOK_PORT` / `NOVATTS_HOOK_MODE` uit `backend\.env` in plaats van
+vaste waarden, en meldt ná de wachttijd wat er werkelijk gebeurde: welk adres, welke `.xdll`,
+of er al een client aan hing, en `hook_mode=clipboard` zegt hij niets over websockets.
+
+**Over de test:** de blokken zijn uit `start_all.cmd` *gelicht* (op markers) en in echte cmd
+uitgevoerd, 13 gevallen. Lichten i.p.v. kopiëren is hier de hele truc: een gekopieerd blok
+veroudert stil, en een stil verouderd testscript is erger dan geen testscript, want het
+geeft zekerheid die niet klopt. Twee keer had ik het harness zelf stuk (`GOTO` met een blok;
+`Write-Output` in de returnwaarde in plaats van naar de host) — beide gemeld als meetfout, niet
+als codefout.
+
+#### F7 — `.env` met spaties: de app luisterde naar een ander adres dan het log
+
+Gevonden door het geval `NOVATTS_HOOK_PORT = 7300`. Het script las de sleutel als
+`NOVATTS_HOOK_PORT ` (met een spatie), vond geen match, en viel terug op 6677 — terwijl
+**pydantic-settings wél trimt** en de backend dus op 7300 draaide. De ergste vorm van de
+bevinding is niet "het script las het niet", maar **het log noemde een poort waar niemand
+op luisterde**. Een startmelding die liegt is schadelijker dan geen startmelding.
+
+Opgelost met een subroutine (het script draait met `DisableDelayedExpansion`, dus `!x!` kan
+niet), spaties uit sleutel én waarde gestript. Opnieuw gemeten: 8/8, inclusief het geval dat
+het brak. Tabs worden niet gestript — daar schrijft niemand met de hand mee, en een
+onleeselijke `%V:<TAB>=%` in de bron zou de volgende agent meer kosten dan het bugje.
+
+#### F7 — `setup.ps1`: waarschuwen ja, blokkeren nooit, en op loopback zwijgen
+
+De firewallcheck is bewust drie-armig, want loopback en LAN zijn niet hetzelfde probleem:
+
+| `NOVATTS_HOOK_HOST` | Uitkomst | Waarom |
+|---|---|---|
+| `127.0.0.1` / `localhost` / `::1` | **niets** | loopback-verkeer gaat niet door de Windows Firewall; een waarschuwing zou schreeuwen om een reden die er niet is |
+| `0.0.0.0` | waarschuwing + `netsh`-regel | niet alleen bereikbaar, maar er staat ook **ruwe gametekst** mee open |
+| iets anders | waarschuwing | bereikbaar, dus mogelijk een firewall-regel nodig |
+
+Twee dingen die ik onderweg heb rechtgezet omdat ze een volgende agent zouden misleiden:
+
+1. De eerste versie had een variabele `$isLoopback` die **niet**-loopback bevatte. De naam zei
+   het tegenovergestelde van de waarde. Dat is precies het soort detail dat leesbaar lijkt
+   en toch een hele ochtend kost; de variabele heet nu wat hij waarde is.
+2. mijn eerste harnesoverride werkte niet, omdat in PowerShell een **functie** een variabele
+   met dezelfde naam verslaat (Alias → Functie → Cmdlet → Variabele). De waarschuwingen
+   gingen dus gewoon naar het scherm in plaats van in een array terecht te komen. Dat is een
+   bug in het meetinstrument; de uitkomsten bleken wel juist, dus ik heb dat niet als
+   "gedeeltelijk gelukt" weggeschreven maar als meetfout gemeld.
+
+6/6 gevallen groen, en het script is daarnaast alleen **geparseerd** (niet uitgevoerd — dat zou
+de omgeving opnieuw installeren).
+
+#### F7 — de `websockets`-floor stond te laag, en dat is gemeten i.p.v. uit de changelog gelezen
+
+`requirements.txt` vroag `websockets>=12.0`. De code gebruikt echter
+`websockets.asyncio.server.serve`, `websockets.asyncio.client.connect` en
+`from websockets.asyncio.server import ServerConnection`, en die namespace bestaat pas vanaf
+**13.0**. Omdat `uvicorn[standard]` alleen `websockets>=10.4` vraagt, is `>=12.0` op een
+machine die al 12.x heeft *"al voldaan"* — en dan crasht de import bij **opstarten** in plaats
+van bij installeren. In een schone temp-venv gemeten:
+
+```
+websockets 12.0   -> ModuleNotFoundError: No module named 'websockets.asyncio'
+websockets 13.0   -> import OK
+websockets 14.0   -> import OK
+```
+
+Dus de floor is `>=13.0`, niet `>=14.0`. Mijn eigen eerdere notitie had `>=14.0` gezegd omdat
+dat de versie is waarin de nieuwe implementatie de standaard werd — maar dat is een *comfort*-reden, en de handler is al de enkelvoudige vorm die sinds 10.1 bestaat. Een ondergrens die niet kan crashen is meer waard dan de nieuwste versie.
+
+#### F7 — de installer hoefde niets, en dat is een controleerbare bewering
+
+Het plan vroeg te verifiëren dat `NovaTTS.iss` de persoonlijke bestanden blijft uitsluiten.
+Dat klopt, en de *reden* waarom het correct is, is genuanceerder dan de uitsluitingslijst
+doet vermoeden:
+
+| Bestand in `data/` | In de uitsluiting? | In de installer? |
+|---|---|---|
+| `emotion_sound_map.json.example` | nee | **ja** |
+| `emotion_aliases.json.example` | nee | **ja** |
+| `emotion_sound_map.json` | ja | nee |
+| `emotion_aliases.json` | ja | nee |
+
+De uitsluiting noemt de *persoonlijke* naam; de `.example` gaat gewoon mee. Dat is precies
+de vorm die je wilt: een verse installatie heeft de voorbeelden om na te kopiëren, en geen
+enkele audio of mapping van de ontwikkelaar. `backend\.env.example` gaat als apart item mee en
+bevat al alle 9 hooksleutels mét commentaar (F1), dus de installer levert een werkende hook
+config uit.
+
+> Er is hier dus niets aangepast. Een planregel kan "bestaand, behouden" zijn; dan is het
+> werk *meten dat het klopt*, niet iets bedenken om te veranderen.
+
+#### F7 — de Makefile-gate miste de GUI
+
+`lint` draaide ruff + mypy. Svelte-check stond sinds F6 in `npm run lint`, maar niet in de
+Makefile — dus `make gate` sloeg zeven type-errors in de GUI gewoon over. Toegevoegd, en
+`-B` op de testregel gekomen om §12.10 niet per ongeluk te schenden vanuit een gate.
+
+Er is **geen** `type`-target toegevoegd. Het plan noemde `test`/`lint`/`type`; `type` bestaat
+niet en een gate die alleen mypy herhaalt is een tweede deur naar dezelfde kamer, met een
+tweede plek waar hij stil kan staan. `lint` dekt het nu.
+
+`make` bestaat hier niet, dus ik heb de commando's die de targets draaien **rechtstreeks vanuit
+de root** uitgevoerd (354 passed · ruff 0 · mypy 0/33) i.p.v. te beweren dat de targets werken.
+
+#### F7 — documentatie die een claim maakt, moet die claim eerst meten
+
+De `data/README.md`-paragraaf over de hook moest iets zeggen over sprekerregistratie. Ik
+schreef eerst "Only `Name: Text` and the JSON form register" en *"you will see the name after a
+restart of the dialogue flow"*, en ging dat toen meten:
+
+```
+vorm                       spreker    tekst                        is_guess  registreert
+colon (RenPy-stijl)        Rick       Hello                        False     True
+space-vorm                 Rick       Hello                        True      False
+json naam                  Rick       Hello                        False     True
+json, andere sleutels      Rick       Hello                        False     True
+```
+
+De eerste helft klopte. De tweede helft niet: `/speakers` leest **live** uit het geheugen, dus
+er is niets om te herstarten — reloaden van het tabblad volstaat. En het bestand op schijf loopt
+tot ~30 s na (`maybe_autosave()` in het dialoogpad), altijd bij een nette shutdown. Nu staat dat
+er zo, inclusief de reden waarom een naam na een crash toch in het bestand kan ontbreken.
+
+Mijn eerste twee proefversies waren beide fout, en beide op een manier die de conclusie omkeerde:
+de eerste voerde JSON rechtstreeks aan `push()` (dus zonder `decode_wire_message`) en liet zien
+dat de hele JSON-string als spraak door zou gaan; de tweede rekende de naam-reconstructie dubbel
+om, die al in `decode_wire_message` zit (`return f"{name}: {body_text}", keys`). Pas toen ik
+`adapters/luna.py:556-565` had gelezen en de proef exact liet volgen op de adapter, was het een
+meting. **Een proef die een andere route volgt dan productie is een aanname met een tabel.**
+
+#### F7 — `docs/COLLEGA_RAPPORT_CRLF.md` §5 wees naar een dood pad
+
+§5 heette *"Wat moet de Luna-edition overnemen"* en zei: kopieer `.gitattributes` naar
+`D:\Projects\NovaTTSLun@`. Dat pad **bestaat niet meer**; de donor heet nu `NovaTTSLuna` en is
+gearchiveerd onder tag `donor` (D7), en de Luna-edition wordt inmiddels in déze tak gebouwd.
+Bijgewerkt naar wat geldt, met bewijs per punt:
+
+| # | Punt | Status | Bewijs |
+|---|---|---|---|
+| 1 | `.gitattributes` | ✅ | `*.cmd`, `*.bat`, `*.iss`, `*.ps1` op `text eol=crlf` |
+| 2 | CRLF-fix | ✅ | 11 bestanden gescand: overal `CRLF=n, kale-LF=0` — ook de drie die F7 bewerkte |
+| 3 | `.gitignore` `backend/.env` | ✅ | regel 13 |
+| 4 | functioneel testen | ⚠️ **deels** | zie hieronder |
+
+Punt 2 is geen cosmetiek: `cmd.exe` voert een `.cmd` met kale-LF uit in een gebroken modus met
+fouten die naar de *volgende* regel wijzen. Punt 2 is hier bovendien blijven liggen omdat de
+`.gitattributes`-regel de duurzame vorm is — die hoeft niet opnieuw gedraaid te worden na elke
+`git clone`, in tegenstelling tot het losse commando dat §5 opleverde.
+
+**Punt 4 staat bewust op deels.** Er is nog één koude `start_all.cmd --visible` nodig, plus een
+klik op *Save to .env*, om de keten af te vinken. F7 heeft de achterliggende keten gedraaid
+(backend op `:8765`, de gebouwde GUI erop, `/health` + `/status`, Hook-kaart en
+Text-hook-sectie nagekeken) en juist **niet** op Save geklikt, omdat dat de echte `.env` van de
+gebruiker herschrijft. Die klik hoort bij een release-test met een `.env` die men mag wijzigen;
+hem nu doen zou de groene vinkje op een toekomstige test zetten.
+
+#### F7 — wat er níét in deze fase zat
+
+- **Geen productiecode.** Zowel Python als GUI onaangeroerd, dus geen enkel gedrag veranderd.
+- **Geen `NovaTTSLuna` aangeraakt.** Bestaat nog, maar buiten deze opdracht en niet gevraagd;
+  §5 sprak er alleen *over*.
+- **Geen hook-end-to-end draaien.** Er is hier geen spel en geen LunaTranslator. De
+  functionele smoke staat nog in F8 (D14), waar de ws-route daadwerkelijk naast RenPy komt.
+- **Niets gepusht.** Zoals bij elke eerdere fase.
 
 ---
 
@@ -804,7 +1013,7 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | # | Vraag | Wanneer het antwoord nodig is |
 |---|---|---|
 | **D9** ✅ | **Ja** — en hij is in **F4** ingebouwd, niet F3. `status()` geeft `hook_last_raw`: de laatste ruwe regel die de hook aanleverde, vóór parsing. Het is het enige veld dat "er komt niets binnen" scheidt van "het komt binnen en wordt verkeerd geparseerd"; elk ander veld in `/status` ziet die twee gevallen identiek. | Afgevinkt in F4. |
-| **D10** | Moet `qwen_autostart` in de toekomst `both`-aware zijn? Met `hook_mode=websocket` start de Qwen-server soms terwijl er niets op de ws komt. | F7 — niet blokkerend voor de port |
+| **D10** ✅ | **Nee — `qwen_autostart` blijft zoals hij is en wordt níét hook-aware.** Gegeven door de gebruiker op 2026-09-29. De reden is niet "dat is te veel werk" maar dat de juiste vorm drie triggers zou vereisen: Qwen wordt ook gestart door de GUI-knop *Test TTS*, door Perfect Cut en door `POST /v1/audio/speech`. Een hook-aware autostart zou die alle drie breken, of de autostart drie keer aan drie plekken moeten krijgen — en de eerste optie is een regressie op drie werkbare features. | F7. `maybe_autostart()` blijft onafhankelijk van `hook_mode`. Vastgelegd omdat de *volgende* agent dit anders "logisch" lijkt te vinden en meeneemt dat het een gemiste optimalisatie is: het is een bewuste keuze. Het kosten van de keuze is gedocumenteerd in de README-hook-sectie (de Qwen kan opstarten terwijl er niets op de ws komt) in plaats van weggenomen. |
 | **D11** ✅ | **Uitgevoerd in F0:** `backend/vntts/` verwijderd in een eigen commit. Reden: nul functionele impact, 35 bestanden, nul verwijzingen — makkelijk terug te draaien als het toch nodig blijkt. De "eigen commit"-vorm is bovendien waardevoller dan de inhoud: het bevestigt dat er in deze repo een dode 171 KB template lag die drie jaar niemand had opgemerkt. | F9 hoeft dit niet meer te doen. |
 
 ### 9.3 Uit F0 voortgekomen besluiten
@@ -840,6 +1049,14 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D23** ✅ | **De GUI exposeert alle 9 hook-instellingen, niet de 2 uit het plan.** | F6. Het plan is geschreven vóór F5 bestond en noemde `hook_mode` + `hook_port`. Met alleen die twee zou de F5-route (`file_watch`, `file_watch_path`) onzichtbaar blijven in de GUI, terwijl de backend hem al volledig ondersteunt. Eén "Text hook"-sectie is bovendien vindbaarder dan losse velden verspreid over twee panelen — dat is het prioriteitscriterium van het hele project. |
 | **D24** ✅ | **De nieuwe `ServerStatus`-velden zijn in de GUI optioneel (`?`).** | F6. Het backend stuurt ze altijd, maar `ServerStatus` had al een gemengde stijl (`qwen_mgr?`, `import_status?` — latere toevoegingen als optioneel). De GUI moet ook tegen een oudere backend kunnen draaien: een `gui/dist` uit een vorige build tegen deze backend is een echte situatie bij het installatiewerk in F7. `SettingsData` is wél volledig, want dat is een round-trip: een ontbrekend veld zou stiekem worden weggeschreven bij het opslaan. |
 | **D25** ✅ | **De kaart toont drie toestanden, geen verbindingsvlag.** | F6. D9 wilde onderscheiden "er komt niets aan" van "het komt aan en wordt verkeerd gelezen". Eén boolean kan dat niet, want de drie toestanden hebben elk een andere oplossing en geen van drie is zichtbaar in "niet verbonden". Vandaar: `hook_clients` (wie), `hook_last_raw` (komt er iets aan) en `hook_dropped` (houdt de synthese het bij). |
+
+### 9.7 Uit F7 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D26** ✅ | **De `websockets`-floor is `>=13.0`, gemeten in een temp-venv — niet `>=14.0` zoals mijn eigen notitie wilde.** `websockets.asyncio` bestaat vanaf 13.0; 14.0 maakte die implementatie pas de standaard. Onze handler is de enkelvoudige vorm die sinds 10.1 bestaat, dus 13.x is echt genoeg. | F7. Belangrijk omdat `uvicorn[standard]` alleen `websockets>=10.4` vraagt: op een machine met al 12.x is `>=12.0` *"al voldaan"* en crasht de import bij **opstarten** in plaats van bij installeren. Een ondergrens die niet kan crashen weegt zwaarder dan de nieuwste versie; de meting staat als commentaar in `requirements.txt` inclusief de redenering, zodat niemand hem "netter" hoeft te maken. |
+| **D27** ✅ | **Het start-script meldt de hook, maar grijpt er nooit in.** Geen blanket-kill op 6677; wél een waarschuwing vóór start mét pid + `stop_all.cmd`. | F7. 6677 is een gedeelde poort — hetzelfde trucje als bij 8765 zou een vorig NovaTTS óf een willekeurig ander proces slaan. En een bezette bind-poort faalt **stil** (backend draait, alleen is er geen hook), dus de waarschuwing is geen extraatje maar het enige wat de gebruiker kan waarschuwen. `stop_all.cmd` hoeft daarom niets extra's te doen: de hook-socket gaat vanzelf dicht met de backend. |
+| **D28** ✅ | **Elke bewering in een doc die gedrag beschrijft wordt eerst gemeten, anders blijft hij een aanname met een tabel.** | F7. Twee voorbeelden uit dezelfde paragraaf: de JSON-route leek gebroken omdat mijn proef `push()` rechtstreeks voedde (en dus `decode_wire_message()` oversloeg), en een alinea over sprekerregistratie wilde zeggen dat je de GUI moest herstarten terwijl `/speakers` live uit het geheugen leest. Allebei de *conclusie* omgekeerd. De regel is ook praktisch: `data/README.md` is de plek waar iemand gaat kijken als iets onverwacht doet, dus een aanname daar is geen cosmetiek. |
 
 ---
 
@@ -892,6 +1109,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F4 | *"F4: gate…"* | **318 ✅** | **0 ✅** | **0 ✅** | ✅ | 263 → 318. **Eerste fase met runtime-impact.** Nieuwe `gate.py` + bedrading; **27/27 mutanten** met caching uit (§12.10). RenPy-route houdt dezelfde adapter, parser en registratie. |
 | 2026-09-29 | F5 | *"F5: file tailer…"* | **333 ✅** (+6 ❌ omgevingsafhankelijk) | **0 ✅** | **0 ✅** | ✅ | 318 → 345. Dunne laag over `HookTextProcessor` i.p.v. een port (D19). **33/33 mutanten**, waarvan 6 nieuw. De 6 failures bestonden al op de F4-boom: Open WebUI zit op 8080 waar `NOVATTS_QWEN_URL` wijst — zie de F5-sectie. |
 | 2026-09-29 | F6 | *"F6: the GUI…"* | **354 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 345 → 354. **Eerste fase zonder nieuwe runtime-impact in de backend** — de GUI hangt aan `/status`, en `status()` kreeg alleen de file-route erbij. 9 nieuwe tests voor een methode die er vóór F6 **nul** had. `svelte-check` van 2 bestaande errors + 1 warning → **0/0**, met de oorzaak in `api.ts` gerepareerd i.p.v. de casts verzwakt. `npm run lint` bleek `&` te gebruiken en maskeerde de eerste opdracht (§12.13) — nu gemeten dat beide talen de gate kunnen laten falen. De 6 omgevingsfailures uit F5 zijn weg: poort 8080 gaf vrij. |
+| 2026-09-29 | F7 | *"F7: lifecycle…"* | **354 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | **354 → 354, opzettelijk.** Nul regels productie-Python en nul regels GUI (`git diff --stat -- backend/novatts gui/src` leeg), dus het aantal tests mag hier per definitie niet wijzigen — dat maakt deze regel de anti-regressiebewijs voor §12.9 in plaats van een herhaling. Buiten `pytest`: 13/13 cmd-gevallen, 6/6 PowerShell-gevallen, beide met een gedocumenteerde valse-groen achter de vingers. `websockets`-floor gemeten 12.0 crasht / 13.0 werkt. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -917,7 +1135,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F4 `NovaApp`-bedrading | ✅ | Nieuwe `gate.py`: één poort voor alle bronnen. Trust-gate = "gesteld, niet gegokt" (het plan was een gemeten no-op). `hook_mode`-selectie, `status()`-velden, G5.4, stop-volgorde, `_refresh_known_speakers`. 263 → **318 tests**, **27/27 mutanten**. `NovaApp` had hiervoor nul tests. Twee naad-bugs gevangen (`push()` en de handmatige `Dialogue`-rebuilds) → §12.11. |
 | F5 `file_monitor.py` | ✅ | D19: dunne laag over `HookTextProcessor`, géén port — B's route heeft geen referentiegedrag. D20: één regel per delivery, **gemeten** (de parser plakt regels aan elkaar). `set_known_speakers` van duck-typing naar `InputAdapter` (D21). `_adapters()` vervangt drie losse adapterslijsten. 318 → **345 tests**, **33/33 mutanten** — waarvan 2 herricht na de refactor (§12.12). Limiet rond `Rick\nTekst` bewust gedocumenteerd én vastgespeld. |
 | F6 GUI | ✅ | Nieuwe sectie "Text hook" (9 velden, D23), Hook-kaart met **drie** toestanden i.p.v. één vlag (D25), `brand-sub` om (G6.3). `status()` kreeg de file-route erbij en had **nul** tests → `test_status_contract.py` (9). `svelte-check` als gate erbij, wat 2 bestaande type-errors aan het licht bracht: oorzaak in `api.ts` (responsformaat i.p.v. bestandsformaat), niet verzwakt met `as unknown as`. `npm run lint` maskeerde de eerste opdracht met `&` → §12.13. 345 → **354 tests**, alle gates groen, en de GUI één keer **echt bekeken** tegen een draaiende backend. |
-| F7 Lifecycle & docs | ⬜ | |
+| F7 Lifecycle & docs | ✅ | De headline is een **cmd-bug die altijd "ja" zei**: `^|` binnen `( … )` maakt de pipe letterlijk, dus de check kon nooit "nog niet aan het binden" melden (§12.14). Gemeten met een `netstat`-stub: variant `^|` gaf 0 bij een vrije én een bezette poort, de kale `|` gaf 1 en 0. Tweede vondst: `NOVATTS_HOOK_PORT = 7300` werd door het script genegeerd terwijl de backend hem wél las — **het log noemde een poort waar niemand op luisterde**. `websockets>=12.0` bleek te laag (12.0 crasht op import, 13.0 werkt) → `>=13.0` (D26). `start_all.cmd` meldt de hook maar doodt hem nooit (D27). `setup.ps1` zwijgt op loopback en waarschuwt alleen bij een blootgesteld adres. Makefile-gate miste svelte-check. Docs: pipeline, 9 env-sleutels, `hook_mode`-tabel, Hook-kaart-drie-toestanden, LunaTranslator-stappen, `data/README.md`, en §5 van het CRLF-rapport — dat wees naar een pad (`NovaTTSLun@`) dat niet meer bestaat en is herschreven met bewijs per punt, punt 4 bewust **deels**. Twee doc-claims bleken onjuist en zijn door meting gecorrigeerd (D28). **354 → 354 tests, opzettelijk.** |
 | F8 Cutover RenPy→LunaHook | ⬜ | Bevat de handmatige RenPy-smoke die uit F0 is gehaald. |
 | F9 Opruimen | ⬜ | `vntts/` en G5.8 zijn al afgehandeld in F0. |
 
@@ -938,3 +1156,12 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 11. **Nooit een `Dialogue` met de hand herbouwen — gebruik `dataclasses.replace(dialogue, ...)`.** `Dialogue` is een frozen dataclass, dus `replace` kopieert elk veld, ook een veld dat pas later wordt toegevoegd. Een handmatige `Dialogue(...)` naast de originele was drie keer exact dezelfde fout: `raw` verdween in de emotie-segmenten, `speaker_is_guess` in `HookTextProcessor.push()`, en beide in `voice_manager.clean_dialogue`. Gevolg: de F4-trust-gate was op het enige pad dat de hook echt gebruikt **inert**, terwijl parser- én gatetests groen waren. De reconstructie-plekken (`push`, `gate.admit`, `_segment_dialogue`, `clean_dialogue`) gebruiken nu alle vier `replace`.
 12. **Nooit een mutant als "gevangen" tellen die niet is toegepast.** De harness moet het zoekpatroon in de bron verifiëren vóór hij meet, en anders `MIS … PATROON 0x (verwacht 1)` melden. In F5 gebeurde precies dat: de `_adapters()`-refactor maakte W3 en W10 stuk, hun `old`-strings bestonden niet meer, dus de mutatie werd **niet geschreven** en de test "faalde" omdat de bron onveranderd was. Dat is het gevaarlijkste soort groen: een meting die niet faalt om de verkeerde reden. Het alarm is wat het aan het licht bracht — daarom is het een harde eis in de harness en geen netheidje. Algemene vorm: **elke meting moet kunnen zeggen "ik deed niets"**, anders is haar "ik slaagde" betekenisloos.
 13. **Nooit twee checks achter `&` of `;` aan één exitcode hangen.** §12.8 in een andere taal, en F6 vond de bekende ziekte op een plek waar niemand hem zocht: `npm run lint` was `npm run lint --workspaces --if-present & ruff check backend`, en op Windows levert `&` de exitcode van de **laatste** opdracht. Toen F6 daar `svelte-check` bij zette, werd de gate er stilzwijgend *zwakker* door — een type-fout in de GUI werd door een groene ruff weggeschreven. Gemeten: `cmd /c "type C:\nietbestaand.txt & echo ok"` geeft `exitcode = 0`. De regel is dus de ruimere vorm van §12.8: **het gaat niet om `|| true`, het gaat om elke constructie die de exitcode van een check weggooit** — en de Fix is altijd dezelfde: `&&` (of apart draaien), plus één injectietest die bewijst dat de gate wél rood wordt. Overigens ook: als een gate een *bestaande* rode baseline aantreft, is repareren wat hij vindt de taak van de fase die hem introduceeert, want een gate met een rode baseline is geen afnemende gate.
+14. **Nooit een conditie in een script testen op één uitkomst.** F7 leverde de pijnlijkste versie van deze regel tot nu toe, in een taal zonder typechecker en zonder testtoolchain. De regel is de algemene vorm van §12.8/§12.12: **elke conditie die op een grondwaarde steunt — een exitcode, een `grep`, een `netstat`, een `Test-Path` — moet zowel op de waar-positie als op de lege-positie zijn bewezen.** Concreet: `^|` binnen een `( … )`-blok maakt de pipe letterlijk, zodat `netstat … ^| findstr … ^| findstr …` als één commando draait en altijd `errorlevel 0` geeft — de check zei dan permanent dat er een client wachtte. Gemeten, want het kostte een test om het te zien.
+
+    Wat het gevaarlijk maakt is de richting waarin het misgaat. Een kapotte check is niet willekeurig stuk; hij is stuk in de richting die het best lijkt te werken. En het geval "geen bezette poort" haalde zijn groenheid uit precies dezelfde bug — een gemeten groen dat de verkeerde reden had, het gevaarlijkste soort (§12.12). Drie extra regels die hieruit volgen en die in F7 alle drie golden:
+
+    - **Binnen `( … )` is `|` GEEN escape nodig, en `^|` maakt hem letterlijk.** Buiten een blok — `for /f … in ('…')` — is de escape wél nodig. Twee plaatsen in hetzelfde bestand, tegengestelde regel, en de gemeten reden staat als commentaar bij beide, want de betekenis is plaats-gebonden en niet bestand-gebonden.
+    - **Een startmelding die een waarde noemt, moet dezelfde waarde gebruiken als de app.** Gemeten: het script las `NOVATTS_HOOK_PORT = 7300` niet (spaties), terwijl pydantic-settings wél trimt — de backend draaide op 7300 en het log riep 6677. Onlees-configuratie is erger dan geen melding, want hij is niet merkbaar.
+    - **Een proef die een andere route volgt dan productie is een aanname met een tabel.** Twee F7-proeven sloten `decode_wire_message()` over en rekenden de JSON-herstap dubbel om; beide sloten de conclusie "dit werkt niet" — wat aantoont dat een gemeten verhaal niet zomaar klopt als er één regel code is overgeslagen.
+
+    En de vorm waarin dit opgeslagen moet worden: **de regel in het document, het harnas in de temp-map.** Een harnas in de repo is een tweede ding dat roet aan, maar een harnas dat nergens is, betekent dat de *reden* in het document moet staan — anders lost het probleem zichzelf op en is de volgende agent het kwijt.

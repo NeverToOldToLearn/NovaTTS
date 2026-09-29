@@ -104,20 +104,32 @@ automatisch (regels 41-50) voordat backend/GUI starten — dus een losse
 - `backend\.env`, `*.wav`, `data/cache` zijn ignored.
 - Tauri NSIS-installer (25 MB `*.exe`) is een CI-/release-artefact, niet per commit.
 
-## 5. Wat moet de Luna-edition overnemen
+## 5. Wat de Luna-edition overneemt — **afgehandeld (F7)**
 
-1. `.gitattributes` **1:1 overnemen** (kopieer naar `D:\Projects\NovaTTSLun@` en commit/push).
-2. Dezelfde CRLF-fix toepassen op alle `.cmd`/`.ps1` in Luna (één commando):
-   ```powershell
-   Get-ChildItem *.cmd, *.ps1 -Recurse | ForEach-Object {
-     $t = [IO.File]::ReadAllText($_.FullName)
-     [IO.File]::WriteAllText($_.FullName, $t.Replace("`n","`r`n").Replace("`r`r`n","`r`n"))
-   }
-   ```
-   En committen.
-3. `.gitignore` regel `backend/.env` overnemen (zelfde `.env.example`-flow).
-4. De Settings- en `lib.rs`-fixes zijn al functioneel geverifieerd (`vite build`/`ruff`/`mypy`); functional testen op Luna: één cold-boot
-   `start_all.cmd --visible` → `http://127.0.0.1:8765/health` + Settings-tab → `Save`.
+Deze sectie wees naar `D:\Projects\NovaTTSLun@`. Dat pad bestaat niet meer; de
+Luna-edition wordt inmiddels **in deze tak** gebouwd (`Luna-Hook`), en de donor
+`NovaTTSLuna` is gearchiveerd onder tag `donor`. De drie preventiepunten staan
+hieronder met hun meetbaar bewijs in plaats van met een opdracht:
+
+| # | Punt | Status | Bewijs |
+|---|---|---|---|
+| 1 | `.gitattributes` | ✅ hier | `*.cmd`, `*.bat`, `*.iss`, `*.ps1` op `text eol=crlf` |
+| 2 | CRLF-fix op alle `.cmd`/`.ps1` | ✅ hier | 11 bestanden gescand: overal `CRLF=n, kale-LF=0` — ook de drie die F7 bewerkte (`start_all.cmd`, `stop_all.cmd`, `setup.ps1`) |
+| 3 | `.gitignore` `backend/.env` | ✅ hier | regel 13, met de `.env.example`-flow erboven |
+| 4 | functioneel testen | ⚠️ **deels** | zie hieronder |
+
+> Punt 2 is geen cosmetiek: `cmd.exe` voert een `.cmd` met kale-LF regels uit in
+> een gebroken modus, met fouten die naar de *volgende* regel wijzen. De
+> `.gitattributes`-regel is de duurzame vorm — die hoeft niet opnieuw gedraaid
+> te worden na elke `git clone`, in tegenstelling tot het losse commando hierboven.
+
+**Wat er aan punt 4 nog ontbreekt.** Er is een koude start van
+`start_all.cmd --visible` + het aanklikken van *Save to .env* nodig om de
+keten volledig af te vinken. F7 heeft de achterliggende keten wél gedraaid:
+backend op `:8765`, de gebouwde GUI erop, `/health` en `/status` geverifieerd,
+de Hook-kaart en de Text-hook-sectie inhoudelijk nagekeken — en juist *niet* op
+Save geklikt, omdat dat de echte `.env` van de gebruiker zou herschrijven. Die
+laatste klik hoort bij een release-test met een `.env` die men mag veranderen.
 
 ## 6. Open punten / bekende zaken
 

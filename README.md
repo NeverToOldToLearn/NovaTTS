@@ -1,9 +1,38 @@
 # NovaTTS
 
 Local Visual Novel Text-to-Speech server. Reads RenPy `copy_voice_to_clipboard`
-output from the clipboard (`Name: Text`), resolves the speaker from a JSON
-registry, synthesizes speech with a local Qwen3-TTS (qwentts.cpp) engine, and
-plays it — all on-device.
+output from the clipboard (`Name: Text`) — or, preferably, the live game text
+straight from LunaTranslator/Textractor over a websocket (`Name Text`) — resolves
+the speaker from a JSON registry, synthesizes speech with a local Qwen3-TTS
+(qwentts.cpp) engine, and plays it — all on-device.
+
+## Pipeline
+
+```
+   game window
+        │
+        ├─ RenPy copy_voice_to_clipboard ──► ClipboardAdapter ──┐
+        │                                                       │
+        ├─ Textractor ─ws─► LunaAdapter ──► HookTextProcessor ───┼─► parse ──► gate ──► dialogue-worker
+        │  (LunaTranslator)   127.0.0.1:6677   (parse+dedup)     │   (luna)     (trust,     │   (Qwen3-TTS,
+        │                                                       │              dedup,      │    thread)
+        └─ output file ──────► FileMonitorAdapter ──────────────┘              blacklist) ▼
+                                                                        speaker registry ──► voice
+```
+
+Three things about that picture are load-bearing, not incidental:
+
+- **Every source goes through the same parser.** The websocket and file routes
+  share one `HookTextProcessor`, so a line cannot be read two different ways
+  depending on which hook delivered it. The clipboard route keeps the RenPy
+  parser, because RenPy really does send `Name: Text`.
+- **Nothing synthesises inside the websocket handler.** The handler's only job
+  is to hand a dialogue to the single dialogue-worker thread. Synthesis inside
+  the async handler would block the event loop for up to the Qwen timeout (300 s)
+  and every other client would simply stop being served.
+- **The gate is shared too.** `DialogueGate` decides speaker trust, dedup and
+  blacklisting once, so a line cannot be admitted on one route and rejected on
+  another.
 
 ## Installer (schoon systeem)
 
@@ -120,12 +149,25 @@ with `NOVATTS_HOOK_MODE` in `backend/.env`:
 
 | Value | Route | Notes |
 |---|---|---|
-| `clipboard` | RenPy `copy_voice_to_clipboard` | the legacy/default route |
-| `websocket` | LunaHook / Textractor | the replacement route |
+| `clipboard` | RenPy `copy_voice_to_clipboard` | the fallback — kept deliberately, still fully supported |
+| `websocket` | LunaHook / Textractor | the route this project moved to |
 | `both` | both side by side, first yield wins | **the current default** |
 
 An unrecognised value falls back to `both` with a logged warning rather than
 refusing to start, so a typo cannot lock you out of the app.
+
+The dashboard's **Hook** card tells you which of three situations you are in,
+because they need different fixes and none of them looks like "not connected":
+
+| Card says | What it means | Do this |
+|---|---|---|
+| `waiting` · *LunaTranslator not connected* | nobody is attached to the socket | start LunaTranslator, add `textractor_websocket_x64.xdll`, point it at the address shown |
+| `N clients` · *connected, no line yet* | the socket is fine, the game is not | attach the hook to the **game window**; the card turns into a warning as long as nothing arrives |
+| `N clients` · *N dropped* | lines are arriving but synthesis cannot keep up | pause the game, or lower the voice latency |
+
+`hook_mode` and `hook_port` are read once at start, so changing either needs a
+restart of the backend — the same rule that already applied to `hook_host`. The
+settings view says so next to the field.
 
 ### Setting up LunaHook
 
@@ -156,6 +198,18 @@ loopback traffic. Check with `netsh winhttp show proxy`; the fix is
 > it is the websocket bind address, and changing it live would need the
 > server restarted to take effect.
 
+### Qwen may start before anything arrives
+
+`qwen_autostart` is deliberately **not** hook-aware: the Qwen server starts with
+the backend regardless of `hook_mode`, so with `websocket` and nobody attached
+you are paying for a model that has no line to speak yet. That is on purpose.
+Qwen is also started by the dashboard's **Test TTS** button, by Perfect Cut and
+by `POST /v1/audio/speech` — making autostart wait for a hook client would break
+all three, or would mean the same rule in three places.
+
+If that trade is wrong for your machine, set `NOVATTS_QWEN_AUTOSTART=0` in
+`backend/.env` and start Qwen yourself (`start_qwen.cmd`).
+
 ### The file route in one paragraph
 
 `NOVATTS_FILE_WATCH=1` makes NovaTTS poll `NOVATTS_FILE_WATCH_PATH` and
@@ -172,12 +226,15 @@ body to attach to. Set `NOVATTS_HOOK_DUAL_HOOK=1` and the two lines rejoin.
 backend\.venv\Scripts\python -m pytest backend\tests\ -q
 backend\.venv\Scripts\python -m ruff check backend
 backend\.venv\Scripts\python -m mypy --strict backend/novatts
+npm run check          # svelte-check — the GUI's type gate
 npm run build
 ```
 
-All four must be clean, and they are set up to fail: `make gate` runs lint
-and test without exit-code suppression, so a regression stops the build
-rather than scrolling past in the output.
+All five must be clean, and they are set up to fail: `make gate` runs lint
+(which is ruff + mypy + svelte-check) and test without exit-code suppression,
+and `npm run lint` chains the GUI and Python checks with `&&`, so a failure in
+either language is a failure. A regression stops the build rather than
+scrolling past in the output.
 
 ## Layout
 

@@ -40,7 +40,7 @@ help:
 	@echo   make backend-build   Build standalone backend .exe (PyInstaller)
 	@echo.
 	@echo Maintenance:
-	@echo   make lint            Run linters (ruff, mypy, eslint)
+	@echo   make lint            Run linters (ruff, mypy, svelte-check)
 	@echo   make test            Run tests
 	@echo   make clean           Remove build artifacts (keep venv)
 	@echo   make cleanall        Full clean (remove venv too)
@@ -126,11 +126,13 @@ lint:
 	$(PYTHON) -m ruff check backend
 	@echo [Python] mypy...
 	$(PYTHON) -m mypy --strict backend/novatts
+	@echo [GUI] svelte-check...
+	npm run check --workspace=gui
 	@echo ✓ Linting complete
 
 test:
 	@echo Running tests...
-	$(PYTHON) -m pytest backend/tests/ -v
+	$(PYTHON) -B -m pytest backend/tests/ -v
 	@echo ✓ Tests complete (see output above)
 
 # Hard gate for CI / pre-commit: everything must pass, no exceptions.

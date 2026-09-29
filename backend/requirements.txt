@@ -7,6 +7,20 @@ pygame>=2.6
 requests>=2.32
 # LunaHook/Textractor websocket server. Already arrives transitively via
 # uvicorn[standard], but we import it directly, so it gets its own line
-# rather than depending on someone else's pin. (Installed: 17.1 -- note
-# that the 13+ series dropped the legacy `websockets.serve` shim.)
-websockets>=12.0
+# rather than depending on someone else's pin.
+#
+# The floor is 13.0, and that is measured, not guessed (F7):
+#   12.0 -> ModuleNotFoundError: No module named 'websockets.asyncio'
+#   13.0 -> import OK
+# `websockets.asyncio` is the namespace adapters/luna.py imports, and it
+# appeared in 13.0; 14.0 only made it the default and deprecated the legacy
+# implementation. Importing the namespace explicitly means 13.x is genuinely
+# enough -- the connection handler is the single-argument form that 10.1
+# introduced, so nothing here needs 14.
+#
+# This matters because `uvicorn[standard]` only asks for websockets>=10.4: on a
+# machine that already has 12.x, a floor of >=12.0 is "already satisfied" and
+# the import would fail at start-up instead of at install time. A lower bound
+# that cannot crash is worth more than the newest version.
+# Installed locally: 17.1.
+websockets>=13.0

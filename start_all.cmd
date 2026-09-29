@@ -60,7 +60,48 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8080" ^| findstr "LISTENING
 )
 taskkill /F /IM tts-server.exe >nul 2>nul
 
-echo [1/2] Backend (http://127.0.0.1:8765) - autostart Qwen via backend/.env (AUTOSTART=1) ...
+REM -- hook config out of .env, zodat de melding hieronder de waarheid vertelt --
+REM Niet hardcoden: NOVATTS_HOOK_PORT is wijzigbaar vanuit de GUI (F6).
+set "HOOK_PORT=6677"
+set "HOOK_MODE=both"
+if exist "%ROOT%\backend\.env" (
+  for /f "usebackq tokens=1,* delims==" %%a in ("%ROOT%\backend\.env") do (
+    call :read_hook_var "%%a" "%%b"
+  )
+)
+goto :after_hook_var
+
+REM Strip spaces from key and value. Without this, a hand-edited line like
+REM "NOVATTS_HOOK_PORT = 7300" is silently ignored here -- while the backend
+REM itself DOES honour it, because pydantic-settings trims. That mismatch is
+REM worse than not reading it at all: the log below would then name a port the
+REM server is not using. (Tabs are not stripped; a tab-indented key is not a
+REM shape anybody writes by hand.)
+:read_hook_var
+set "HK=%~1"
+set "HV=%~2"
+set "HK=%HK: =%"
+set "HV=%HV: =%"
+if /I "%HK%"=="NOVATTS_HOOK_PORT" set "HOOK_PORT=%HV%"
+if /I "%HK%"=="NOVATTS_HOOK_MODE" set "HOOK_MODE=%HV%"
+exit /b
+:after_hook_var
+
+REM -- 6677 wordt hier bewust NIET gedood. Het is NovaTTS' eigen hook-poort, en
+REM    "dood alles wat erop luistert" zou ook een proces van een vorig
+REM    NovaTTS-instantie kunnen zijn. Maar een bezette poort blokkeert het
+REM    binden stilletjes, dus we melden het met het pid en wat te doen.
+set "HOOK_TAKEN="
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%HOOK_PORT%" ^| findstr "LISTENING" 2^>nul') do (
+  if not "%%a"=="0" if not "%%a"=="4" set "HOOK_TAKEN=%%a"
+)
+if defined HOOK_TAKEN (
+  echo Let op: poort %HOOK_PORT% is al in gebruik door pid %HOOK_TAKEN% .
+  echo          De nieuwe backend kan daar niet op binden -- de hook blijft dan stille.
+  echo          Los dit op met: stop_all.cmd
+)
+
+echo [1/2] Backend (http://127.0.0.1:8765) - autostart Qwen via backend/.env (NOVATTS_QWEN_AUTOSTART=1) ...
 
 if "%MODE%"=="hidden" (
   echo   Mode: hidden ^(geen vensters^) - logs in .log
@@ -73,6 +114,27 @@ if "%MODE%"=="hidden" (
 
 REM brief wait for backend to bind port 8765
 timeout /t 2 /nobreak >nul 2>nul
+
+REM -- Zeg wat de hook doet. Anders weet een gebruiker niet dat hij nog iets
+REM    moet instellen: LunaTranslator is een extern programma dat je zelf
+REM    aan de game moet hangen, en daar staat niets anders op de weg.
+if /I "%HOOK_MODE%"=="clipboard" (
+  echo   Hook: uit ^(hook_mode=clipboard^) -- alleen de RenPy-clipboard-route.
+) else (
+  REM No ^ before the pipes HERE, unlike the for /f line above. Inside a
+  REM parenthesised block cmd already treats | as a pipe, so "escaping" it
+  REM passes a literal ^| to netstat, the whole line runs as ONE command, and
+  REM the exit code is always 0 -- i.e. this test could never report "not yet
+  REM listening". Measured: with an empty result the ^| form returns 0, the
+  REM plain form returns 1.
+  netstat -ano | findstr ":%HOOK_PORT%" | findstr "LISTENING" >nul 2>&1
+  if errorlevel 1 (
+    echo   Hook: poort %HOOK_PORT% luistert nog niet -- de backend start nog.
+  ) else (
+    echo   Hook: luistert op ws://127.0.0.1:%HOOK_PORT% ^(%HOOK_MODE%^) en wacht op LunaTranslator.
+    echo         LunaTranslator: Extensions -^> Add -^> textractor_websocket_x64.xdll -^> bovenstaand adres
+  )
+)
 
 echo [2/2] Tauri GUI ...
 
@@ -114,6 +176,8 @@ echo Backend: http://127.0.0.1:8765/health  ^|  GUI: Tauri window of http://loca
 echo Modes: start_all.cmd [--min^| --visible ^| --hidden ^| --repair]  default=--min
 echo Repair: start_all.cmd --repair  (of setup.ps1 -Force)
 echo Qwen: autostart + auto-import Samples_Clone ^(bg, ~1-2 min^). Dashboard toont progress.
+echo Hook: ws://127.0.0.1:%HOOK_PORT% ^(hook_mode=%HOOK_MODE%^) -- de GUI toont in de Hook-kaart
+echo        of er een client is en of er al een regel binnen is.
 echo Sluiten: stop_all.cmd  ^(anders blijft backend clip-pollen^).
 if not "%MODE%"=="hidden" pause
 exit /b 0

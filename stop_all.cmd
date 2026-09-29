@@ -12,5 +12,9 @@ REM Kill tts-server
 taskkill /F /IM tts-server.exe >nul 2>nul
 REM Kill the Tauri GUI (G5.3: the sidebar points users here to stop everything)
 taskkill /F /IM novatts-gui.exe /T >nul 2>nul
+REM The hook port needs no line of its own: it is a socket owned by the
+REM backend we just killed, so the listening socket goes with it. Reporting
+REM it anyway would be a lie -- the process it names is already gone.
+echo   hook: websocket sluit mee met de backend
 echo Done.
 timeout /t 1 /nobreak >nul 2>nul
