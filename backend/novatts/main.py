@@ -210,7 +210,7 @@ class NovaApp:
         ``clipboard`` is what you want when a game has no hook at all.
 
         The mode is read once, here. Switching it later takes a restart:
-        the websocket cannot be re-bound without dropping LunaTranslator's
+        the websocket cannot be re-bound without dropping the hook's
         connection, and a restart the user is told about is better than a
         silently dropped hook mid-scene (D16).
         """

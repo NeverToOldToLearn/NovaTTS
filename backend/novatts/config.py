@@ -120,9 +120,12 @@ class Settings(BaseSettings):
     # because it was forgotten. See D29: a typo in the config should land
     # on maximum tolerance, not on the strictest route.
     hook_mode: Literal["clipboard", "websocket", "both"] = "websocket"
-    # NovaTTS *serves* the websocket; LunaTranslator connects to it via
-    # Extensions -> Add -> textractor_websocket_x64.xdll, pointed at
-    # ws://<hook_host>:<hook_port>. Loopback only, never 0.0.0.0.
+    # NovaTTS *serves* the websocket by default, at
+    # ws://<hook_host>:<hook_port>, and the hook connects to it. Not every
+    # hook does it that way round: the textractor_websocket extension is a
+    # server itself, and then NovaTTS connects out -- which is what
+    # luna_ws_url below selects. Both directions work, so neither is
+    # special. D39. Loopback only, never 0.0.0.0.
     hook_host: str = "127.0.0.1"
     hook_port: int = 6677
     # Textractor sends "Rick It's 2 parts." (space-separated speaker);

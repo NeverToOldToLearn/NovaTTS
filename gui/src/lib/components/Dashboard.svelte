@@ -18,7 +18,7 @@
   // The hook card reports what the user can act on, not merely whether an
   // adapter is running. Three states have to be told apart, because each has
   // a different fix and none of them is visible from "not connected":
-  // nobody is connected (start LunaTranslator), somebody is connected but no
+  // nobody is connected (start the hook), somebody is connected but no
   // line has arrived (hook not attached to the game window), or lines are
   // arriving and being dropped (synthesis cannot keep up).
   //
@@ -44,7 +44,7 @@
     if (!hookOn()) return "";
     const dropped = status?.hook_dropped ?? 0;
     if (dropped > 0) return `${dropped} dropped — synthesis is behind`;
-    if (hookClients() === 0) return "LunaTranslator not connected";
+    if (hookClients() === 0) return "hook not connected";
     if (!status?.hook_last_raw) return "connected, no line yet";
     return "";
   };
@@ -102,7 +102,7 @@
   {#if status?.stale_mappings?.length}<div class="banner">⚠ {status.stale_mappings.length} speaker(s) point to missing voices — fix in Characters.</div>{/if}
   {#if status?.hook_dropped}<div class="banner">⚠ {status.hook_dropped} hook line(s) dropped — the queue could not keep up with the hook. Pause the game, or lower the voice latency.</div>{/if}
   {#if hookOn() && hookClients() > 0 && !status?.hook_last_raw}
-    <div class="banner">Hook connected, but nothing has arrived yet. Check that LunaTranslator has the hook attached to the game window.</div>
+    <div class="banner">Hook connected, but nothing has arrived yet. Check that the hook is attached to the game window.</div>
   {/if}
 
   <div class="panel">

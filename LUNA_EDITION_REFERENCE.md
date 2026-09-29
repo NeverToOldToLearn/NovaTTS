@@ -1405,13 +1405,14 @@ kanten in plaats van de default stilzwijgend om te draaien (D39).
 
 `_client_loop` (`adapters/luna.py:493-520`) wordt gekozen door `if self.ws_url:` in `_run` (regel 466).
 Deze tak had **geen enkele test**. Met een `_FakeHook`-serverdouble en `TestClientRoundTrip` wel, en
-die vonden twee echte defecten. Beide zijn gemeten, en beide zijn **vastgespeld in plaats van
-gefixt**, want elke verandering verdient haar eigen geteste wijziging:
+die vonden twee echte defecten. Beide zijn gemeten, en F12 heeft beide **vastgespeld in
+plaats van gefixt**; **F13 heeft ze gerepareerd** en vond bij dat werk een derde, dat F12
+niet eens noemde. De tabel hieronder beschrijft dus de toestand aan het eind van F12:
 
 | gat | meting | oorzaak |
 |---|---|---|
-| `client_count` blijft altijd 0 | tekst komt binnen, de teller staat op 0, de kaart toont het rode lampje | `_clients` wordt alleen in `_handle_client` bijgewerkt (regels 532/542) en die functie bestaat niet in clientmodus |
-| `stop()` stopt de client-lus niet | `stop()` duurde **5,00 s** — precies de join-timeout — en de draad leefde nog, terwijl `is_running()` al `False` zei | `_client_loop` leest `self._stop` alleen in zijn `except`-tak; de `async for message in websocket` in `_pump` ziet hem nooit |
+| `client_count` blijft altijd 0 | tekst komt binnen, de teller staat op 0, de kaart toont het rode lampje | `_clients` wordt alleen in `_handle_client` bijgewerkt (toen regels 532/566, nu 556/566) en die functie bestaat niet in clientmodus → **dichtgezet in F13**; de clientlus telt zichzelf nu |
+| `stop()` stopt de client-lus niet | `stop()` duurde **5,00 s** — precies de join-timeout — en de draad leefde nog, terwijl `is_running()` al `False` zei | `_client_loop` leest `self._stop` alleen in zijn `except`-tak; de `async for message in websocket` in `_pump` ziet hem nooit → **dichtgezet in F13**; het pompen wordt nu geracet tegen het stop-event |
 
 Het eerste scenario dat ik mat sloot de verbinding na elk frame en deed er 0,20 s over — "diep in de
 gaten". Het geval dat breekt is een verbinding die **open en stil** staat. Dat is §12.24: een
@@ -1445,6 +1446,79 @@ had ik dat als "niet gedetecteerd" opgeschreven, terwijl het twee verschillende 
 - **Niets gepusht in F0 t/m F11. In F12 wél, op uitdrukkelijk verzoek van de gebruiker** — dat keert
   de eerdere instructie om, en daarom staat het hier en niet stilzwijgend.
 
+### ✅ F13 — De drie clientgaten dicht, en de claim die nog in de bron en de GUI stond *(gereed 2026-09-29)*
+
+F12 legde twee clientgaten vast in plaats van ze te repareren, en stelde de vraag wie de
+teller hoort te zijn. Besloten: allebei repareren. Bij het lezen van de tak kwam een
+**derde** gat boven dat F12 niet had noemd, en bij het nalopen van de boom bleek dat de
+foute claim ook nog in het product zelf stond.
+
+#### F13 — de drie reparaties, en waarom ze alle drie in dezelfde tak zaten
+
+| gat | reparatie | waarom daar |
+|---|---|---|
+| `client_count` bleef 0 | de clientlus zet `_clients = 1` bij het verbinden en weer `0` in de `finally` van die verbinding | het getal beantwoordt "hoeveel hook-verbindingen staan open", en dat is hier er één. Tussen twee pogingen in is het `0`, want dan is er geen — en dát is waarom het getal bestaat: de kaart moet kunnen zeggen dat de verbinding staat |
+| `stop()` sliep op de join-timeout | `_pump` wordt nu geracet tegen het stop-event, in een nieuwe `_pump_until_stopped` | `_pump` zit in `async for message in websocket` en kijkt nergens naar `self._stop`. De servermodus heeft dit niet nodig — daar parkeert `_server_loop` zelf op het event — dus dit blijft bewust een clientmoduszorg |
+| `set_known_speakers()` bereikte niets | de clientlus registreert zijn processor in `_processors` | die dict is wat `set_known_speakers()` doorloopt, en alleen `_handle_client` vulde hem. In clientmodus bleef hij leeg, dus de priming die `main.py` doet bij start, bij gamesswitch én bij kamerwissel kwam nooit aan |
+
+Het derde gat is het belangrijkste van de drie en het stilste: **geen exception, geen
+logregel, geen raar gedrag**. Het effect was dat de naam-priming stilletjes werd weggegooid,
+zodat elk personagenaam een gok bleef — op precies de route die de gecorrigeerde
+documentatie nu aanbeveelt (D39).
+
+#### F13 — de claim stond ook in de bron, en in de GUI
+
+F12 herstelde zeven plekken en miste er zelfde-acht. Drie bij: de module-docstring van
+`adapters/luna.py`, het commentaar bij `hook_host` in `config.py`, en **de GUI**, waar het
+onjuist was op twee manieren tegelijk.
+
+- `SettingsPanel.svelte` droeg de instructie nog dat de gebruiker de gebruiker
+  `textractor_websocket_x64.xdll` "in LunaTranslator" moest toevoegen.
+- `Dashboard.svelte` gaf het label *LunaTranslator not connected*, terwijl de in F12
+  gecorrigeerde docs *hook not connected* schreven. De docs claimden dus een string die
+  niet in het product bestaat — precies de D28-fout op een andere plek, en deze keer door
+  mijzelf gemaakt.
+
+Dat is de directe consequentie van §12.20, en ook de reden dat die regel er nu staat:
+**één bewering op zeven plekken is één ongemeten bewering, en een grep over `*.md` mist de
+bestanden waar een volgende agent het eerst kijkt** — de bron en de GUI.
+
+#### F13 — vier mutaties, waarvan één terugval schakelaar
+
+Elke mutatie met een must-fail- én een mag-niet-vallen-lijst (§12.23):
+
+| mutatie | gemeten |
+|---|---|
+| `self._clients = 1` → `= 0` in de clientlus | **1 FAIL**, precies `test_client_count_is_one_while_connected` |
+| `await asyncio.wait(...)` → `await pump` | **1 FAIL**, precies `test_stop_is_prompt_with_a_silent_connection_open` |
+| `self._processors[id(ws)] = proc` verwijderd | **1 FAIL**, precies `test_set_known_speakers_reaches_the_client_side_processor` |
+| **terugval op de serverkant:** `_clients += 1` → `+= 0` in `_handle_client` | **2 FAIL**, de twee servertests, en geen enkele clienttest |
+
+M4 staat er niet voor de sier. Alle drie de fixes zitten in een tak die de servertak niet
+aandoet, en zonder die terugvalschakelaar zou dat een aanname zijn in plaats van een
+meting.
+
+#### F13 — en toen sprak het harnas zichzelf tegen
+
+De eerste mutatieronde meldde voor **alle vier** de mutaties "moet vallen maar bleef groen" —
+terwijl de ruwe uitvoer ernaast zichtbaar precies de bedoelde test rood liet zien. Oorzaak:
+de must-fail-lijsten gebruiken `/` en pytest meldt op Windows `\`.
+
+De meting was dus goed en het oordeel fout. Dat is D38 in de spiegelrichting: D38 beschreef
+een harnas dat een gat meldt dat er niet is, en dit meldt een gat dat er wél is — beide door
+een vergelijking die stilletjes het verkeerde beantwoordt. De regel die eruit kwam staat als
+§12.24. Herhaald na de fix, met dezelfde getallen, en de bron werd na elke mutatie op zijn
+sha256 gecontroleerd.
+
+#### F13 — wat er níét in deze fase zat
+
+- **De vastgespelde gaten zijn weg, niet omzeild.** Drie tests uit `TestKnownGaps` vervallen
+  omdat hun gedrag is gerepareerd; de enige overgebleven pin is de `hello`-stopword.
+- **Geen haast met de duurtest.** De niet-gedraaide duurtest van een uur blijft een uur
+  duren en staat nog steeds open.
+- **De echte hook nog steeds niet getest.** De `textractor_websocket`-extensie staat niet op
+  deze machine, dus wat F13 repareert is gemeten met een stand-in en niet met Textractor.
+
 ---
 
 ## 8. Definition of Done
@@ -1468,7 +1542,7 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 - ✅ Narratie (`You have your shower.`, `Good night babe!`, `Meanwhile, back at…`) wordt **nooit** een speaker — `test_narration_registers_nothing` (gate) plus vier parserpinnen. Let op: dit gaat over *narratie wordt geen spreker*. Een ander, zwakker punt is wél waar en staat elders: interpunctie-afval wordt wél gesproken (F8)
 - ✅ RenPy-clipboard op `hook_mode=both` blijft 100% werken (geen regressie op Main) — F8, vóór de default-omzetting: 3 unieke RenPy-regels op het klembord → 3 WAV's van 1.4–2.4 s. En ná de omzetting nog eens, in `hook_mode=clipboard`: legacy-adapter start, poort 6677 blijft vrij, de log noemt `legacy_clipboard`
 - ✅ `NOVATTS_FILE_WATCH=1` levert tekst als de ws en clipboard stil zijn — F5: een dunne staart over dezelfde `HookTextProcessor`, 33/33 mutanten
-- ⚠️ `GET /status` toont `hook_mode` + `hook_clients` — **alleen in servermodus correct.** F6 (9 tests, 3/3 mutanten) en F8 live: 0 → 1 → 0 na het weghalen van de client, en de route zonder adapter geeft de getallen van de adapter die níet draait. **F12 mat het tegenovergestelde in clientmodus:** daar blijft de teller op 0 terwijl er wél tekst binnenkomt, want `_clients` wordt alleen in `_handle_client` bijgewerkt (`adapters/luna.py:532/542`) en die functie bestaat daar niet — de kaart toont dan het rode *niet verbonden*-lampje mét een werkende verbinding. Vastgespeld in `TestKnownGaps`, niet gefixt
+- ✅ `GET /status` toont `hook_mode` + een correcte `hook_clients` — **in beide richtingen.** F6 (9 tests, 3/3 mutanten) en F8 live: 0 → 1 → 0 na het weghalen van de client, en de route zonder adapter geeft de getallen van de adapter die níet draait. F12 mat het tegenovergestelde in clientmodus — de teller bleef 0 terwijl er tekst binnenkwam, dus de kaart liet het rode lampje zien bij een werkende verbinding — en F13 heeft dat dichtgezet. De terugvalmutatie op de serverteller geeft nog steeds 2 rode tests, dus de serverteller is niet stilletjes meegesleurd
 - ✅ Per-game switch behoudt Luna-geschiedenis per game — `test_main_wiring.py`, per-game registry swap
 - ✅ `stop_all.cmd` doodt backend + GUI + tts-server, op **8765** — F0 herstelde G5.1/G5.2/G5.3; F7 meet de cmd-gevallen, maar de "13/13" is teruggezet naar **8/8** na herwaardering: het harnas dat over is telt acht gevallen en was stuk op drie manieren die een schijn van dekking gaven in plaats van een fout. Zie de F7-testsectie hierboven
 
@@ -1582,6 +1656,15 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D41** ✅ | **Een vastgespeld gat assert de huidige gebroken toestand, niet de gewenste.** | F12. De eerste versie assertte het gedrag dat de fix zou opleveren, waardoor de test meteen rood was en dus niets vastspelde maar alleen herinnerde. Nu zegt de test wat er moet gebeuren zodra hij omvalt: *"gaplijst gesloten: …"*. Dat is het omgekeerde van §12.9 — het aantal tests dat een fase toevoegt is geen maatstaf, en een test die bewijst dat een gat nog bestaat is een opdracht aan de volgende agent, geen last. |
 
 
+### 9.11 Uit F13 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D42** ✅ | **Een gecorrigeerde claim wordt over de hele boom nagelopen, en de bron en de GUI horen daar net zo goed in als de documentatie.** | F13. F12 herstelde zeven plekken in `*.md` en `*.cmd` en liet drie staan: de module-docstring van `adapters/luna.py`, het commentaar bij `hook_host` in `config.py`, en de GUI. In de GUI stond niet alleen dezelfde fout maar een tweede: `SettingsPanel.svelte` droeg de `.xdll`-instructie nog, en `Dashboard.svelte` gaf een label dat de gecorrigeerde docs tegenspraken, zodat de docs een string claimden die niet in het product bestaat. Uitbreiding van §12.20, en de reden dat hij er nu staat: **de bestanden waar een volgende agent het eerst kijkt zijn de bron en de GUI, niet de README.** |
+| **D43** ✅ | **Een harnas dat "0 gedetecteerd" zegt is pas een meting nadat zijn eigen vergelijking op een bekende rode run is getoetst.** | F13. De eerste mutatieronde meldde voor alle vier de mutaties "moet vallen maar bleef groen", terwijl de ruwe uitvoer ernaast de juiste test rood liet zien: een slashverschil tussen de must-fail-lijst (`/`) en wat pytest op Windows meldt (`\`). D38 beschreef een harnas dat een gat meldt dat er niet is; dit is het omgekeerde. Het gevolg is hetzelfde soort: een agent die het harnas gelooft, concludeert vier keer dat vier tests zwak zijn, en haalt ze eruit of verzwakt ze. |
+| **D44** ✅ | **Eén gat in een tak repareren betekent de hele tak nakijken, en stil is niet hetzelfde als onschadelijk.** | F13. Naast de twee gaten die F12 vastlegde was er een derde dat F12 niet eens noemde: `set_known_speakers()` bereikte de processor in clientmodus niet, omdat alleen `_handle_client` `_processors` vulde. Dat gat gaf geen exception, geen logregel en geen afwijkend gedrag — het effect was dat de priming die `main.py` bij start, bij gamesswitch en bij kamerwissel doet, stilletjes werd weggegooid en elk personagenaam een gok bleef. Het viel op omdat bij het zoeken naar de oorzaak van gat 1 in dezelfde regen `self._processors[id(ws)]` tegen kwam. |
+
+
 ---
 
 ## 10. Baseline-logboek
@@ -1639,6 +1722,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F10 | *"F10: regeleindes…"* | **370 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | **370 → 370, opzettelijk**: nul regels Python en nul regels GUI, alleen `.gitattributes` en twee documenten. Nul runtime-impact is hier het *punt*, want de wijziging hoort de uitkomst niet te raken. De `.gitattributes` kreeg de vorm van de hele working tree vastgelegd in het project in plaats van in de globale `core.autocrlf` van de gebruiker (§12.18). Dat leverde twee bestanden op die stuk waren en daar niets van wisten: `setup.sh` met `#!/bin/bash\r` in de shebag, en een `Makefile` waarvan **alle 88** receptregels een CR droegen terwijl `INSTALL.md` `make dev` voorschrijft. 136 paden geteld in plaats van vijf: nul afwijkingen. En de uitschrijfactie vier keer herhaald onder verschillende `core.autocrlf`-standen, met identieke uitkomst — de sterkere claim dan "het werkt hier". Het functionele bewijs dat een CRLF-script breekt is hier **niet** te leveren: Git Bash op Windows stript de CR bij lezen, dus wat hier aantoonbaar was is de byte-toestand, en wat daarop volgt is POSIX- en make-semantiek. |
 | 2026-09-29 | F11 | *"F11: een lege map…"* | **370 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | Ontstaan doordat iemand `start_all.cmd --min` draaide en vroeg of de CMD kapot was. **Het script was niet kapot; de melding was onjuist.** `start_all.cmd` testte `gui\node_modules`, een map die dit project nooit vult: de root `package.json` heeft `"workspaces": ["gui"]`, dus npm hoist alles naar `node_modules\.bin` in de root. De test vuurde dus bij élke start, meldde een ontbrekende install en draaide daarna een `npm install` die "up to date" zegt en niets verandert (gemeten: 0,8 s, geen `gui/node_modules` erna, lockfiles schoon). Het script sprak zichzelf tegen, want het tauri-blok eronder kijkt wél op beide plekken. Vervangen door een test op een echt binair (`vite.cmd`) op beide plekken, plus een waarschuwing wanneer de install de zaak niet repareert. **5/5 cmd-gevallen, en het discriminatiebewijs is meegeleverd: de oude conditie haalt 2 gevallen om, de nieuwe 0** — anders beweest 5/5 niets. Het F7-cmd-harnas bleek onderweg **stuk op drie manieren zonder één fout te geven** (verouderde slotmarker die op hing · `call :label` met regeleinden, wat een grondige cmd-beperking is · `STUB_PORT` pas ná het bouwen van de stub); de claim "13/13" is teruggezet naar 8/8, zie de F7-testsectie. Eén correctie op mezelf, want de tussenmeting loog om de eindstand: een meting halverwege gaf **364 + 6 rode tests** en dat stond bijna in dit document als de uitkomst, terwijl de eindmeting **370 groen** geeft. Die 6 waren de bekende omgevingsgroep — Open WebUI, een `python`-proces, op 8080 waar `NOVATTS_QWEN_URL` wijst, `405` op `/v1/audio/speech` — en de eindmeting zag ze niet omdat de poort inmiddels vrij was. Twee metingen, twee uitkomsten, één oorzaak: de omgeving, niet de code. |
 | 2026-09-29 | F12 | *"F12: het rode lampje…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 370 → 377: 4 clientmodus-tests plus 3 vastgespelde gaten. **Deze fase voegde geen functionaliteit toe maar trok een documentatie-claim onderuit die op zeven plekken stond en op alle zeven fout was** — `textractor_websocket` is de *server* en NovaTTS de client, dus de hele setup stond om (D39). De rode lampje-melding is eerst zelf nagegaan in plaats van aangenomen: de serverkant bleek end-to-end werkend (echte `websockets`-client, `hook_clients` 0→1→0, WAV van 241,964 B) en de oorzaak was dat de extensie niet geïnstalleerd is. Twee zelfcorrecties: de GUI praat wél met déze worktree (zes `/status`-velden die alleen in deze code bestaan), en ik had "geen LunaTranslator in deze omgeving" geschreven terwijl die wél draaide. Clientmodus had nul tests en leverde twee echte gaten op, beide gemeten en beide **vastgespeld in plaats van gefixt**. Drie mutaties met must-fail én mag-niet-vallen; de derde legde een bestaande teller-test bloot die een teller die nooit meet niet kon zien. `npm run build` gemeten **schoon** voor de Tauri-schema's, dus de LF-vervuiling komt van de Tauri-CLI en niet van de build-gate. `LunaTranslator_x64/` in `.gitignore`. **Gepusht**, op uitdrukkelijk verzoek — tot en met F11 was er in geen enkele fase gepusht. |
+| 2026-09-29 | F13 | *"F13: de drie clientgaten…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 377 → 377: drie gaten dicht, drie tests erbij en de drie vastegrul uit `TestKnownGaps` eraf. **Eén gat erbij gevonden dat F12 niet noemde:** `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming die `main.py` bij elke gamesswitch doet werd weggegooid — zonder exception, zonder logregel (D44). Twee reparaties in de GUI en twee in de broncommentaren, want de foute topologie-claim stond daar ook nog: `SettingsPanel.svelte` droeg de `.xdll`-instructie nog en `Dashboard.svelte` gaf een label dat de docs tegenspraken (D42). **Vier mutaties: 1 / 1 / 1 / 2 FAIL, elk precies de bedoelde test**, waarvan de vierde een terugval op de serverteller is en dus bewijst dat de fixes de serverkant niet hebben aangeraakt. En het harnas sprak zichzelf tegen op de eerste ronde door een slashverschil in zijn eigen vergelijking (D43), wat de regel §12.24 opleverde. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
 > commit kan zijn eigen hash niet bevatten — elke amend zou de verwijzing weer verouderen.
@@ -1670,6 +1754,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F10 Regeleindes | ✅ | Buiten de featurelijn: het gevonden gat was dat de vorm van de working tree in het gitprofiel van één gebruiker stond in plaats van in het project. `.gitattributes` legt nu vast dat tekst CRLF op schijf staat, met `*.sh`/`Makefile`/`*.mk` als uitzondering op LF. Dat vond twee bestanden die kapot waren zonder dat iets dat merkte: `setup.sh` (shebag met CR) en de `Makefile` (88/88 receptregels met CR, terwijl `INSTALL.md` `make dev` voorschrijft). Geteld over 136 paden, nul afwijkingen; de uitschrijfactie viermaal herhaald onder verschillende `core.autocrlf`-standen met identieke uitkomst. **370 → 370 tests, want er viel geen regel productiecode om te schrijven** — en dát is hier de bewering die gemeten moest worden, want een `.gitattributes` hoort de uitkomst niet te raken. Het functionele bewijs dat CRLF een bash-script breekt is hier niet te leveren (Git Bash stript de CR); wat gemeten is, is de byte-toestand. Details in §12.18. |
 | F11 De valse alarmmelding | ✅ | Ontstaan doordat iemand `start_all.cmd --min` draaide en vroeg of de CMD kapot was. Het script was niet kapot, de melding wel: de controle vroeg naar `gui\node_modules`, een map die een npm-workspace nooit vult. Dus iedere start meldde een ontbrekende install en draaide daarna een install die niets doet. Het script sprak zichzelf tegen, want het tauri-blok eronder kijkt wél op beide plekken. Vervangen door een controle op een echt binair, plus een waarschuwing wanneer de install niet helpt. **5/5 cmd-gevallen, met discriminatie: de oude conditie haalt er 2 om.** Onderweg bleek het F7-cmd-harnas **stuk zonder één fout te geven** — verouderde marker (hing op), `call :label` met regeleinden (onmogelijk in cmd), en `STUB_PORT` te laat toegewezen (bezette tak nooit getest) — dus de "13/13" is teruggezet naar 8/8 (§12.19, en de F7-testsectie). **370 tests**, want er viel geen regel Python of GUI om te schrijven. |
 | F12 Het rode lampje | ✅ | Ontstaan uit een gebruikersmelding: de Hook-kaart liet een rood *niet verbonden*-lampje zien. **Dat was correct, en de documentatie was fout.** Eerst de aanwijzing zelf nagegaan (§12.24) — de serverkant bleek end-to-end werkend met een echte client. Oorzaak: de hook-extensie staat niet op deze machine, en LunaTranslator draait wél. Onderweg twee zelfcorrecties: de GUI praat wél met déze worktree, en de eerdere zin "geen LunaTranslator in deze omgeving" was onwaar. **De topologie stond om** — `textractor_websocket` is de server, NovaTTS de client (D39) — en zeven foute claims in vier bestanden plus `start_all.cmd` zijn hersteld en per stuk geverifieerd. Clientmodus had nul tests en leverde twee echte gaten op: `client_count` blijft 0, waardoor de kaart misleidend is terwijl er tekst binnenkomt, en `stop()` duurt de volle join-timeout bij een stille open verbinding. Beide **vastgespeld, niet gefixt**. Eén bestaande teller-test bleek onvoldoende en is versterkt. **370 → 377 tests.** |
+| F13 De clientgaten | ✅ | De twee gaten die F12 had vastgespeld, dichtgezet, plus een derde dat F12 niet noemde: `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming van `main.py` (bij start, gamesswitch én kamerwissel) werd weggegooid zonder één foutmelding. `client_count` telt zichzelf nu in plaats van permanent 0 te staan, en `stop()` racet het pompen tegen het stop-event zodat een stille verbinding geen 5 seconden kost. Vier mutaties met must-fail én mag-niet-vallen: 1/1/1/2 FAIL, elk precies de bedoelde test, waarvan de vierde een terugval op de serverteller is. Daarnaast de foute topologie-claim ook uit de bron en de GUI gehaald (D42). **377 → 377 tests.** |
 
 ---
 
@@ -1768,6 +1853,8 @@ En de omgekeerde richting heeft dezelfde valkuil, maar dan zichtbaar in `git sta
     - `call :label "a<newline>b"` geeft alleen de eerste regel door; de rest ontsnapt en wordt als commando uitgevoerd. Alle vijf meerregelige gevallen leverden dus een `.env` van één regel, en failden daarna met `NOVATTS_HOOK_PORT is not recognized` — een fout die naar het script wijst terwijl de oorzaak in het harnas zat.
 
     Ook dit hoort erbij: het F7-harnas hing op een **verouderde marker** (een commit herschreef één woord in de regel waar de marker naar zocht) in plaats van te melden dat de marker niet meer klopt. Een harnas dat stil ophoudt te meten is erger dan een harnas dat faalt. Dus twee regels erbij, die in beide harnassen staan: tel de getilde regels en meld een te korte lift als fout, en gebruik een marker die op een **structuurkenmerk** eindigt in plaats van op de volledige tekst — de eerste achttien tekens, niet de hele regel.
+24. **Nooit een harnas-oordeel geloven voordat de vergelijking zelf getoetst is.** D43: een mutatieronde meldde vier keer "moet vallen maar bleef groen", terwijl de ruwe uitvoer ernaast precies de bedoelde test rood liet zien. De oorzaak was een slashverschil tussen de must-fail-lijst (`/`) en wat pytest op Windows meldt (`\`). Dat is het spiegelbeeld van §12.14, maar dan op de **vergelijking** in plaats van op de conditie die gemeten wordt: **de uitkomst van een harnas is zelf een resultaat dat kan mislukken.** Twee regels die hieruit volgen: (a) als een must-fail-lijst zegt dat iets groen bleef, kijk dan naar de *ruwe* uitvoer voordat je de test verwijt — hier wees die meteen de oorzaak, en het kostte één blik; (b) een "0 problemen" is pas bewijs als het harnas ooit een **bekende** rode run heeft gerapporteerd, want anders bewijst het dat het net als goed niets doet. D38 maakte dezelfde regel voor een harnas dat een gat meldt dat er niet is; de spiegelrichting is even gevaarlijk, want die leidt tot het verwijderen van tests die het goed deden.
+
 20. **Nooit een doc-claim in één bestand zetten en hem in de rest van de map herhalen — grep de scripts mee.** F12 vond een door mijzelf geschreven bewering die op zeven plekken stond en op alle zeven fout was: `README.md`, `INSTALL.md`, `backend/.env.example`, dit document (vier plekken) en `start_all.cmd`, dat hem bij élke start op de console zette. Alleen de docs herstellen zou het probleem in de console hebben laten staan. D28 gold dus wel, maar paste niet op precies de tekst die de regel had opgeleverd. De regel is: **één bewering op meerdere plekken is één ongemeten bewering**, en het grep-commando hoort over `*.md`, `*.example` én `*.cmd`/`*.ps1` te lopen. Een script dat een verkeerde instructie print is lastiger te vinden dan een verkeerde alinea, en de gebruiker leest de console vaker dan de README.
 
 21. **Nooit een testdouble bouwen dat maar één uitkomst van de onderzochte conditie kan produceren.** F12: de eerste `stop()`-meting gaf 0,20 s en *"diep in de gaten"*, terwijl de echte meting 5,00 s gaf — precies de join-timeout — met een levende draad erna. Het verschil was de double: hij sloot de verbinding na elk frame en nam daarmee de tak die wél op `self._stop` let. Het geval dat breekt is een verbinding die **open en stil** staat. Dit is §12.14 toegepast op de meetapparatuur in plaats van op de code: **een double die de helft van de uitkomsten niet kan maken, is een bewijs over de helft die het wél kan maken.** En het is te herkennen aan een uitkomst die *te* mooi is — die is het moment om naar de conditie te kijken in plaats van door te meten.

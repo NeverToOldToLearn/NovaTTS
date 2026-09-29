@@ -7,10 +7,18 @@ module is only transport plus the small amount of state that transport
 needs.
 
 Topology, because it is the opposite of what most hook docs assume:
-NovaTTS **serves** the websocket on ``127.0.0.1:6677`` and
-LunaTranslator *connects* to it via Extensions -> Add ->
-``textractor_websocket_x64.xdll``. Translation stays off; we only want
-the raw line.
+NovaTTS **serves** the websocket on ``127.0.0.1:6677`` by default and
+the hook *connects* to it. Translation stays off; we only want the raw
+line.
+
+The hook is not always the client, though, and that is measured rather
+than hedged (D39): the ``textractor_websocket`` extension opens a
+websocket locally and sends the text to every connected client, so *it*
+is the server there and NovaTTS has to dial out. That is the other half
+of this module -- :meth:`LunaAdapter._client_loop` -- and it is what
+``NOVATTS_LUNA_WS_URL`` / :attr:`LunaAdapter.ws_url` selects. Both
+directions are supported; neither is a fallback, and the docs
+describe both instead of presenting one as the real one.
 
 The module is split so that the interesting half is testable without an
 event loop:
@@ -362,9 +370,11 @@ class LunaAdapter(InputAdapter):
     dispatch thread. Nothing slow runs on the event loop: see the module
     docstring for why that is the whole point of this class.
 
-    In server mode (the default, and what the hook topology calls for)
-    NovaTTS listens and LunaTranslator connects. Setting ``luna_ws_url``
-    inverts that for the rare setup where the hook is the server.
+    In server mode (the default) NovaTTS listens and the hook connects.
+    Setting ``luna_ws_url`` inverts that: NovaTTS connects out to a hook
+    that listens itself, which is what the ``textractor_websocket``
+    extension does (D39). Both directions are supported, and neither is
+    deprecated or rare.
     """
 
     def __init__(self, on_dialogue: DialogueCallback) -> None:
@@ -497,15 +507,32 @@ class LunaAdapter(InputAdapter):
                 async with websockets.asyncio.client.connect(self.ws_url) as ws:
                     # Client mode has no _handle_client, so the processor
                     # that a server connection would have built is made
-                    # here, with the same settings.
-                    await self._pump(
-                        ws,
-                        HookTextProcessor(
-                            min_text_length=self.min_text_length,
-                            space_form=self.space_form,
-                            dual_hook=self.dual_hook,
-                        ),
+                    # here, with the same settings -- and registered in
+                    # _processors, because that dict is what
+                    # set_known_speakers() walks. Leaving it out is silent:
+                    # a speaker added in the GUI then never reaches the
+                    # parser and every character name stays a guess.
+                    proc = HookTextProcessor(
+                        min_text_length=self.min_text_length,
+                        space_form=self.space_form,
+                        dual_hook=self.dual_hook,
                     )
+                    self._processors[id(ws)] = proc
+                    # client_count answers "how many hook connections are
+                    # open", and here there is exactly one. Between retry
+                    # attempts it is 0 again, because then there is none --
+                    # which is the whole point of the number: the Hook card
+                    # has to be able to say the link is up.
+                    with self._client_lock:
+                        self._clients = 1
+                    log.info("Hook client connected to %s", self.ws_url)
+                    try:
+                        await self._pump_until_stopped(ws, proc)
+                    finally:
+                        self._processors.pop(id(ws), None)
+                        with self._client_lock:
+                            self._clients = 0
+                        log.info("Hook client disconnected from %s", self.ws_url)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -543,6 +570,36 @@ class LunaAdapter(InputAdapter):
                 remaining = self._clients
             self._processors.pop(id(websocket), None)
             log.info("Hook client disconnected (%d left)", remaining)
+
+    async def _pump_until_stopped(
+        self, websocket: object, proc: HookTextProcessor
+    ) -> None:
+        """Pump frames until the peer closes **or** ``stop()`` was called.
+
+        ``_pump`` parks in ``async for message in websocket``, which never
+        looks at the stop event: with the connection open and quiet the
+        event is set and nothing reads it, so ``stop()`` waits out its
+        whole join timeout, gives up, and returns while the adapter thread
+        is still alive and ``is_running()`` already says otherwise.
+
+        Racing the pump against the event is what makes shutdown prompt.
+        The server path does not need this -- ``_server_loop`` parks on the
+        event itself -- so this stays a client-mode concern.
+        """
+        assert self._stop is not None
+        pump = asyncio.ensure_future(self._pump(websocket, proc))
+        stopper = asyncio.ensure_future(self._stop.wait())
+        try:
+            await asyncio.wait({pump, stopper}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in (pump, stopper):
+                task.cancel()
+            await asyncio.gather(pump, stopper, return_exceptions=True)
+        # _pump's errors still have to reach _client_loop's handler, which
+        # logs them and backs off before the next attempt.
+        exc = None if pump.cancelled() else pump.exception()
+        if exc is not None:
+            raise exc
 
     async def _pump(self, websocket: object, proc: HookTextProcessor) -> None:
         """Read frames until the peer closes, decoding and enqueueing.

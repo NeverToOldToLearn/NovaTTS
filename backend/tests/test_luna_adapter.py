@@ -708,6 +708,111 @@ class TestClientRoundTrip:
             hook.stop()
 
 
+    def test_client_count_is_one_while_connected(self) -> None:
+        """The Hook card reads this number, and D25 made it one of three
+        states instead of one flag.
+
+        ``client_count`` was only ever maintained in ``_handle_client``,
+        which is the server path, so in client mode it stayed 0 for the
+        whole run. The card then showed the red *not connected* light
+        while lines were arriving and being spoken -- the exact failure
+        the three states exist to rule out. Asserted while the connection
+        is open, because afterwards 0 is correct for both modes.
+        """
+        port = _free_port()
+        hook = _FakeHook(port, sluit_na_frame=False)
+        hook.start()
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter.ws_url = hook.url()
+        adapter.start()
+        try:
+            assert _wait_for(lambda: adapter.client_count == 1), (
+                "the client never counted itself, so the Hook card stays red "
+                "while the hook is connected"
+            )
+        finally:
+            adapter.stop()
+            hook.stop()
+        assert adapter.client_count == 0, "the count outlived the connection"
+
+    def test_set_known_speakers_reaches_the_client_side_processor(self) -> None:
+        """A speaker added in the GUI has to reach the parser in both modes.
+
+        ``set_known_speakers`` walks ``_processors``, and only
+        ``_handle_client`` used to fill that dict. In client mode it stayed
+        empty, so the priming ``main.py`` does at start, on a game switch
+        and on a room change never arrived and every character name stayed
+        a guess. No exception, no log line: the names were simply ignored.
+        """
+        port = _free_port()
+        hook = _FakeHook(port, sluit_na_frame=False)
+        hook.start()
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter.ws_url = hook.url()
+        adapter.start()
+        try:
+            assert _wait_for(lambda: len(adapter._processors) == 1), (  # noqa: SLF001
+                "the client loop built no processor to prime"
+            )
+            adapter.set_known_speakers(["Watts"])
+            assert _wait_for(
+                lambda: any(
+                    proc.known_names == ("Watts",)
+                    for proc in adapter._processors.values()  # noqa: SLF001
+                )
+            ), "the name never reached the parser the client loop is using"
+        finally:
+            adapter.stop()
+            hook.stop()
+
+    def test_stop_is_prompt_with_a_silent_connection_open(self) -> None:
+        """The case a hook that closes after each line cannot show.
+
+        ``_pump`` parks in ``async for message in websocket`` and never
+        reads the stop event, so with the link up and idle ``stop()`` spent
+        its entire 5 second join timeout, gave up, and returned while the
+        thread lived on. Measured: 5.00 s, exactly the timeout, with
+        ``is_running()`` already reporting False.
+
+        Only a *silent* connection shows it, which is why the stand-in
+        hook has to be able to stay open. With one that closes after every
+        frame ``_pump`` returns by itself, ``stop()`` looks instant and
+        correct, and the defect is invisible.
+        """
+        port = _free_port()
+        hook = _FakeHook(port, sluit_na_frame=False)
+        hook.start()
+        got: list[object] = []
+        event = threading.Event()
+
+        def on_dialogue(dialogue: object) -> None:
+            got.append(dialogue)
+            event.set()
+
+        adapter = LunaAdapter(on_dialogue=on_dialogue)
+        adapter.ws_url = hook.url()
+        adapter.start()
+        try:
+            hook.send("Rick Hello there")
+            assert event.wait(5.0), "no dialogue arrived, so the loop never reached _pump"
+            thread = adapter._thread  # noqa: SLF001
+            assert thread is not None
+            start = time.monotonic()
+            adapter.stop()
+            elapsed = time.monotonic() - start
+            assert elapsed < 2.0, (
+                f"stop() took {elapsed:.2f}s with a silent connection open; "
+                "the join timeout is being spent on nothing"
+            )
+            assert not thread.is_alive(), (
+                "stop() returned but the client loop is still running, so "
+                "is_running() is lying to the dashboard"
+            )
+        finally:
+            adapter.stop()
+            hook.stop()
+
+
 class TestNonBlocking:
     """The reason this module is split the way it is.
 
@@ -906,116 +1011,3 @@ class TestKnownGaps:
             "gaplijst gesloten: verwijder of pas deze test aan, "
             "de 'hello'-stopword fix zit nog niet in de parser"
         )
-
-    def test_known_gap_client_mode_reports_zero_clients_forever(self) -> None:
-        """A card that says "not connected" while text is arriving.
-
-        ``client_count`` is only maintained in ``_handle_client``, which is
-        the server path, so in client mode it stays 0 for the whole run.
-        The dashboard reads that count, so the Hook card shows the red
-        *LunaTranslator not connected* light while lines are coming in and
-        being spoken. That is the precise failure the three card states
-        were built to rule out.
-
-        The fix belongs where the number is produced, not in the card: a
-        client that has an open connection should count as one. Pinned here
-        because a fix must also decide what the count means when the retry
-        loop is between attempts, and that wants its own tested change
-        rather than a drive-by.
-        """
-        port = _free_port()
-        hook = _FakeHook(port)
-        hook.start()
-        got: list[object] = []
-        event = threading.Event()
-
-        def on_dialogue(dialogue: object) -> None:
-            got.append(dialogue)
-            event.set()
-
-        adapter = LunaAdapter(on_dialogue=on_dialogue)
-        adapter.ws_url = hook.url()
-        adapter.start()
-        try:
-            hook.send("Rick Hello there")
-            assert event.wait(5.0), "no dialogue arrived, so there is nothing to count"
-            assert adapter.client_count == 0, (
-                "gaplijst gesloten: de kaart telt nu clients in de client-modus, "
-                "pas deze test aan en werk de teksten in README/INSTALL bij"
-            )
-        finally:
-            adapter.stop()
-            hook.stop()
-
-    def test_known_gap_stop_does_not_stop_the_client_loop(self) -> None:
-        """``stop()`` returns, and the client loop is still running.
-
-        ``_client_loop`` only ever checks ``self._stop`` in its *exception*
-        path. While a connection is open and quiet the loop sits in
-        ``_pump``'s ``async for message in websocket``, so the event is set
-        and nothing reads it: ``stop()`` waits out its 5 second join
-        timeout, gives up, and returns. The thread and the websocket
-        connection stay alive, and ``is_running()`` has already been set to
-        False, so anything that trusts that flag is told a lie.
-
-        The five seconds this test costs are the measurement, not slowness:
-        they are the join timeout being spent on nothing.
-
-        Only a *silent* connection shows it. With a hook that closes the
-        connection after each line, ``_pump`` returns on its own and stop()
-        looks instant and correct -- which is how the first version of this
-        measurement reported "fine" and was wrong.
-        """
-        port = _free_port()
-        hook = _FakeHook(port, sluit_na_frame=False)
-        hook.start()
-        got: list[object] = []
-        event = threading.Event()
-
-        def on_dialogue(dialogue: object) -> None:
-            got.append(dialogue)
-            event.set()
-
-        adapter = LunaAdapter(on_dialogue=on_dialogue)
-        adapter.ws_url = hook.url()
-        adapter.start()
-        try:
-            hook.send("Rick Hello there")
-            assert event.wait(5.0), "no dialogue arrived, so the loop is not in the path"
-            thread = adapter._thread  # noqa: SLF001
-            assert thread is not None
-            adapter.stop()
-            assert thread.is_alive(), (
-                "gaplijst gesloten: stop() stopt de client-lus ook bij een stille "
-                "verbinding, verwijder of pas deze test aan"
-            )
-        finally:
-            hook.stop()
-
-    def test_known_gap_stop_reports_not_running_while_the_loop_lives(self) -> None:
-        """The other half: the flag lies before the thread dies."""
-        port = _free_port()
-        hook = _FakeHook(port, sluit_na_frame=False)
-        hook.start()
-        got: list[object] = []
-        event = threading.Event()
-
-        def on_dialogue(dialogue: object) -> None:
-            got.append(dialogue)
-            event.set()
-
-        adapter = LunaAdapter(on_dialogue=on_dialogue)
-        adapter.ws_url = hook.url()
-        adapter.start()
-        try:
-            hook.send("Rick Hello there")
-            assert event.wait(5.0)
-            thread = adapter._thread  # noqa: SLF001
-            assert thread is not None
-            adapter.stop()
-            assert adapter.is_running() is False and thread.is_alive(), (
-                "gaplijst gesloten: is_running() en de draad zijn het niet meer eens, "
-                "pas deze test aan"
-            )
-        finally:
-            hook.stop()

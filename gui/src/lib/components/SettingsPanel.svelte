@@ -201,11 +201,14 @@
   <div class="section">
     <h3>Text hook</h3>
     <p class="muted small">
-      NovaTTS listens on <code>ws://{form.hook_host}:{form.hook_port}</code>. In
-      LunaTranslator add <code>textractor_websocket_x64.xdll</code> and point it
-      at that address. Leave translation off — NovaTTS wants the original line.
-      The bind address is read-only because it is the socket the server binds;
-      changing it live would mean rebinding underneath a live connection.
+      NovaTTS listens on <code>ws://{form.hook_host}:{form.hook_port}</code> by
+      default, and your hook connects to it. Some hooks are the server instead of
+      the client — the <code>textractor_websocket</code> extension is — and for
+      those, fill in <em>Outgoing ws URL</em> below with the address the hook
+      listens on; NovaTTS will then connect out to it. Leave translation off:
+      NovaTTS wants the original line. The bind address is read-only because it is
+      the socket the server binds; changing it live would mean rebinding
+      underneath a live connection.
     </p>
     <div class="form-grid">
       <label class="field-row">
@@ -215,7 +218,7 @@
           value={form.hook_mode ?? "websocket"}
           onchange={(e) => (form.hook_mode = (e.target as HTMLSelectElement).value as HookMode)}
         >
-          <option value="websocket">Hook only (LunaTranslator) — the default</option>
+          <option value="websocket">Hook only — the default</option>
           <option value="both">Both — hook first, clipboard as backup</option>
           <option value="clipboard">Clipboard only (RenPy, legacy)</option>
         </select>
@@ -231,7 +234,7 @@
         <p class="muted small">
           Legacy route: NovaTTS reads the RenPy <code>copy_voice_to_clipboard</code>
           output. It still works and is still tested. Choose this only if your game
-          has no hook — with LunaTranslator available, “Hook only” gives you live
+          has no hook — with a hook available, “Hook only” gives you live
           text, a speaker per turn and the multi-speaker split that the clipboard
           form cannot express.
         </p>
