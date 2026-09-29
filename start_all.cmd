@@ -38,10 +38,32 @@ if exist "%ROOT%\backend\.venv\Scripts\python.exe" set "PY=%ROOT%\backend\.venv\
 if not defined PY if exist "%ROOT%\backend\venv\Scripts\python.exe" set "PY=%ROOT%\backend\venv\Scripts\python.exe"
 if not defined PY set "PY=python"
 
-REM -- ensure node_modules exist for gui build --
-if not exist "%ROOT%\gui\node_modules" (
-  echo [NovaTTS] gui/node_modules ontbreekt — npm install wordt gedraaid...
+REM -- ensure the workspace install exists for the gui build --
+REM Test a real binary, not a directory name. This project is an npm
+REM workspace -- the root package.json lists "gui" under "workspaces" --
+REM so npm hoists every dependency to ROOT\node_modules and never populates
+REM gui\node_modules. On a fresh clone that directory simply does not exist.
+REM
+REM The old test was `if not exist "%ROOT%\gui\node_modules"`, so it fired on
+REM EVERY start, announced a missing install, and then ran an install that
+REM reported "up to date" and changed nothing. Measured 2026-09-29: the
+REM message appeared while ROOT\node_modules\.bin held tauri, vite,
+REM svelte-check and tsc. The script contradicted itself, because the tauri
+REM check further down already looks in both places.
+REM
+REM The install itself stays in %ROOT%\gui on purpose: from there npm walks up
+REM and finds the workspace root, so this one location is correct both when
+REM gui is a workspace member and when it is not.
+set "NODE_READY=0"
+if exist "%ROOT%\node_modules\.bin\vite.cmd" set "NODE_READY=1"
+if exist "%ROOT%\gui\node_modules\.bin\vite.cmd" set "NODE_READY=1"
+if "%NODE_READY%"=="0" (
+  echo [NovaTTS] node_modules ontbreekt — npm install wordt gedraaid...
   pushd "%ROOT%\gui" 2>nul && npm install --no-audit --no-fund 1>nul 2>&1 && popd
+  if not exist "%ROOT%\node_modules\.bin\vite.cmd" if not exist "%ROOT%\gui\node_modules\.bin\vite.cmd" (
+    echo [NovaTTS] LET OP: npm install slaagde niet of is incompleet — de GUI kan niet bouwen.
+    echo          Controleer node/npm, of draai handmatig: cd gui ^&^& npm install
+  )
 )
 REM -- check vite build exists --
 if not exist "%ROOT%\gui\dist\index.html" (
