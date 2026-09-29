@@ -382,18 +382,38 @@ bool (de twee Qwen-bools staan niet in `_SETTINGS_ENV_MAP`), dus dit kon nog noo
 
 ---
 
-### ⬜ F2 — `parser/luna.py` (echte implementatie)
+### ✅ F2 — `parser/luna.py` (echte implementatie) *(gereed 2026-09-29)*
 
-Doel: de ruimte-vorm parser draait en is getest. **Nog niets aangesloten.**
+Doel bereikt: de ruimte-vorm parser draait en is getest. **Nog steeds niets aangesloten — 0 runtime-impact.**
 
-- [ ] `backend/novatts/parser/luna.py` herschrijven: `parse_luna()`, `is_plausible_character_name()`, `reject_ui_line()` uit B overnemen; **de 5 constantensets + 15 UI-regexen** overnemen
-- [ ] **Niet** overnemen: `_SCENE_LABEL_WORDS` (dood, G4.5)
-- [ ] Aanpassen aan Main: `Dialogue(..., source="luna", raw=text)` — beide velden bestaan nu (F1). `Dialogue.instruct` blijft staan.
-- [ ] Uitbreiden met G3.2/G3.3: `split_speaker_turns()` voor multi-spreker + newline-bare-name, geschreven in Main-stijl (type hints, `re.Pattern[str]`, <500 regels)
-- [ ] `parser/__init__.py`: `LunaParser`/de module-functies toevoegen aan `__all__`
-- [ ] **Namen-unit-tests**: de 9 `TestLunaParser`-tests uit B's `test_core.py` overnemen, **plus** 6 nieuwe voor multi-spreker, newline-name, `*emotie*`-interactie en `raw`-propagatie
+- [x] `backend/novatts/parser/luna.py` herschreven (11 regels placeholder → 800 regels): `parse_luna()`, `is_plausible_character_name()`, `reject_ui_line()` uit B overgenomen, **5 constantensets + 16 UI-regexen** (het plan raadde 15; het zijn er 16 — zie onder)
+- [x] **Niet** overgenomen: `_SCENE_LABEL_WORDS` (dood, G4.5)
+- [x] Aangepast aan Main: `Dialogue(..., source="luna", raw=text)`, `instruct` wordt nu daadwerkelijk doorgegeven (B negeerde het)
+- [x] Uitgebreid met G3.2/G3.3: `split_speaker_turns()` + `parse_luna_turns()` voor multi-spreker + newline-bare-name, Main-stijl (type hints, `re.Pattern[str]`)
+- [x] `parser/__init__.py`: 6 Luna-symbolen in `__all__`
+- [x] `LunaParser`-klasse toegevoegd, met hetzelfde register-contract als `RenPyParser` (geregistreerde naam wint van de heuristiek)
+- [x] **Namen-unit-tests**: 9 `TestLunaParser`-tests uit B overgenomen, **plus 33 nieuwe** (`backend/tests/test_luna_parser.py`)
 
-**Gate:** `ruff` + `mypy` + de nieuwe tests groen. **Nog steeds 0 runtime-impact.**
+**Gate:** `ruff` schoon · `mypy --strict` schoon (31 bestanden) · `pytest` **153 → 195** · `npm run build` groen. 42 tests in de nieuwe suite, 0 runtime-impact.
+
+#### F2 — vijf dingen die onderweg duidelijk werden
+
+1. **16 UI-regexen, niet 15.** Het plan telde er 15. `test_all_ui_patterns_compiled` pint het exacte aantal, zodat een patroon dat stilletjes niet compileert niet meer onopgemerkt verdwijnt: de module slaat oncompileerbare patronen over i.p.v. de import te laten klappen — wat correct is voor een heuristie-lijst, maar fataal als een typefout drie maanden later pas opvalt.
+
+2. **Dubbele spaties braken de multi-speaker-split.** De lookbehind `(?<=[.!?\u2026]\s)` eist precies één spatie, en `split_speaker_turns` normaliseerde whitespace niet — terwijl `parse_luna` dat wél doet. `"Anne Hallo!  Rick Mooi."` speelde dus volledig op Anne's stem. Opgelost door vóór de bounds-search te normaliseren. `test_split_survives_ragged_whitespace` is de regressie-reminder.
+
+3. **Het register bereikte `parse_luna` niet.** De splitter deed wél registry-werk, maar de segmenten die hij opleverde werden daarna door een register-blinde functie teruggeparseerd. Gevolg: een geregistreerde `"Dr"` (een stopword!) werd correct afgesplitst en vervolgens meteen als niet-charakter afgewezen. `parse_luna` accepteert nu `known_names`, en de doorgegeven commentaar zegt waarom. **Dit was een onwaarheid in mijn eigen `LunaParser`-docstring, gevonden door een test die faalde.** Algemene regel: een docstring die een contract belooft is een test die het hoort te bewaken.
+
+4. **Een gedocumenteerd gat is geen opgelost gat.** Drie plekken laten bewust afwijken van de referentie, elk met een test erbij die de beperking vastspeldt in plaats van haar te verbergen:
+   - `test_known_gap_colon_form_multi_speaker_is_not_split` — `"Rick: Hoi. Anne: Doe!"` split niet; `VN_Suite.py` heeft dezelfde regex en hetzelfde gat. Een parserwijziging tegen een draaiende referentie is hoe een zeldzaam geval een niet-reproduceerbare stemfout wordt.
+   - `test_known_gap_ui_patterns_only_match_the_whole_line` — de `Start|New|…`-patroon eindigt op `(?:\s|$)` maar is geankerst met `^…$`, dus alleen het kale woord matcht: `"Start"` wél, `"Start Game"` niet. Overgeërfd van B, dat het van `VN_Suite.py` overërfdde. Kandidaat voor een vervolgstap mét echte captures.
+   - `test_known_gap_multi_word_names_cannot_open_a_space_form_turn` — `_NAME_TOKEN_SPACE` matcht één gekapitaliseerd woord, dus een geregistreerde `"Passenger 1"` kan nooit een space-form beurt openen. Wél werkend in de newline-vorm, waar de hele regel de naam is (nu ook voor meerwoords namen, dankzij fix 3).
+
+5. **Mijn eerste twee testverwachtingen waren fout, niet de code.** `"Start Game"` en `"Passenger 1"` moeten wél falen. Dat is de richting die het moeilijkst is om zelf te zien: de test ziet er uit als een bug in de heuristiek, en de fix zou dan een gedrag veranderen dat de referentie al jaren stabiel houdt. Empirisch meten vóór een verwachting vastleggen — anders leg je de gewenste uitkomst vast in plaats van de werkelijke.
+
+**Mutatiecheck** (5 mutanten, alle gevangen): mention-guard uit → 9 failures · `raw=text`→`raw=normalized` → 11 failures · normalisatie weg → 1 failure · register genegeerd → 1 failure · split-lookahead weg → 1 failure (die mutant overleefde de eerste ronde en kostte twee nieuwe tests, `test_trailing_sentence_stays_with_the_last_speaker` + `test_speaker_may_speak_twice`).
+
+**Openstaande vraag D9** (`/status` met de laatste ruwe hook-regel) is F3.
 
 ---
 
