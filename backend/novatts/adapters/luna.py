@@ -20,6 +20,20 @@ of this module -- :meth:`LunaAdapter._client_loop` -- and it is what
 directions are supported; neither is a fallback, and the docs
 describe both instead of presenting one as the real one.
 
+LunaTranslator also serves this direction itself, which needs no
+Textractor install at all. Its own network service publishes two
+endpoints on ``networktcpport`` (default 2333) --
+``/api/ws/text/origin`` and ``/api/ws/text/trans`` -- and sends the
+translated text as a bare text frame, which
+:func:`decode_wire_message` already accepts unchanged. So
+``NOVATTS_LUNA_WS_URL=ws://127.0.0.1:2333/api/ws/text/trans`` is a
+complete client-mode configuration. That endpoint's format and default
+port were read from LunaTranslator's own source rather than measured
+against a running instance, so the port is configurable and the claim
+is version-bound; see ``docs/LUNATRANSLATOR_HOOK.md`` for the setup.
+Note that LunaTranslator binds ``0.0.0.0`` there, not loopback, so the
+service is reachable from the local network while it runs.
+
 The module is split so that the interesting half is testable without an
 event loop:
 
@@ -65,6 +79,7 @@ from ..blacklist import is_renpy_exception
 from ..config import settings
 from ..models import Dialogue
 from ..parser.luna import LunaParser, is_plausible_character_name
+from ..parser.markup import strip_markup
 from .base import DialogueCallback, InputAdapter
 
 log = logging.getLogger(__name__)
@@ -340,8 +355,17 @@ class HookTextProcessor:
         return is_plausible_character_name(word)
 
     def push(self, raw: str) -> list[Dialogue]:
-        """Process one decoded line. Returns the dialogues to speak (0..n)."""
-        text = raw.strip()
+        """Process one decoded line. Returns the dialogues to speak (0..n).
+
+        ``raw`` is kept untouched on every Dialogue it returns, so stripping
+        here costs the forensic record nothing.
+        """
+        # Rich text first, and before the length gate: "<b>Tatsuo</b>" is 15
+        # characters of which 6 are the name, and the tags must be gone
+        # before is_name_only or the parser can see the name. Measured F14:
+        # 16 of the 90 multiline payloads in the user's log were this shape
+        # and all 16 were read aloud as narration without this line.
+        text = strip_markup(raw).strip()
         if not text or len(text) < self.min_text_length:
             return []
         # A RenPy traceback is a crash dump, not dialogue. Checked first and

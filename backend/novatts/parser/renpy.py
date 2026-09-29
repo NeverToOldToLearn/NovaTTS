@@ -13,11 +13,11 @@ Strict rules (all must hold):
 
 from __future__ import annotations
 
-import html
 import re
 from collections.abc import Iterable
 
 from ..models import Dialogue
+from .markup import strip_markup
 
 _COLON_PATTERN = re.compile(r"^\s*(?P<name>[^:]{1,40})\s*:\s*(?P<line>\S.*?)\s*$")
 _PAREN_COLON_PATTERN = re.compile(r"^\s*\((?P<name>[^)]+)\)\s*:\s*(?P<line>\S.*?)\s*$")
@@ -76,25 +76,8 @@ _NARRATION_STOPLIST = frozenset(
 # Without this rule a one-word sentence becomes a speaker named after it.
 _NAME_LINE_ENDINGS = frozenset(".!?,;:")
 
-# One tag of a rich-text clipboard payload: "<b>", "</b>", "<br/>". The
-# inner class forbids "<" and ">" so a stray "<" cannot swallow a whole line.
-_TAG_PATTERN = re.compile(r"<[^<>]{0,200}>")
-
-
 def _normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
-
-
-def _strip_markup(raw: str) -> str:
-    """Remove rich-text tags and decode entities from a clipboard payload.
-
-    LunaTranslator can copy the dialogue *with* its formatting, in which case
-    the name arrives as ``<b>Tatsuo</b>`` rather than ``Tatsuo`` (measured,
-    F14). Tags become a space so ``a<br/>b`` does not become ``ab``, and tags
-    are removed *before* entities are decoded so an escaped ``&lt;b&gt;``
-    stays readable text instead of turning into a tag that is then dropped.
-    """
-    return html.unescape(_TAG_PATTERN.sub(" ", raw))
 
 
 def _content_lines(raw: str) -> list[str]:
@@ -156,7 +139,7 @@ class RenPyParser:
                 self._known[n.strip().lower()] = n.strip()
 
     def parse(self, raw: str, source: str = "renpy", instruct: str = "") -> Dialogue:
-        cleaned = _strip_markup(raw)
+        cleaned = strip_markup(raw)
 
         # "Name" on its own line, then the dialogue. Checked first: joined
         # into one line it would otherwise be narration, or -- if the body
