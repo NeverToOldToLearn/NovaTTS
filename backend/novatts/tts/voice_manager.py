@@ -80,6 +80,7 @@ class VoiceManager:
             instruct=instruct,
             emotion=emotion,
         )
+        self._ensure_level(path)
         log.info("Synthesized %s -> %s (voice=%s)", text[:40], path.name, voice)
         return path
 
@@ -92,6 +93,25 @@ class VoiceManager:
         emotion = getattr(dialogue, "emotion", "") or ""
         voice = self.resolve_voice(speaker, None)
         return self._cache_path(text, voice, instruct, emotion).exists()
+
+    def _ensure_level(self, path: Path) -> None:
+        """Peak-normalize one file to the configured target, if enabled.
+
+        Runs on fresh syntheses and -- via synthesize() -- on every file the
+        cache serves: a quiet line cached before this existed must not play
+        quietly forever behind its hash. Never raises; a loudness fix that
+        breaks playback is worse than a quiet line.
+        """
+        if not settings.normalize_audio:
+            return
+        try:
+            from .normalize import normalize_wav
+
+            gain = normalize_wav(path, target_peak=settings.normalize_target_peak)
+            if gain != 1.0:
+                log.debug("Normalized %s (gain %.2f)", path.name, gain)
+        except Exception as exc:
+            log.warning("Normalization skipped for %s: %s", path.name, exc)
 
     def voice_options(self) -> list[str]:
         """Voices the GUI can pick from, prefixed with an explicit default."""
