@@ -1903,6 +1903,41 @@ vorm die nu in de suite staat.
 
 ---
 
+### ✅ F16 — De main-fix van gisteren overzetten *(gereed 2026-09-30)*
+
+Main bewoog één commit voorbij ons splitspunt (`e48c8ef`): `b7c5cdd` "Stop
+sending the punctuation left over from an emotion removal to Qwen". De vraag
+van de gebruiker was waar de regel `Synthesized Hm. . . What should I do?`
+eigenlijk vandaan komt — Luna→app of app→backend — en of die main-fix hier
+ook geldt. Het antwoord op het eerste: die regel staat in
+`tts/voice_manager.py:83` en is de **app→Qwen**-hop, dus elke `Synthesized`
+is een syntheseverzoek dat echt is verstuurd. En het oude backendlog bewees
+het tweede: `Synthesized . . . . . .` stond erin als eigen verzoek — kale
+interpunctie ging als losse synthese naar het model, en dat is waar de rare
+tonen vandaan kwamen.
+
+De fix zat niet in de branch (grep op `plan(`, `has_speakable_text` en
+`test_emotion_overlay`: nul treffers). Overgezet als port, niet als
+cherry-pick: `main.py` is 359 regels van het splitspunt verwijderd, dus de
+hunk van 56 regels zou conflicteren. `emotions.py`, `text_clean.py` en de
+nieuwe test kwamen byte-identiek over (`git checkout b7c5cdd -- <paden>`),
+alleen de drie `main.py`-hunks zijn met de hand gezet — met behoud van twee
+branch-verbeteringen die main niet heeft: `_segment_dialogue()` (bewaart
+`raw` en `speaker_is_guess` via `replace()`) en `dialogue.source` in de
+error-events in plaats van hardcoded `"clipboard"`.
+
+Live gemeten na herstart: `*ahem*` alleen → 400, `. . . . . .` → 400,
+`*ahem* Yes, absolutely.` → alleen `Yes, absolutely.` gesynthetiseerd.
+`Aah!` alleen wordt wél gesynthetiseerd, en dat klopt: het is geen
+geregistreerd emotiewoord, dus het ís uitspreekbare tekst.
+
+| | |
+|---|---|
+| `pytest` | 457 → **466** (9 uit de overgenomen test) |
+| `ruff` · `mypy --strict` · `npm run lint` · `npm run build` | **0 / 0 / 0 / 0** |
+
+---
+
 ### 9.12 Uit F14 voortgekomen besluiten
 
 | # | Besluit | Gevolg |
@@ -1923,6 +1958,12 @@ vorm die nu in de suite staat.
 | **D57** ✅ | **Een guard die niet kan vuuren wordt weggehaald, niet beschreven.** | F15. `covered_until` is toegevoegd op grond van een redenering en bleek onbereikbaar: 0 van 320 gesweepte invoerregels. Het commentaar dat het beschreef zou een volgende lezer vertellen dat er daar iets te bewaken viel. Een sweep die "niets" vindt is pas bewijs nadat bewezen is dat die sweep iets had kunnen vinden — hier twee keer niet, dus de stappen staan in het F15-stuk. |
 | **D58** ✅ | **Een gat dat dichtgaat moet een test worden, want de pin deed het omgekeerde.** | F15. `test_known_gap_multi_word_names_cannot_open_a_space_form_turn` assertte de kapotte toestand, per conventie. Na de fix zou die test permanent rood zijn en de suite blokkeren, dus hij is vervangen door vier positieve tests. De docstring zegt dat het gat dichte, wanneer, en waar de frames staan — anders gaat de volgende lezer op zoek naar een limiet die er niet meer is. |
 | **D59** ✅ | **"Dit werkt", gemeten in één configuratie, geldt voor die configuratie.** | F15. Voorspeld: de kale naam heeft het register nodig, want `Tatsuo` stond er toevallig in. Gemeten: werkt ook met een leeg register. Tegelijk bleek de naam-van-twee-woorden juist wél afhankelijk van het register, en niet te repareren door hem erin te zetten. Eén naam, één register, één spel — en het actieve spel stond nog op een ander. Uitbreiding van D42: ook een *goede* uitkomst is gebonden aan de instelling waaronder ze gemeten is. |
+
+### 9.14 Uit F16 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D60** ✅ | **Een branch die leeft terwijl main beweegt, mist main-fixes stil — dus eerst main lezen, dan pas schrijven.** | F16. Main had exact de fix die de gebruiker bedoelde (`b7c5cdd`), één commit voorbij het splitspunt, en de branch had hem niet. Niet opnieuw afgeleid maar overgezet, met behoud van wat de branch beter doet (`_segment_dialogue`, `dialogue.source`). |
 
 ## 10. Baseline-logboek
 
@@ -1982,6 +2023,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F13 | *"F13: de drie clientgaten…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 377 → 377: drie gaten dicht, drie tests erbij en de drie vastegrul uit `TestKnownGaps` eraf. **Eén gat erbij gevonden dat F12 niet noemde:** `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming die `main.py` bij elke gamesswitch doet werd weggegooid — zonder exception, zonder logregel (D44). Twee reparaties in de GUI en twee in de broncommentaren, want de foute topologie-claim stond daar ook nog: `SettingsPanel.svelte` droeg de `.xdll`-instructie nog en `Dashboard.svelte` gaf een label dat de docs tegenspraken (D42). **Vier mutaties: 1 / 1 / 1 / 2 FAIL, elk precies de bedoelde test**, waarvan de vierde een terugval op de serverteller is en dus bewijst dat de fixes de serverkant niet hebben aangeraakt. En het harnas sprak zichzelf tegen op de eerste ronde door een slashverschil in zijn eigen vergelijking (D43), wat de regel §12.24 opleverde. |
 | 2026-09-29 | F14 | *"F14: parseer de echte clipboard-vorm…"* | **426 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 377 → 426: 18 parsertests + 6 end-to-end `ClipboardAdapter`-tests met een pyperclip-double en echte payloads. **Deze fase begon als één klacht en vond een `.env` met een dubbele `KEY=`-regel**, wat 9 tests rood zette op een onaangeraakte commit — 3 van de 3 runs, gemeten op de ongewijzigde F13-bron met `ConnectionRefusedError [WinError 1225]`. De reparatie is in drie lagen gelegd, en de suite pint de hook-instellingen nu op hun defaults zodat het oordeel van de code komt en niet van de desktop. 13 mutaties over drie bestanden, elke met een gemeten must-fail- én mag-niet-vallen-lijst; twee controls blijven op 0 failures. **De suite loopt van 14 s naar 60 s** — `test_openai_speech` start een echte `NovaApp` en proeft de bezette TTS-server; gemeten A/B op de ongewijzigde bron (49,99 s) tegen de gewijzigde (50,22 s) is dat ruis, dus bestaand en niet hier ontstaan. |
 | 2026-09-30 | F15 | *"F15: de eerste echte frames…"* | **457 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 450 → 457: één gap-pin vervangen door vier tests (D58) en 13 echte frames erbij. **Deze fase begon met een meting en eindigde met een reparatie** — andersom zou er niets te repareren zijn geweest. De handdruk is nu gemeten in plaats van gelezen (101 op beide paden, 404 op twee verzonnen), en dat bracht meteen de belangrijkste bevinding: **13 frames op `/origin`, 0 op `/trans`** over vijf minuten spelen, dus de route die in alle docs als de vertaalroute stond was droog. Dat het op een draaiende dienst nog een echte bug opleverde was niet te voorspellen: `Work Inspector` werd `Work` + `"Inspector …"` in **alle drie** de vormen, ook de expliciete `naam: tekst`, omdat de grenszoeker per keer één woord matcht en de naam doormidden snijdt. Een eerste fix gaf de juiste spreker en een losse colon in de body; de uiteindelijke laat de guards gelden in plaats van er een tweede pad naast te zetten. **Twee zelfcorrecties:** de guard die ik zelf had toegevoegd (`covered_until`) bleek dood bij een sweep van 320 regels en is weggehaald (D57), en mijn eerste test voor de woordgrens kon die grens niet eens bereiken — de uitbreiding geldt alleen als de naam *langer* is dan het gematchte woord, dus `Rick` tegen `Rickardo` bewijst niets. Vier mutaties, alle discriminerend, één control op 0 failures. Ook het log gerepareerd: `started (client 127.0.0.1:6677` stond boven een regel die zei dat er op 2333 verbonden was. Live bevestigd: `hook_last_raw` toont de volledige naam en de synthese krijgt de body. |
+| 2026-09-30 | F16 | *"F16: de main-fix van gisteren…"* | **466 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 457 → 466: main-commit `b7c5cdd` overgezet als port (geen cherry-pick: `main.py` 359 regels gedivergeerd). Emotie-restinterpunctie gaat niet meer naar Qwen — live: `*ahem*` → 400, `. . .` → 400, tekst erna wel. |
 | 2026-09-29 | F14 | *"F14: strip_markup gedeeld…"* | **450 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 426 → 450: 24 tests, waarvan de belangrijkste `test_both_routes_give_the_same_turn` — dezelfde payload door beide routes, want dat was de regressie die zichzelf herhaalde. **De websocket-route vroeg niet om Textractor**: LunaTranslator publiceert zelf `/api/ws/text/trans` op poort 2333 met kale tekstframes, en dat formaat nam `decode_wire_message` al aan. Uit de bron gelezen, niet gemeten (de service draaide niet), dus versie-gebonden. Het echte gat: de markupfix zat alleen in `parser/renpy.py`, en op 90 multiline payload's gaf de websocket-route er 17 mis, waarvan 16 de vorm `<b>Tatsuo</b>`; na de fix 89/90, en de ene die overblijft is correct vertelling. De tag-voorwaarde bleek ook te ruim — `"5<10 and 10>5"` werd `"5 5"` — en de strakkere voorwaarde verandert 0 van 130 payload's. 9 mutaties, alle discriminerend, 3 controls op 0 failures. De eerste versie van die lijst had 8 fouten die allemaal mijn eigen verwachtingen waren, en één mutatie die niet was wat zijn label zei. `docs/LUNATRANSLATOR_HOOK.md` erbij, met de `0.0.0.0`-binding eruit gehaald. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
@@ -2016,6 +2058,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F12 Het rode lampje | ✅ | Ontstaan uit een gebruikersmelding: de Hook-kaart liet een rood *niet verbonden*-lampje zien. **Dat was correct, en de documentatie was fout.** Eerst de aanwijzing zelf nagegaan (§12.24) — de serverkant bleek end-to-end werkend met een echte client. Oorzaak: de hook-extensie staat niet op deze machine, en LunaTranslator draait wél. Onderweg twee zelfcorrecties: de GUI praat wél met déze worktree, en de eerdere zin "geen LunaTranslator in deze omgeving" was onwaar. **De topologie stond om** — `textractor_websocket` is de server, NovaTTS de client (D39) — en zeven foute claims in vier bestanden plus `start_all.cmd` zijn hersteld en per stuk geverifieerd. Clientmodus had nul tests en leverde twee echte gaten op: `client_count` blijft 0, waardoor de kaart misleidend is terwijl er tekst binnenkomt, en `stop()` duurt de volle join-timeout bij een stille open verbinding. Beide **vastgespeld, niet gefixt**. Eén bestaande teller-test bleek onvoldoende en is versterkt. **370 → 377 tests.** |
 | F13 De clientgaten | ✅ | De twee gaten die F12 had vastgespeld, dichtgezet, plus een derde dat F12 niet noemde: `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming van `main.py` (bij start, gamesswitch én kamerwissel) werd weggegooid zonder één foutmelding. `client_count` telt zichzelf nu in plaats van permanent 0 te staan, en `stop()` racet het pompen tegen het stop-event zodat een stille verbinding geen 5 seconden kost. Vier mutaties met must-fail én mag-niet-vallen: 1/1/1/2 FAIL, elk precies de bedoelde test, waarvan de vierde een terugval op de serverteller is. Daarnaast de foute topologie-claim ook uit de bron en de GUI gehaald (D42). **377 → 377 tests.** |
 | F15 De eerste echte frames | ✅ | Ontstaan uit één vraag: *er zou een naam en een tekst af moeten komen*. Daarmee was de websocket-route voor het eerst tegen een draaiende dienst te meten, en de eerste meting corrigeerde meteen drie docs-claims (handdruk, binding, formaat) die in F14 uit de bron gelezen waren. De vondst is niet in de meting maar erin: `/trans` stond **0 frames** tegenover 13 op `/origin`, dus de als vertaalroute gedocumenteerde verbinding was droog — met `hook_clients: 1` en een "gestart"-regel, dus onmiskenbaar gezond ogend. De eerste echte frame bevatte een sprekersnaam van twee woorden, en die werd in **alle drie** de vormen doormidden gesneden, ook de expliciete `naam: tekst`. Opgelost door de kandidaat in de grenszoeker te verbreden zodat elke bestaande guard gewoon blijft gelden. Onderweg: een eigen guard die onbereikbaar bleek verwijderd (D57), een gap-pin omgezet naar vier positieve tests (D58), een logregel die de verkeerde poort noemde gerepareerd, en het actieve spel dat nog het register van een ander spel gebruikte — waardoor `Tatsuo` per ongeluk de juiste stem had. **450 → 457 tests**, alle vijf gates gemeten groen. |
+| F16 De main-fix | ✅ | Main bewoog één commit voorbij het splitspunt met exact de fix die de gebruiker bedoelde, en de branch had hem niet. Geen cherry-pick maar port: drie bestanden byte-identiek over, drie `main.py`-hunks met de hand, met behoud van `_segment_dialogue` en `dialogue.source`. Live bewezen dat kale interpunctie niet meer gesynthetiseerd wordt. **457 → 466 tests**, alle vijf gates gemeten groen. |
 | F14 De echte vorm | ✅ | Ontstaan uit één klacht: *de naam wordt voorgelezen*. Het bleek dat de naam al in het klembord stond en alleen door de parser werd overgeslagen — terwijl F12 en F13 allebei naar de websocket-kant keken (D46). `RenPyParser` kreeg de bare-name-vorm en markup-stripping. Onderweg de `.env` van deze machine als oorzaak van 9 rode tests op een onaangeraakte commit, gemeten op de ongewijzigde bron en in drie lagen gedicht. En de websocket-route bleek **niet** om Textractor te vragen: LunaTranslator publiceert zelf `/api/ws/text/trans` op 2333. Het F14-gat was dat de twee routes hun markupgedrag niet deelden — puur een kwestie van bestandsindeling — dus `strip_markup` is verhuisd naar `parser/markup.py`. **377 → 426 → 450 tests.** De 5% multi-paire blijft vastgepind op eigen keuze; de websocket-route is niet tegen een draaiende LunaTranslator gemeten, want die draaide niet. |
 
 ---
@@ -2146,3 +2189,6 @@ En de omgekeerde richting heeft dezelfde valkuil, maar dan zichtbaar in `git sta
 33. **Nooit een gap-pin laten staan nadat het gat dicht is.** F15: de pin assertte de kapotte toestand, dus na de fix zou hij permanent rood zijn. Een vastgespeld gat is een contract met de lezer; het sluiten van het gat is een wijziging van dat contract en hoort zichtbaar in de testnaam, de docstring en de voortgangstabel (D58).
 
 34. **Nooit "dit werkt" zeggen na één configuratie, en de configuratie bij de bewering zetten.** F15: voorspeld was dat de kale naam het register nodig heeft omdat die naam toevallig geregistreerd stond; gemeten werkt hij ook leeg. Tegelijk bleek de twee-woordvorm wél register-afhankelijk, en niet te repareren door hem erin te zetten. En de stems bleken van het verkeerde spel te komen, stil en zonder foutmelding (D59).
+
+
+35. **Nooit een fix schrijven zonder eerst te kijken of main hem al heeft.** F16: de branch leefde terwijl main één commit verder ging, en die ene commit was exact de fix die nodig was. Opnieuw afleiden was een tweede implementatie van hetzelfde gedrag geweest, met een tweede set randgevallen. Porten is goedkoper dan bedenken, zolang wat de branch beter doet behouden blijft — hier `_segment_dialogue` en `dialogue.source` (D60).
