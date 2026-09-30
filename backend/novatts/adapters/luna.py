@@ -522,7 +522,14 @@ class LunaAdapter(InputAdapter):
         mode = "client" if self.ws_url else "server"
         came_up = self._ready.wait(timeout=_STARTUP_TIMEOUT) and not self._startup_error
         if came_up:
-            log.info("Luna hook adapter started (%s %s:%s)", mode, self.host, self.port)
+            # Name the endpoint that was really used. In client mode
+            # self.port is NOVATTS_HOOK_PORT, which the client path never
+            # touches -- measured on a live run: this line said
+            # "(client 127.0.0.1:6677)" one line above a log entry saying the
+            # client had connected to port 2333. In server mode the port *is*
+            # what was bound, so it stays.
+            target = self.ws_url or f"{self.host}:{self.port}"
+            log.info("Luna hook adapter started (%s %s)", mode, target)
         else:
             log.error(
                 "Luna hook adapter did not come up in %s mode within %.1fs (%s); "

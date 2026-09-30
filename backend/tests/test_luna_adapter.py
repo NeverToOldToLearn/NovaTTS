@@ -1134,3 +1134,156 @@ class TestKnownGaps:
             "gaplijst gesloten: verwijder of pas deze test aan, "
             "de 'hello'-stopword fix zit nog niet in de parser"
         )
+
+
+class TestRealLunaTranslatorFrames:
+    """Bytes captured from a LunaTranslator that was actually running.
+
+    Everything else in this file is hand-written. These are the frames a live
+    service sent on 2026-09-30, recorded while the game "Chrono Ecstasy" was
+    attached to ``/api/ws/text/origin``: plain text frames (no JSON wrapper), a
+    bare speaker name on its own line, a trailing newline, and nothing else.
+
+    They earn their place here because the hand-written cases missed a real
+    defect. F14 covered the newline bare-name shape, but against payloads
+    replayed out of a clipboard log -- a simulation of a frame, not a frame.
+    The first frame the live service sent had a two-word speaker name, and the
+    boundary finder cut it in half: speaker "Work", dialogue "Inspector Cut the
+    corporate talk." So the fixture is the capture, not the hand-written shape
+    the capture resembled.
+
+    All thirteen frames are replayed, not a representative few. They are free
+    to run, and a subset picked by someone who already knows which frames look
+    odd is not a sample.
+
+    The names are registered here for the same reason they would be in a real
+    game: the module's rule is that a multi-word speaker name has to be in the
+    registry before it is treated as one. That is a setup step, not a parser
+    quirk, and ``test_an_unregistered_multi_word_name_is_still_cut_at_its_first_word``
+    in test_luna_parser.py pins the other side of it.
+    """
+
+    #: Verbatim, trailing newline and all. Curly quotes kept as sent.
+    FRAMES: tuple[tuple[str, str, str], ...] = (
+        (
+            "Tatsuo",
+            "Yes ma\u2019am, I\u2019m trying to target a very specific audience in a "
+            "very specific niche.",
+            "Tatsuo\nYes ma\u2019am, I\u2019m trying to target a very specific audience "
+            "in a very specific niche.\n",
+        ),
+        (
+            "Tatsuo",
+            "My services are aimed towards those looking for a novel intimate "
+            "experience without much effort or social connection on the client\u2019s side.",
+            "Tatsuo\nMy services are aimed towards those looking for a novel intimate "
+            "experience without much effort or social connection on the client\u2019s side.\n",
+        ),
+        (
+            "Work Inspector",
+            "Cut the corporate talk.",
+            "Work Inspector\nCut the corporate talk.\n",
+        ),
+        (
+            "Work Inspector",
+            "What do you do exactly?",
+            "Work Inspector\nWhat do you do exactly?\n",
+        ),
+        (
+            "Tatsuo",
+            "Not to imply anything but I think I\u2019ve sent an example of the Request "
+            "form for my services.",
+            "Tatsuo\nNot to imply anything but I think I\u2019ve sent an example of the "
+            "Request form for my services.\n",
+        ),
+        (
+            "Tatsuo",
+            "I think everything should be already covered in that \u201crequest form\u201d.",
+            "Tatsuo\nI think everything should be already covered in that "
+            "\u201crequest form\u201d.\n",
+        ),
+        (
+            "Work Inspector",
+            "Yes I received it.",
+            "Work Inspector\nYes I received it.\n",
+        ),
+        (
+            "Work Inspector",
+            "It says in there that you can have sexual intercourse with the "
+            "requester while \u201ctime is stopped\u201d.",
+            "Work Inspector\nIt says in there that you can have sexual intercourse "
+            "with the requester while \u201ctime is stopped\u201d.\n",
+        ),
+        (
+            "Work Inspector",
+            "Can you detail how you can \u201cstop time\u201d?",
+            "Work Inspector\nCan you detail how you can \u201cstop time\u201d?\n",
+        ),
+        (
+            "Tatsuo",
+            "I\u2019d be glad to, but unfortunately it\u2019s a secret technique I cannot "
+            "reveal.",
+            "Tatsuo\nI\u2019d be glad to, but unfortunately it\u2019s a secret technique "
+            "I cannot reveal.\n",
+        ),
+        (
+            "Tatsuo",
+            "My whole business depends on this technique and I can\u2019t afford to "
+            "sabotage myself like this, I hope you can be understanding from this "
+            "point of view. . .",
+            "Tatsuo\nMy whole business depends on this technique and I can\u2019t "
+            "afford to sabotage myself like this, I hope you can be understanding "
+            "from this point of view. . .\n",
+        ),
+        (
+            "Work Inspector",
+            "Hm. . . interesting.",
+            "Work Inspector\nHm. . . interesting.\n",
+        ),
+        (
+            "Work Inspector",
+            "And you need all these approvals from your clients to perform your "
+            "\u201ctechnique\u201d?",
+            "Work Inspector\nAnd you need all these approvals from your clients to "
+            "perform your \u201ctechnique\u201d?\n",
+        ),
+    )
+
+    NAMES = ["Tatsuo", "Work Inspector"]
+
+    def _push(self, frame: str) -> list[tuple[str | None, str]]:
+        p = HookTextProcessor(min_text_length=4, known_names=self.NAMES)
+        return [(d.speaker, d.text) for d in p.push(frame)]
+
+    def test_every_captured_frame_yields_its_own_speaker_and_body(self) -> None:
+        for want_speaker, want_text, frame in self.FRAMES:
+            assert self._push(frame) == [(want_speaker, want_text)], repr(frame)
+
+    def test_the_two_word_name_survives_every_frame_it_appears_in(self) -> None:
+        """The defect this file exists to pin: "Work" used to eat "Inspector".
+
+        Counted rather than asserted once, because the failure was not that the
+        first frame was wrong but that it was wrong for a speaker who says a
+        lot: seven of thirteen frames carry that name, so a single sample would
+        have looked like a one-off.
+        """
+        two_word = [(s, t, f) for s, t, f in self.FRAMES if s == "Work Inspector"]
+        assert len(two_word) == 7, f"verwachtte 7, vond {len(two_word)}"
+        for want_speaker, want_text, frame in two_word:
+            assert self._push(frame) == [(want_speaker, want_text)], repr(frame)
+
+    def test_the_trailing_newline_is_harmless(self) -> None:
+        """The service ends every frame with a newline; the frame is one turn.
+
+        Checked with and without rather than assumed, because a trailing
+        newline could equally have produced an empty second turn.
+        """
+        for _speaker, _text, frame in self.FRAMES:
+            assert self._push(frame) == self._push(frame.rstrip("\n"))
+
+    def test_raw_keeps_the_newline_the_service_sent(self) -> None:
+        """Forensics first: what arrives is what is recorded, unstripped."""
+        _speaker, _text, frame = self.FRAMES[2]
+        out = HookTextProcessor(min_text_length=4, known_names=self.NAMES).push(frame)
+        assert [d.raw for d in out] == [frame]
+        assert [d.text for d in out] != [frame], "de body hoort gestript te zijn"

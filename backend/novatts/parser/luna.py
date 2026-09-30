@@ -539,6 +539,34 @@ def _name_map(known_names: Iterable[str]) -> dict[str, str]:
     }
 
 
+def _longest_known_at(text: str, start: int, known: dict[str, str]) -> str | None:
+    """The longest registered name beginning at ``start``, or ``None``.
+
+    The boundary finder works on single words, so on its own it can only ever
+    see "Work" inside "Work Inspector" and cuts the name in half. Asking the
+    registry what starts here is what lets a two-word name survive (measured
+    F15 on a real LunaTranslator frame: speaker "Work", text "Inspector Cut
+    the corporate talk.").
+
+    Returned in the registry's own spelling, so the speaker keeps the
+    capitalisation the user gave it rather than whatever the hook sent.
+
+    The character after the match must not be a letter or a digit, or a
+    registered "Rick" would also match inside "Rickardo". Without that guard
+    the fix trades one wrong cut for a subtler one.
+    """
+    best: str | None = None
+    for canonical in known.values():
+        if best is not None and len(canonical) <= len(best):
+            continue
+        end = start + len(canonical)
+        if end < len(text) and text[end].isalnum():
+            continue
+        if text[start:end].lower() == canonical.lower():
+            best = canonical
+    return best
+
+
 def parse_luna(
     text: str,
     source: str = "luna",
@@ -713,8 +741,25 @@ def _split_turns(
     #    or accepted by the heuristic; that difference is the "guessed" flag.
     bounds: list[tuple[int, int, str, bool]] = []
     for match in _NAME_TOKEN_SPACE.finditer(joined):
+        start = match.start(1)
         candidate = match.group(1)
-        after = joined[match.end(0) :].strip()
+        end = match.end(1)
+        # Widen the candidate to the longest registered name starting here, so
+        # a two-word name is judged as one thing rather than cut at its first
+        # word. Measured F15 on a real LunaTranslator frame: "Work Inspector"
+        # became speaker "Work" with "Inspector" spoken as dialogue. Every
+        # guard below then applies to the widened name unchanged.
+        #
+        # This deliberately does not open a second path that skips the guards.
+        # A colon right after the name is refused by the fresh-sentence check
+        # (measured: ": Cut..." is False), so the colon form produces no bound
+        # at all and parse_luna() reads the whole string -- which is why no
+        # stray colon can reach the body.
+        whole = _longest_known_at(joined, start, known)
+        if whole is not None and len(whole) > len(candidate):
+            candidate = whole
+            end = start + len(whole)
+        after = joined[end:].strip()
         if after[:1].isdigit():
             continue
         if _next_word_is_mention(after):
@@ -734,7 +779,7 @@ def _split_turns(
                 continue
             if not _starts_fresh_sentence(after):
                 continue
-        bounds.append((match.start(1), match.end(1), candidate, resolved is None))
+        bounds.append((start, end, candidate, resolved is None))
 
     if not bounds:
         return [(joined, False)]

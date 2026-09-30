@@ -1588,6 +1588,9 @@ al en duust de tekst naar ons.
 die zijn uit de bron van LunaTranslator (`main`) gelezen en de service draaide hier niet. Het
 is dus een **versie-gebonden** claim, en de poort is instelbaar. Wel gemeten: of de vorm van
 de gebruiker's payload's door de ontvangende code heen komt, want die code is ongewijzigd.
+**Dit gold ten tijde van F14.** In F15 is de service gaan draaien en is precies dit gemeten —
+13 frames, platte tekst, geen JSON, poort 2333 op `0.0.0.0`. De alinea blijft staan omdat het
+logboek een verslag is van wat toen bekend was; de meting staat in de F15-sectie.
 
 **En toen bleek dat de twee routes hun markupgedrag niet deelden.** De F14-fix zat in
 `parser/renpy.py`; `parser/luna.py` had geen `import html`. Op 140 entry's, 90 payload's met
@@ -1797,6 +1800,109 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 
 ---
 
+### ✅ F15 — De eerste echte frames, en een naam die in tweeën werd gesneden *(gereed 2026-09-30)*
+
+De gebruiker zette LunaTranslator aan met het spel *Chrono Ecstasy* erachter en vroeg of er
+een naam en een tekst af zou komen. Dit is de eerste fase waarin de websocket-route tegen een
+**draaiende** dienst is gemeten in plaats van tegen de bron, en de eerste waarin iets klonk.
+
+#### 1. De handdruk, de poort, het formaat: alle drie gemeten in plaats van gelezen
+
+| | F14 (uit de bron) | F15 (gemeten) |
+|---|---|---|
+| pad bestaat | vermoed | `/api/ws/text/trans` **101**, `/api/ws/text/origin` **101** |
+| controlezonder fout pad | — | twee verzonnen paden geven **404** |
+| binding | `0.0.0.0` gelezen | `0.0.0.0:2333` bevestigd |
+| formaat | kale tekstframes gelezen | **platte tekst, geen JSON**, 13 frames |
+
+De 404-controle is geen decoratie: een harnas dat "verbonden" meldt voor elk pad dat bestaat
+én voor elk pad dat niet bestaat bewijst niets (D43), en precies die controle ontbrak.
+
+#### 2. Het vinden: de eerste echte frame bevatte een naam van twee woorden
+
+De frames hebben de vorm `naam⏎tekst⏎`, met een afsluitende newline. `Tatsuo⏎…` ging goed —
+maar `Work Inspector⏎Cut the corporate talk.` gaf `speaker='Work'` en de zin
+`'Inspector Cut the corporate talk.'`. De RenPy-route had deze vorm wél goed.
+
+De oorzaak is niet de merge maar de **grenszoeker** er vlak achter: de newline-merge kijkt de
+hele regel in het register na en schrijft `Work Inspector: …`, en dan snijdt
+`_NAME_TOKEN_SPACE`, dat per keer één gekapitaliseerd woord matcht, diezelfde string toch bij
+`Work` door. Drie vormen geraakt, alle drie gemeten tegen HEAD:
+
+| vorm | HEAD | nu |
+|---|---|---|
+| `Work Inspector⏎Cut the corporate talk.` | `('Work', 'Inspector: …')` | `('Work Inspector', 'Cut …')` |
+| `Work Inspector Cut the corporate talk.` | `('Work', 'Inspector Cut …')` | `('Work Inspector', 'Cut …')` |
+| `Work Inspector: Cut the corporate talk.` | `('Work', 'Inspector: …')` | `('Work Inspector', 'Cut …')` |
+
+De derde is de ergste, want daar is niets dubbelzinnig aan: de naam staat er voluit.
+
+**Waarom een uitwijde in plaats van een extra pad.** De eerste versie zette direct een grens
+voor de lange naam en liep door, wat de spreker goed kreeg en een losse colon in de body
+achterliet: `': Cut the corporate talk.'`. Gemeten: `_starts_fresh_sentence(": Cut …")` is
+`False`, dus een colon direct na een naam verdient sowieso géén grens. De fix is dus niet
+"voeg een grens toe" maar "kijk naar de lange naam bij het beslíten of er een grens komt". Zo
+hergebruikt hij elke bestaande guard — cijfer, vermelding, verse-starts, komma — in plaats van
+een tweede pad dat die zou moeten nalopen en ermee in de pas blijven. De eerste versie zou
+`Work Inspector, meanwhile, …` als beurt hebben geaccepteerd waar de oude code die weigert.
+
+**Een guard die ik zelf had toegevoegd bleek onbereikbaar.** `covered_until` moest de woorden
+binnen een geaccepteerde naam overslaan. Een sweep van 320 invoerregels tegen een module zonder
+die regel verandert de uitkomst **0 keer**. De structuur zegt waarom:
+`_NAME_TOKEN_SPACE` is `(?:^|(?<=[.!?…]\s))([A-Z][A-Za-z]+)\s+`, dus een match moet op het
+regeleinde of na zinpunctuatie beginnen én op een spatie volgen. Voor een tweede match ín een
+geaccepteerde naam zou de naam zelf `. ` moeten bevatten (`Dr. Watson`) — maar dan matcht zijn
+eerste woord niet, want daar staat een punt in plaats van een spatie. Weggehaald in plaats van
+gedocumenteerd (D57).
+
+**Het andere lef: ik had voorspeld dat het register nodig was.** Waarschijnlijk omdat
+`Tatsuo` toevallig in het register van het *andere* spel stond. Gemeten: de kale naam werkt met
+een **leeg** register; de naam van twee woorden werkt niet, ook niet als hij wél geregistreerd
+staat zonder deze fix (D59).
+
+#### 3. Het log noemde de verkeerde poort
+
+F14 had "gestart" gerepareerd naar *wanneer* de regel verschijnt, niet naar *wat* ze zegt:
+
+```
+Luna hook adapter started (client 127.0.0.1:6677)
+Hook client connected to ws://127.0.0.1:2333/api/ws/text/trans
+```
+
+Twee regels na elkaar die elkaar tegenspreken. In clientmodus wordt `NOVATTS_HOOK_PORT` nooit
+gebruikt — de adapter belt de URL. Het enige getal dat iemand uit de regel zou overnemen was
+dus het verkeerde, en de nuttige regel stond eronder. Nu noemt clientmodus de URL die gebeld
+werd; servermodus houdt `host:port`, want daar is de poort wél wat er gebonden wordt.
+
+#### 4. Het register hoorde bij het verkeerde spel
+
+`data/active_game.json` wees nog naar `where_the_heart_is`. `Tatsuo` stond daar toevallig in,
+dus die sprak per ongeluk de juiste stem; `Work Inspector` niet, dus die viel op de
+vertellerstem — zichtbaar in het log als `Synthesized Inspector Hm. . . interesting.`. Op
+verzoek een eigen map `chrono_ecstasy` aangemaakt en actief gemaakt, met de namen uit de
+gemeten frames erin. **Gevolg voor de gebruiker:** de stammen van het oude spel zijn niet
+geërfd, dus tot ze zijn toegewezen hoort iedere spreker op de modelstem (in het log `voice=`).
+Dat is zichtbaar en stil, dus het hoort in de docs.
+
+#### 5. Wat er meetbaar veranderde
+
+| | |
+|---|---|
+| `pytest` | 450 → **457** (1 gap-pin vervangen door 4 tests, 4 echte frames erbij) |
+| `ruff` · `mypy --strict` · `npm run lint` · `npm run build` | **0 / 0 / 0 / 0**, alle vier gemeten |
+| echte frames door de echte route | 13/13 juiste spreker (met het register op schijf) |
+| live | `hook_last_raw` toont `Work Inspector⏎It's not only about you…` en de synthese krijgt de **body**, niet `"Inspector It's not only…"` |
+| mutaties | 4 (M1–M4) alle discriminerend, 1 control op 0 failures, bron bit-identiek terug |
+
+De eerste mutatielijst telde twee survivors, en dat was waar: `covered_until` bleek dood
+(§2) en mijn eerste woordgrens-test kon de woordgrens simpelweg niet bereiken, want de
+uitbreiding geldt alleen als de geregistreerde naam *langer* is dan het gematchte woord, en
+`Rick` is korter dan `Rickardo`. 27 van de 320 sweep-regels bleken de grens wél te raken, en met
+één naam in het register blijft `"Yeah. Work Inspector2 Hello there."` discriminerend. Dat is de
+vorm die nu in de suite staat.
+
+---
+
 ### 9.12 Uit F14 voortgekomen besluiten
 
 | # | Besluit | Gevolg |
@@ -1808,6 +1914,15 @@ Overgenomen uit `V2_ROADMAP.md` §14, aangescherpt op Main. **Dit is de acceptat
 | **D49** ✅ | **Het oordeel van de suite hoort bij de code, niet bij de `.env` van één ontwikkelaar.** | F14. Negen tests stonden rood op een onaangeraakte commit door de eigen `.env` van deze machine. `conftest.py` pint 11 hook-velden op hun dataclass-default, en `helpers.py` levert `make_settings()` dat zowel `backend/.env` (`_env_file=None`) als de `NOVATTS_*`-omgevingsvariabelen uitsluit. De **negatieve** test is wat dit draagbaar maakt: zonder hem klopt de claim ook als deze machine schoon is, en veroudert de isolatie stilletjes (D43). |
 | **D50** ✅ | **Een naam op een eigen regel is een naam alleen als hij door dezelfde strikte regels komt als een dubbele-punt-prefix én niet op zinpunctuatie eindigt — en die tak wordt vóór de dubbele-punt-tak geprobeerd.** | F14. Anders wordt `. . .` een personage dat `...` heet. De registry gaat vóór beide, zodat een geregistreerde naam wint van de heuristiek. Gemeten op 61 echte payloads: 60 goed, 1 terecht vertelling. |
 | **D51** ✅ | **Markup wordt verwijderd vóórdat entities worden gedecodeerd, en de helper woont op één plek die beide routes gebruiken.** | F14. Anders wordt een ontsnapt `&lt;b&gt;` een tag die vervolgens wordt weggegooid, en verdwijnt de tekst. De tweede helft is de belangrijkere: het F14-gat bestond niet uit een fout in de strip maar uit het feit dat de strip in `parser/renpy.py` stond en `parser/luna.py` hem niet had. Gedeeld gedrag hoort niet aan een bestandsnaam te hangen. |
+
+### 9.13 Uit F15 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D56** ✅ | **Een fixture die op een echte payload *lijkt* is een simulatie, en een simulatie mist per definitie het geval dat nog nooit voorkwam.** | F15. F14 boog de kale naam-vorm `Tatsuo⏎…` door de route met payloads uit een klembordlog. Die had de vorm van een frame, niet de inhoud. De eerste frame die een draaiende dienst echt stuurde bevatte `Work Inspector` — twee woorden — en geen enkele met de hand getypte test had dat. De 13 opgeslagen frames staan nu letterlijk in `test_luna_adapter.py`. Uitbreiding van D28: meten geldt ook voor de invoer, niet alleen voor de uitkomst. |
+| **D57** ✅ | **Een guard die niet kan vuuren wordt weggehaald, niet beschreven.** | F15. `covered_until` is toegevoegd op grond van een redenering en bleek onbereikbaar: 0 van 320 gesweepte invoerregels. Het commentaar dat het beschreef zou een volgende lezer vertellen dat er daar iets te bewaken viel. Een sweep die "niets" vindt is pas bewijs nadat bewezen is dat die sweep iets had kunnen vinden — hier twee keer niet, dus de stappen staan in het F15-stuk. |
+| **D58** ✅ | **Een gat dat dichtgaat moet een test worden, want de pin deed het omgekeerde.** | F15. `test_known_gap_multi_word_names_cannot_open_a_space_form_turn` assertte de kapotte toestand, per conventie. Na de fix zou die test permanent rood zijn en de suite blokkeren, dus hij is vervangen door vier positieve tests. De docstring zegt dat het gat dichte, wanneer, en waar de frames staan — anders gaat de volgende lezer op zoek naar een limiet die er niet meer is. |
+| **D59** ✅ | **"Dit werkt", gemeten in één configuratie, geldt voor die configuratie.** | F15. Voorspeld: de kale naam heeft het register nodig, want `Tatsuo` stond er toevallig in. Gemeten: werkt ook met een leeg register. Tegelijk bleek de naam-van-twee-woorden juist wél afhankelijk van het register, en niet te repareren door hem erin te zetten. Eén naam, één register, één spel — en het actieve spel stond nog op een ander. Uitbreiding van D42: ook een *goede* uitkomst is gebonden aan de instelling waaronder ze gemeten is. |
 
 ## 10. Baseline-logboek
 
@@ -1866,6 +1981,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-29 | F12 | *"F12: het rode lampje…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 370 → 377: 4 clientmodus-tests plus 3 vastgespelde gaten. **Deze fase voegde geen functionaliteit toe maar trok een documentatie-claim onderuit die op zeven plekken stond en op alle zeven fout was** — `textractor_websocket` is de *server* en NovaTTS de client, dus de hele setup stond om (D39). De rode lampje-melding is eerst zelf nagegaan in plaats van aangenomen: de serverkant bleek end-to-end werkend (echte `websockets`-client, `hook_clients` 0→1→0, WAV van 241,964 B) en de oorzaak was dat de extensie niet geïnstalleerd is. Twee zelfcorrecties: de GUI praat wél met déze worktree (zes `/status`-velden die alleen in deze code bestaan), en ik had "geen LunaTranslator in deze omgeving" geschreven terwijl die wél draaide. Clientmodus had nul tests en leverde twee echte gaten op, beide gemeten en beide **vastgespeld in plaats van gefixt**. Drie mutaties met must-fail én mag-niet-vallen; de derde legde een bestaande teller-test bloot die een teller die nooit meet niet kon zien. `npm run build` gemeten **schoon** voor de Tauri-schema's, dus de LF-vervuiling komt van de Tauri-CLI en niet van de build-gate. `LunaTranslator_x64/` in `.gitignore`. **Gepusht**, op uitdrukkelijk verzoek — tot en met F11 was er in geen enkele fase gepusht. |
 | 2026-09-29 | F13 | *"F13: de drie clientgaten…"* | **377 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 377 → 377: drie gaten dicht, drie tests erbij en de drie vastegrul uit `TestKnownGaps` eraf. **Eén gat erbij gevonden dat F12 niet noemde:** `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming die `main.py` bij elke gamesswitch doet werd weggegooid — zonder exception, zonder logregel (D44). Twee reparaties in de GUI en twee in de broncommentaren, want de foute topologie-claim stond daar ook nog: `SettingsPanel.svelte` droeg de `.xdll`-instructie nog en `Dashboard.svelte` gaf een label dat de docs tegenspraken (D42). **Vier mutaties: 1 / 1 / 1 / 2 FAIL, elk precies de bedoelde test**, waarvan de vierde een terugval op de serverteller is en dus bewijst dat de fixes de serverkant niet hebben aangeraakt. En het harnas sprak zichzelf tegen op de eerste ronde door een slashverschil in zijn eigen vergelijking (D43), wat de regel §12.24 opleverde. |
 | 2026-09-29 | F14 | *"F14: parseer de echte clipboard-vorm…"* | **426 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 377 → 426: 18 parsertests + 6 end-to-end `ClipboardAdapter`-tests met een pyperclip-double en echte payloads. **Deze fase begon als één klacht en vond een `.env` met een dubbele `KEY=`-regel**, wat 9 tests rood zette op een onaangeraakte commit — 3 van de 3 runs, gemeten op de ongewijzigde F13-bron met `ConnectionRefusedError [WinError 1225]`. De reparatie is in drie lagen gelegd, en de suite pint de hook-instellingen nu op hun defaults zodat het oordeel van de code komt en niet van de desktop. 13 mutaties over drie bestanden, elke met een gemeten must-fail- én mag-niet-vallen-lijst; twee controls blijven op 0 failures. **De suite loopt van 14 s naar 60 s** — `test_openai_speech` start een echte `NovaApp` en proeft de bezette TTS-server; gemeten A/B op de ongewijzigde bron (49,99 s) tegen de gewijzigde (50,22 s) is dat ruis, dus bestaand en niet hier ontstaan. |
+| 2026-09-30 | F15 | *"F15: de eerste echte frames…"* | **457 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 450 → 457: één gap-pin vervangen door vier tests (D58) en 13 echte frames erbij. **Deze fase begon met een meting en eindigde met een reparatie** — andersom zou er niets te repareren zijn geweest. De handdruk is nu gemeten in plaats van gelezen (101 op beide paden, 404 op twee verzonnen), en dat bracht meteen de belangrijkste bevinding: **13 frames op `/origin`, 0 op `/trans`** over vijf minuten spelen, dus de route die in alle docs als de vertaalroute stond was droog. Dat het op een draaiende dienst nog een echte bug opleverde was niet te voorspellen: `Work Inspector` werd `Work` + `"Inspector …"` in **alle drie** de vormen, ook de expliciete `naam: tekst`, omdat de grenszoeker per keer één woord matcht en de naam doormidden snijdt. Een eerste fix gaf de juiste spreker en een losse colon in de body; de uiteindelijke laat de guards gelden in plaats van er een tweede pad naast te zetten. **Twee zelfcorrecties:** de guard die ik zelf had toegevoegd (`covered_until`) bleek dood bij een sweep van 320 regels en is weggehaald (D57), en mijn eerste test voor de woordgrens kon die grens niet eens bereiken — de uitbreiding geldt alleen als de naam *langer* is dan het gematchte woord, dus `Rick` tegen `Rickardo` bewijst niets. Vier mutaties, alle discriminerend, één control op 0 failures. Ook het log gerepareerd: `started (client 127.0.0.1:6677` stond boven een regel die zei dat er op 2333 verbonden was. Live bevestigd: `hook_last_raw` toont de volledige naam en de synthese krijgt de body. |
 | 2026-09-29 | F14 | *"F14: strip_markup gedeeld…"* | **450 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 426 → 450: 24 tests, waarvan de belangrijkste `test_both_routes_give_the_same_turn` — dezelfde payload door beide routes, want dat was de regressie die zichzelf herhaalde. **De websocket-route vroeg niet om Textractor**: LunaTranslator publiceert zelf `/api/ws/text/trans` op poort 2333 met kale tekstframes, en dat formaat nam `decode_wire_message` al aan. Uit de bron gelezen, niet gemeten (de service draaide niet), dus versie-gebonden. Het echte gat: de markupfix zat alleen in `parser/renpy.py`, en op 90 multiline payload's gaf de websocket-route er 17 mis, waarvan 16 de vorm `<b>Tatsuo</b>`; na de fix 89/90, en de ene die overblijft is correct vertelling. De tag-voorwaarde bleek ook te ruim — `"5<10 and 10>5"` werd `"5 5"` — en de strakkere voorwaarde verandert 0 van 130 payload's. 9 mutaties, alle discriminerend, 3 controls op 0 failures. De eerste versie van die lijst had 8 fouten die allemaal mijn eigen verwachtingen waren, en één mutatie die niet was wat zijn label zei. `docs/LUNATRANSLATOR_HOOK.md` erbij, met de `0.0.0.0`-binding eruit gehaald. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
@@ -1899,16 +2015,10 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F11 De valse alarmmelding | ✅ | Ontstaan doordat iemand `start_all.cmd --min` draaide en vroeg of de CMD kapot was. Het script was niet kapot, de melding wel: de controle vroeg naar `gui\node_modules`, een map die een npm-workspace nooit vult. Dus iedere start meldde een ontbrekende install en draaide daarna een install die niets doet. Het script sprak zichzelf tegen, want het tauri-blok eronder kijkt wél op beide plekken. Vervangen door een controle op een echt binair, plus een waarschuwing wanneer de install niet helpt. **5/5 cmd-gevallen, met discriminatie: de oude conditie haalt er 2 om.** Onderweg bleek het F7-cmd-harnas **stuk zonder één fout te geven** — verouderde marker (hing op), `call :label` met regeleinden (onmogelijk in cmd), en `STUB_PORT` te laat toegewezen (bezette tak nooit getest) — dus de "13/13" is teruggezet naar 8/8 (§12.19, en de F7-testsectie). **370 tests**, want er viel geen regel Python of GUI om te schrijven. |
 | F12 Het rode lampje | ✅ | Ontstaan uit een gebruikersmelding: de Hook-kaart liet een rood *niet verbonden*-lampje zien. **Dat was correct, en de documentatie was fout.** Eerst de aanwijzing zelf nagegaan (§12.24) — de serverkant bleek end-to-end werkend met een echte client. Oorzaak: de hook-extensie staat niet op deze machine, en LunaTranslator draait wél. Onderweg twee zelfcorrecties: de GUI praat wél met déze worktree, en de eerdere zin "geen LunaTranslator in deze omgeving" was onwaar. **De topologie stond om** — `textractor_websocket` is de server, NovaTTS de client (D39) — en zeven foute claims in vier bestanden plus `start_all.cmd` zijn hersteld en per stuk geverifieerd. Clientmodus had nul tests en leverde twee echte gaten op: `client_count` blijft 0, waardoor de kaart misleidend is terwijl er tekst binnenkomt, en `stop()` duurt de volle join-timeout bij een stille open verbinding. Beide **vastgespeld, niet gefixt**. Eén bestaande teller-test bleek onvoldoende en is versterkt. **370 → 377 tests.** |
 | F13 De clientgaten | ✅ | De twee gaten die F12 had vastgespeld, dichtgezet, plus een derde dat F12 niet noemde: `set_known_speakers()` liep in clientmodus over een lege `_processors`, dus de naam-priming van `main.py` (bij start, gamesswitch én kamerwissel) werd weggegooid zonder één foutmelding. `client_count` telt zichzelf nu in plaats van permanent 0 te staan, en `stop()` racet het pompen tegen het stop-event zodat een stille verbinding geen 5 seconden kost. Vier mutaties met must-fail én mag-niet-vallen: 1/1/1/2 FAIL, elk precies de bedoelde test, waarvan de vierde een terugval op de serverteller is. Daarnaast de foute topologie-claim ook uit de bron en de GUI gehaald (D42). **377 → 377 tests.** |
+| F15 De eerste echte frames | ✅ | Ontstaan uit één vraag: *er zou een naam en een tekst af moeten komen*. Daarmee was de websocket-route voor het eerst tegen een draaiende dienst te meten, en de eerste meting corrigeerde meteen drie docs-claims (handdruk, binding, formaat) die in F14 uit de bron gelezen waren. De vondst is niet in de meting maar erin: `/trans` stond **0 frames** tegenover 13 op `/origin`, dus de als vertaalroute gedocumenteerde verbinding was droog — met `hook_clients: 1` en een "gestart"-regel, dus onmiskenbaar gezond ogend. De eerste echte frame bevatte een sprekersnaam van twee woorden, en die werd in **alle drie** de vormen doormidden gesneden, ook de expliciete `naam: tekst`. Opgelost door de kandidaat in de grenszoeker te verbreden zodat elke bestaande guard gewoon blijft gelden. Onderweg: een eigen guard die onbereikbaar bleek verwijderd (D57), een gap-pin omgezet naar vier positieve tests (D58), een logregel die de verkeerde poort noemde gerepareerd, en het actieve spel dat nog het register van een ander spel gebruikte — waardoor `Tatsuo` per ongeluk de juiste stem had. **450 → 457 tests**, alle vijf gates gemeten groen. |
 | F14 De echte vorm | ✅ | Ontstaan uit één klacht: *de naam wordt voorgelezen*. Het bleek dat de naam al in het klembord stond en alleen door de parser werd overgeslagen — terwijl F12 en F13 allebei naar de websocket-kant keken (D46). `RenPyParser` kreeg de bare-name-vorm en markup-stripping. Onderweg de `.env` van deze machine als oorzaak van 9 rode tests op een onaangeraakte commit, gemeten op de ongewijzigde bron en in drie lagen gedicht. En de websocket-route bleek **niet** om Textractor te vragen: LunaTranslator publiceert zelf `/api/ws/text/trans` op 2333. Het F14-gat was dat de twee routes hun markupgedrag niet deelden — puur een kwestie van bestandsindeling — dus `strip_markup` is verhuisd naar `parser/markup.py`. **377 → 426 → 450 tests.** De 5% multi-paire blijft vastgepind op eigen keuze; de websocket-route is niet tegen een draaiende LunaTranslator gemeten, want die draaide niet. |
 
 ---
-
-25. **Nooit een vorm die de gebruiker levert afhandelen op de vorm die de documentatie beschrijft.** F12 en F13 repareerden de websocket-kant, en F14 vond de fout in de clipboard-kant, waar de naam al twee fasen lang werd geleverd en niet gelezen. De test die dit had kunnen vangen stond niet in de suite, want de suite had de echte payload's niet. **Lees het log van de gebruiker als een invoerspecificatie**, en zet de gemeten vormen letterlijk in een test; een payload die je in een test typt is een aanname, een payload uit `data/logs/` is een meting (D46).
-26. **Nooit de omgeving van één ontwikkelaar als randvoorwaarde van de suite nemen.** Zie D49. Het patroon is herkenbaar: de `.env` van de machine waarop je draait is ook de `.env` van de suite, en een test die een *default* assert, assert in feite "de default, tenzij iemands bureau iets anders zegt". Dat is geen abstracte testfout — het is hoe 9 tests rood werden op een commit die niets deed.
-27. **Nooit "gestart" loggen voor het ding dat gestart moet zijn werkelijk gebeurd is.** Zie D48. De regel is de ruimere vorm van §12.13: het gaat niet om `|| true`, maar om elke constructie waarmee een controle zijn eigen uitkomst weglost. Een optimistische logregel is zo'n constructie — hij rapporteert de intentie in plaats van de toestand.
-28. **Nooit een must-fail-lijst schrijven die niet gemeten is, en een plausibel getal niet opvragen.** F14: de eerste mutatielijst meldde 8 problemen, allemaal mijn eigen verwachtingen, en één mutatie die niet was wat haar eigen label zei — `r"/?[A-Za-z]..."` om de `/` in `</?` te verwijderen haalde de `<` ook weg, brak tagherkenning volledig en meldde 9 failures. Het getal was plausibel dus niets twijfelde; wat het verloor was één test die viel terwijl het label zei dat dat onmogelijk was. **Schrijf eerst een probe die de mutatie toepast en de vallende tests afdrukt, en vul de lijst daarna in.** Algemene vorm van §12.12: een lijst die je niet hebt gemeten is een wenslijst, en een wenslijst die "9 failures" oplevert leest als een bewijs.
-29. **Nooit gedeeld gedrag aan één bestand vastmachten.** F14: `strip_markup` stond in `parser/renpy.py`, en `parser/luna.py` had geen `import html`. Twee routes die dezelfde tekst moeten kunnen lezen deelden hun markupgedrag dus niet, en dat gaf 16 van 90 payload's een verkeerde stem op de websocket-route. De oorzaak was geen fout in de strip maar de **bestandsindeling** — en die oorzaak verdwijnt niet door de strip te repareren, alleen door hem te verplaatsen. Bij de derde route die ooit ruwe hooktekst aanvaardt hoort dit dan ook.
-30. **Nooit een regex schrijven en de uitkomst ervan voorspellen in plaats van meten.** F14: ik schreef een test die beweerde dat `"a < b and c > d"` onveranderd blijft, omdat het patroon toch een letter verlangt. Gemeten: het werd `"a   d"`, en `"5<10 and 10>5"` werd `"5 5"`. Dat de test eruit moest, was precies de reden om hem te schrijven — en hij stond er nog niet toen de vraag op tafel lag. **Een test die een aanname over een regex bevat, is een test die kan slagen terwijl de regex fout is**, want hij vergelijkt met de aanname.
 
 
 ## 12. Anti-regressie-regels (permanent)
@@ -2006,7 +2116,6 @@ En de omgekeerde richting heeft dezelfde valkuil, maar dan zichtbaar in `git sta
     - `call :label "a<newline>b"` geeft alleen de eerste regel door; de rest ontsnapt en wordt als commando uitgevoerd. Alle vijf meerregelige gevallen leverden dus een `.env` van één regel, en failden daarna met `NOVATTS_HOOK_PORT is not recognized` — een fout die naar het script wijst terwijl de oorzaak in het harnas zat.
 
     Ook dit hoort erbij: het F7-harnas hing op een **verouderde marker** (een commit herschreef één woord in de regel waar de marker naar zocht) in plaats van te melden dat de marker niet meer klopt. Een harnas dat stil ophoudt te meten is erger dan een harnas dat faalt. Dus twee regels erbij, die in beide harnassen staan: tel de getilde regels en meld een te korte lift als fout, en gebruik een marker die op een **structuurkenmerk** eindigt in plaats van op de volledige tekst — de eerste achttien tekens, niet de hele regel.
-24. **Nooit een harnas-oordeel geloven voordat de vergelijking zelf getoetst is.** D43: een mutatieronde meldde vier keer "moet vallen maar bleef groen", terwijl de ruwe uitvoer ernaast precies de bedoelde test rood liet zien. De oorzaak was een slashverschil tussen de must-fail-lijst (`/`) en wat pytest op Windows meldt (`\`). Dat is het spiegelbeeld van §12.14, maar dan op de **vergelijking** in plaats van op de conditie die gemeten wordt: **de uitkomst van een harnas is zelf een resultaat dat kan mislukken.** Twee regels die hieruit volgen: (a) als een must-fail-lijst zegt dat iets groen bleef, kijk dan naar de *ruwe* uitvoer voordat je de test verwijt — hier wees die meteen de oorzaak, en het kostte één blik; (b) een "0 problemen" is pas bewijs als het harnas ooit een **bekende** rode run heeft gerapporteerd, want anders bewijst het dat het net als goed niets doet. D38 maakte dezelfde regel voor een harnas dat een gat meldt dat er niet is; de spiegelrichting is even gevaarlijk, want die leidt tot het verwijderen van tests die het goed deden.
 
 20. **Nooit een doc-claim in één bestand zetten en hem in de rest van de map herhalen — grep de scripts mee.** F12 vond een door mijzelf geschreven bewering die op zeven plekken stond en op alle zeven fout was: `README.md`, `INSTALL.md`, `backend/.env.example`, dit document (vier plekken) en `start_all.cmd`, dat hem bij élke start op de console zette. Alleen de docs herstellen zou het probleem in de console hebben laten staan. D28 gold dus wel, maar paste niet op precies de tekst die de regel had opgeleverd. De regel is: **één bewering op meerdere plekken is één ongemeten bewering**, en het grep-commando hoort over `*.md`, `*.example` én `*.cmd`/`*.ps1` te lopen. Een script dat een verkeerde instructie print is lastiger te vinden dan een verkeerde alinea, en de gebruiker leest de console vaker dan de README.
 
@@ -2016,3 +2125,24 @@ En de omgekeerde richting heeft dezelfde valkuil, maar dan zichtbaar in `git sta
 
 23. **Nooit een mutant noemen als gedetecteerd zonder te zeggen wat er níét mag omvallen.** D38 voegde de mag-niet-vallen-lijst toe omdat een harnas een gat kan melden dat er niet is. F12 leverde de spiegelbeeldregel: **een must-fail-lijst zonder mag-niet-vallen-lijst accepteert elke mutatie die de suite rood maakt**, ook een die een heel ander deel van de code sloopt. Gemeten: `while self._running:` → `for _eenkeer in (0,):` moest precies één test omgooien, en gooide er precies één om. Maar `while False` op dezelfde plek gooide er **nul** om en gedroeg zich alsof hij onschuldig was — hij verbond simpelweg nooit, dus hij deed hetzelfde als mutatie 1. Zonder mag-niet-vallen-lijst had ik dat als "niet gedetecteerd, dus de test is zwak" opgeschreven, terwijl het twee verschillende mutaties waren. Concreet: twee regels die er hetzelfde uitzien kunnen twee verschillende dingen bewijzen, en alleen de lijst van wat níét mag vallen onderscheidt ze.
 
+24. **Nooit een harnas-oordeel geloven voordat de vergelijking zelf getoetst is.** D43: een mutatieronde meldde vier keer "moet vallen maar bleef groen", terwijl de ruwe uitvoer ernaast precies de bedoelde test rood liet zien. De oorzaak was een slashverschil tussen de must-fail-lijst (`/`) en wat pytest op Windows meldt (`\`). Dat is het spiegelbeeld van §12.14, maar dan op de **vergelijking** in plaats van op de conditie die gemeten wordt: **de uitkomst van een harnas is zelf een resultaat dat kan mislukken.** Twee regels die hieruit volgen: (a) als een must-fail-lijst zegt dat iets groen bleef, kijk dan naar de *ruwe* uitvoer voordat je de test verwijt — hier wees die meteen de oorzaak, en het kostte één blik; (b) een "0 problemen" is pas bewijs als het harnas ooit een **bekende** rode run heeft gerapporteerd, want anders bewijst het dat het net als goed niets doet. D38 maakte dezelfde regel voor een harnas dat een gat meldt dat er niet is; de spiegelrichting is even gevaarlijk, want die leidt tot het verwijderen van tests die het goed deden.
+
+25. **Nooit een vorm die de gebruiker levert afhandelen op de vorm die de documentatie beschrijft.** F12 en F13 repareerden de websocket-kant, en F14 vond de fout in de clipboard-kant, waar de naam al twee fasen lang werd geleverd en niet gelezen. De test die dit had kunnen vangen stond niet in de suite, want de suite had de echte payload's niet. **Lees het log van de gebruiker als een invoerspecificatie**, en zet de gemeten vormen letterlijk in een test; een payload die je in een test typt is een aanname, een payload uit `data/logs/` is een meting (D46).
+
+26. **Nooit de omgeving van één ontwikkelaar als randvoorwaarde van de suite nemen.** Zie D49. Het patroon is herkenbaar: de `.env` van de machine waarop je draait is ook de `.env` van de suite, en een test die een *default* assert, assert in feite "de default, tenzij iemands bureau iets anders zegt". Dat is geen abstracte testfout — het is hoe 9 tests rood werden op een commit die niets deed.
+
+27. **Nooit "gestart" loggen voor het ding dat gestart moet zijn werkelijk gebeurd is.** Zie D48. De regel is de ruimere vorm van §12.13: het gaat niet om `|| true`, maar om elke constructie waarmee een controle zijn eigen uitkomst weglost. Een optimistische logregel is zo'n constructie — hij rapporteert de intentie in plaats van de toestand.
+
+28. **Nooit een must-fail-lijst schrijven die niet gemeten is, en een plausibel getal niet opvragen.** F14: de eerste mutatielijst meldde 8 problemen, allemaal mijn eigen verwachtingen, en één mutatie die niet was wat haar eigen label zei — `r"/?[A-Za-z]..."` om de `/` in `</?` te verwijderen haalde de `<` ook weg, brak tagherkenning volledig en meldde 9 failures. Het getal was plausibel dus niets twijfelde; wat het verloor was één test die viel terwijl het label zei dat dat onmogelijk was. **Schrijf eerst een probe die de mutatie toepast en de vallende tests afdrukt, en vul de lijst daarna in.** Algemene vorm van §12.12: een lijst die je niet hebt gemeten is een wenslijst, en een wenslijst die "9 failures" oplevert leest als een bewijs.
+
+29. **Nooit gedeeld gedrag aan één bestand vastmachten.** F14: `strip_markup` stond in `parser/renpy.py`, en `parser/luna.py` had geen `import html`. Twee routes die dezelfde tekst moeten kunnen lezen deelden hun markupgedrag dus niet, en dat gaf 16 van 90 payload's een verkeerde stem op de websocket-route. De oorzaak was geen fout in de strip maar de **bestandsindeling** — en die oorzaak verdwijnt niet door de strip te repareren, alleen door hem te verplaatsen. Bij de derde route die ooit ruwe hooktekst aanvaardt hoort dit dan ook.
+
+30. **Nooit een regex schrijven en de uitkomst ervan voorspellen in plaats van meten.** F14: ik schreef een test die beweerde dat `"a < b and c > d"` onveranderd blijft, omdat het patroon toch een letter verlangt. Gemeten: het werd `"a   d"`, en `"5<10 and 10>5"` werd `"5 5"`. Dat de test eruit moest, was precies de reden om hem te schrijven — en hij stond er nog niet toen de vraag op tafel lag. **Een test die een aanname over een regex bevat, is een test die kan slagen terwijl de regex fout is**, want hij vergelijkt met de aanname.
+
+31. **Nooit een testfixture schrijven die op een echte payload *lijkt*.** F15: de kale naam-vorm was gedekt met payloads uit een klembordlog, en de eerste frame die een draaiende dienst stuurde bevatte een naam van twee woorden die geen enkele met de hand getypte test had. Een handgeschreven nabootsing is een aanname over de invoer, en een aanname over de invoer kan per definitie niet het geval bevatten dat nog nooit voorkwam — dat is het hele punt van meten. Leg de bytes erin (D56).
+
+32. **Nooit een guard toevoegen op een redenering, en haal hem weg als de sweep zegt dat hij niet vuurt.** F15: `covered_until` had een plausibel verhaal en 0 treffers in 320 regels. Een onbereikbare guard met een overtuigend commentaar is erger dan geen guard, want de volgende lezer gaat erop vertrouwen. En een sweep die "niets" vindt is pas een bevinding nadat bewezen is dat zij iets had kunnen vinden (D57).
+
+33. **Nooit een gap-pin laten staan nadat het gat dicht is.** F15: de pin assertte de kapotte toestand, dus na de fix zou hij permanent rood zijn. Een vastgespeld gat is een contract met de lezer; het sluiten van het gat is een wijziging van dat contract en hoort zichtbaar in de testnaam, de docstring en de voortgangstabel (D58).
+
+34. **Nooit "dit werkt" zeggen na één configuratie, en de configuratie bij de bewering zetten.** F15: voorspeld was dat de kale naam het register nodig heeft omdat die naam toevallig geregistreerd stond; gemeten werkt hij ook leeg. Tegelijk bleek de twee-woordvorm wél register-afhankelijk, en niet te repareren door hem erin te zetten. En de stems bleken van het verkeerde spel te komen, stil en zonder foutmelding (D59).

@@ -72,21 +72,68 @@ Dat laatste staat bewust vastgepind in
 opeisen zou het contract van `RenPyParser.parse` veranderen, en dat is een
 bewuste keuze die nog niet gemaakt is.
 
-**Niet gemeten hier**: het berichtformaat en de standaardpoort zijn gelezen uit
-de bron van LunaTranslator (`main`), niet tegen een draaiende instantie. De
-service stond op deze machine niet aan. De poort is instelbaar, dus een
-afwijkende versie zou een andere waarde kunnen geven — controleer dan de
-LunaTranslator-instelling tegen de URL hierboven. Wat wél gemeten is, is dat de
-vorm van je payload's door de ontvangende code heen komt, want die code is
-ongewijzigd.
+### Gematen tegen een draaiende LunaTranslator
+
+Op 2026-09-30, met het spel *Chrono Ecstasy* aan de service hangend:
+
+| | |
+|---|---|
+| beide endpoints geven **101** bij de handdruk | `/api/ws/text/trans` en `/api/ws/text/origin` |
+| twee verzonnen paden geven **404** | dus "101" betekent iets, niet "de server is vaag" |
+| de binding is **`0.0.0.0:2333`** | bevestigd, niet langer uit de bron gelezen |
+| het frameformaat is **platte tekst, geen JSON** | één frame per regel |
+| de vorm is `naam⏎tekst⏎` | met afsluitende newline, en die is ondeelbaar |
+| **13 frames op `/origin`, 0 op `/trans`** | over vijf minuten spelen |
+
+Die laatste regel is de belangrijkste. Beide endpoints waren tegelijk
+beluisterd, dus "0 op `/trans`" is niet "er was geen tekst". Het betekent:
+**er wordt op dat moment niets vertaald**, en `/trans` blijft leeg totdat dat
+wel zo is. Wie `/trans` gebruikt zonder vertaling aan te zetten, krijgt een
+gezonde verbinding, `hook_clients: 1`, en geen enkele regel.
+
+Kies dus het pad dat bij je situatie hoort:
+
+- **vertaald spel, vertaling aan** → `/api/ws/text/trans`
+- **spel speelt in het Engels, of er wordt niet vertaald** → `/api/ws/text/origin`
+
+Wisselen is één woord in de URL, gevolgd door een herstart van de backend.
+
+Wat nog steeds **niet** gemeten is: de poort is instelbaar, dus een andere
+LunaTranslator-versie kan een andere standaard geven. Vergelijk bij twijfel de
+LunaTranslator-instelling met de URL hierboven.
+
+## Sprekers registreren: een naam van twee woorden
+
+`Work Inspector` is één spreker, maar de grenszoeker herkent die alleen als
+**`Work Inspector` in het register staat**. Dat is geen eigenheid van deze
+route maar de algemene regel van de parser, en het is een installatiestap:
+
+| naam | staat hij niet in het register? |
+|---|---|
+| `Tatsuo` (één woord) | werkt alsnog, de heuristiek noemt het een plausibele naam |
+| `Work Inspector` (twee woorden) | wordt `Work` + `"Inspector …"` |
+
+Het register hoort bij het spel dat je speelt. Staat er een ander spel actief,
+dan krijgt iedere onbekende naam de stem van de **verteller** en niet die van
+een personage — stil, zonder foutmelding. Maak in de GUI per spel zijn
+eigen sprekers aan.
+
+De twee-woord-vorm werkt in alle drie de vormen waarin hij aankomt —
+`naam⏎tekst`, `naam tekst` en `naam: tekst` — sinds de fix die hierboven staat.
 
 ## Fouten herkennen
 
 - **Log zegt "niet gestart" en noemt de URL**: LunaTranslator's service draait
-  niet op dat pad. Controleer poort en pad.
+  niet op dat pad. De regel noemt de URL die is gebruikt, dus die klopt per
+  definitie; kijk naar de poort en het pad erin.
 - **Log zegt wel gestart, maar er komt geen tekst binnen**: de service draait
-  wel, maar `/api/ws/text/trans` is nog nooit gevuld omdat er nog niets
-  vertaald is sinds je verbond. Zet het spel even aan de praat.
-- **Verkeerde stem**: kijk in de log of er een `speaker=` staat. Ontbreekt die,
-  dan werd je regel als vertelling gelezen. Met de `<b>`-vorm was dat een
-  bekende oorzaak; die is nu gefixt.
+  wel. Kijk eerst welk pad je hebt gekozen tegen de tabel hierboven — een
+  verbonden client op `/trans` zonder vertaling ziet er precies hetzelfde uit
+  als een werkende. Daarna: `/status` op `http://127.0.0.1:8765/status` en
+  kijk naar `hook_last_raw`.
+- **Verkeerde stem**: kijk in het log naar de regel `Synthesized …`. Staat er
+  `voice=` leeg, dan heeft die spreker geen stem toegewezen en valt hij terug op
+  de modelstem. Is het begin van de zin een stuk van een naam (`Inspector Hm.`
+  in plaats van `Hm.`), dan is die naam niet geregistreerd — zie hierboven.
+- **Verkeerde taal**: je hoort het Engels terwijl je een vertaling verwachtte.
+  Dat is geen parseerfout maar het verkeerde pad; zie de tabel hierboven.

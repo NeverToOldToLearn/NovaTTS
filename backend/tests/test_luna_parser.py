@@ -340,29 +340,91 @@ def test_parser_class_registry_beats_the_heuristic() -> None:
     assert turns and turns[0].speaker == "Dr"
 
 
-def test_known_gap_multi_word_names_cannot_open_a_space_form_turn() -> None:
-    """A documented limitation of the space-form splitter.
+def test_a_registered_multi_word_name_opens_a_turn_in_every_form() -> None:
+    """A registered two-word name is one name, in all three shapes.
 
-    ``_NAME_TOKEN_SPACE`` matches a single capitalised word, so a
-    registered "Passenger 1" can never open a turn -- the finder only ever
-    sees "Passenger". The registry still works for the newline-bare-name
-    shape and for colon-form lines, which is where multi-word names
-    actually arrive in practice.
+    Pinned as a known gap and closed in F15. ``_NAME_TOKEN_SPACE`` matches a
+    single capitalised word, so the boundary finder used to cut "Passenger 1"
+    at "Passenger" and speak the rest of the name as dialogue -- a wrong voice
+    rather than a crash, which is why it survived every earlier test.
 
-    Identical behaviour to VN_Suite.py, which states the same constraint
-    in a comment ("space-form names are a SINGLE capitalised word in this
-    engine"). Pinned rather than fixed: widening the finder is a parser
-    change that should be made against real captures, not a guess.
+    It was found by running a frame from a live LunaTranslator through the
+    route, not by reading the code; the frames are in
+    ``test_luna_adapter.py::TestRealLunaTranslatorFrames``. That is also why
+    the closing tests were needed before the fix could be written: the defect
+    only appears when a *real* capture shows up with a two-word speaker, and
+    no hand-written case in this file had one.
+
+    All three shapes are asserted because all three went through the same
+    loop, and the colon form is the one with no ambiguity to blame -- the name
+    is written out in full, and the splitter overrode it anyway.
     """
-    p = LunaParser(known_names=["Passenger 1"])
-    turns = p.parse_turns("Passenger 1 Hi there. Passenger 2 Bye.")
-    # The whole line lands on "Passenger" -- the failure mode is a wrong
-    # voice, not a crash.
-    assert [t.speaker for t in turns] == ["Passenger"]
+    reg = ["Passenger 1"]
+    for line, expected in (
+        ("Passenger 1\nHi there.", "Hi there."),
+        ("Passenger 1 Hi there.", "Hi there."),
+        ("Passenger 1: Hi there.", "Hi there."),
+    ):
+        turns = LunaParser(known_names=reg).parse_turns(line)
+        assert [(t.speaker, t.text) for t in turns] == [("Passenger 1", expected)], line
 
-    # The newline shape does work, because there the whole line is the name.
-    merged = LunaParser(known_names=["Passenger 1"]).parse_turns("Passenger 1\nHi there.")
-    assert [(t.speaker, t.text) for t in merged] == [("Passenger 1", "Hi there.")]
+
+def test_two_registered_multi_word_names_split_into_two_turns() -> None:
+    """Two people, both named with a word and a digit, in one line.
+
+    Guards ``covered_until``: without it the word inside an already-accepted
+    name is offered as a boundary of its own, so the second name never opens.
+    """
+    p = LunaParser(known_names=["Passenger 1", "Passenger 2"])
+    turns = p.parse_turns("Passenger 1 Hi there. Passenger 2 Bye.")
+    assert [(t.speaker, t.text) for t in turns] == [
+        ("Passenger 1", "Hi there."),
+        ("Passenger 2", "Bye."),
+    ]
+
+
+def test_a_registered_name_is_not_matched_inside_a_longer_word() -> None:
+    """"Work Inspector" must not reach into "Inspector2".
+
+    The widening asks the registry for the longest name starting at a token,
+    so it needs a word boundary of its own. Without the guard, the registered
+    name claims four characters of a word it is not, and the turn that follows
+    is swallowed whole.
+
+    The input shape is not obvious and was got wrong first: the name has to be
+    preceded by a sentence boundary, because ``_NAME_TOKEN_SPACE`` only anchors
+    at the start of the line or after sentence-ending punctuation, so a name
+    sitting at position 0 is never consulted. And "Rickardo" cannot test this at
+    all, because the widening only applies when the registered name is *longer*
+    than the matched token -- "Rick" is shorter than "Rickardo", so the guard is
+    never reached.
+
+    Measured F15: removing the guard changes the parse of 27 of 320 swept
+    inputs, and this one still changes with a single name registered.
+
+    The "Work" speaker that survives in the expected value is the heuristic
+    guessing an unknown capitalised word, not the registry being honoured. That
+    is a separate behaviour and pinned separately; this test is only about the
+    registered name not bleeding into the next word.
+    """
+    p = LunaParser(known_names=["Work Inspector"])
+    turns = p.parse_turns("Yeah. Work Inspector2 Hello there.")
+    assert [(t.speaker, t.text) for t in turns] == [
+        (None, "Yeah."),
+        ("Work", "Inspector2 Hello there."),
+    ]
+
+
+def test_an_unregistered_multi_word_name_is_still_cut_at_its_first_word() -> None:
+    """The widening is for registered names only.
+
+    An unknown two-word line has to survive the heuristic on its own, exactly
+    as before. "Cut the corporate talk." must keep reading as a sentence rather
+    than becoming a speaker called "Cut".
+    """
+    p = LunaParser(known_names=[])
+    turns = p.parse_turns("Meanwhile my office is here.")
+    assert [(t.speaker, t.text) for t in turns] == [(None, "Meanwhile my office is here.")]
 
 
 def test_parser_class_maps_case_to_the_registered_spelling() -> None:
