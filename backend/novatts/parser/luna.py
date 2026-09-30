@@ -814,6 +814,40 @@ def _split_turns(
     return out
 
 
+def _trailing_name(text: str, known_names: Iterable[str]) -> tuple[str, bool] | None:
+    """Bare name on the last line of a frame, if it qualifies as a speaker.
+
+    Mirror image of the forward merge in step 1 of ``_split_turns``: some
+    games send the name *after* the text (measured F21 on Man of the House,
+    where the namebox is its own Luna thread and the pushed frame reads
+    ``text`` then a bare name). The forward merge consumes a registered
+    trailing name as pending and never flushes it; an unregistered one stays
+    inline. Either way the single narration turn that results keeps the
+    wrong shape, so the caller re-examines it.
+
+    Same two-tier gate as everywhere else: the registry wins at any length,
+    otherwise one plausible token under D50 strictness (no trailing
+    punctuation -- a "Kitchen" scene label must invent no one). Returns the
+    name and whether it was guessed.
+    """
+    lines = [line.strip() for line in text.split(chr(10)) if line.strip()]
+    if len(lines) < 2:
+        return None
+    last = lines[-1]
+    if last[-1:] in (".", "!", "?", ",", ";", ":"):
+        return None
+    known = _name_map(known_names)
+    resolved = _resolve_known(last, known)
+    if resolved is not None:
+        return (resolved, False)
+    if (
+        len(last) <= _MAX_NAME_LEN
+        and _SPACE_FORM_NAME.match(last) is not None
+        and is_plausible_character_name(last)
+    ):
+        return (last, True)
+    return None
+
 def parse_luna_turns(
     text: str,
     *,
@@ -857,6 +891,28 @@ def parse_luna_turns(
                 speaker_is_guess=parsed.speaker_is_guess or (guessed and parsed.speaker is not None),
             )
         )
+    if len(dialogues) == 1 and dialogues[0].speaker is None:
+        # A name sent after its text (F21): the forward merge either ate it
+        # (registered, never flushed) or left it inline (unregistered). Only
+        # a single speakerless turn may gain it -- multi-turn frames and
+        # explicit speakers keep today's answer, whatever it is.
+        trailer = _trailing_name(text, known_names)
+        if trailer is not None:
+            name, guessed = trailer
+            first = dialogues[0]
+            body = first.text.rstrip()
+            bare = body[: -len(name)].rstrip() if body.endswith(name) else body
+            if bare and (bare != body or name not in body):
+                dialogues = [
+                    Dialogue(
+                        speaker=name,
+                        text=bare,
+                        source=source,
+                        raw=text,
+                        instruct=instruct,
+                        speaker_is_guess=guessed,
+                    )
+                ]
     return dialogues
 
 

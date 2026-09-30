@@ -415,6 +415,78 @@ def test_a_registered_name_is_not_matched_inside_a_longer_word() -> None:
     ]
 
 
+def test_a_trailing_bare_name_speaks_the_text_before_it() -> None:
+    """Man of the House sends the name last: text first, name on its own line.
+
+    Measured F21, live frame via hook_last_raw. Without this the name is
+    spoken as dialogue tail on the narrator voice -- or, when registered,
+    silently eaten by the forward merge with the same narrator outcome.
+    The guards matter more than the fix: single turn only, speaker must be
+    None, remainder must be non-empty, so multi-turn frames and explicit
+    speakers cannot change.
+    """
+    frame = (
+        "You \"prefer your women\"? Hah, don't make me laugh, you haven't even "
+        "fucked a girl yet. \n \nVeronica \n"
+    )
+    turns = LunaParser(known_names=["Narrator"]).parse_turns(frame)
+    assert [(t.speaker, t.text) for t in turns] == [
+        ("Veronica", "You \"prefer your women\"? Hah, don't make me laugh, "
+         "you haven't even fucked a girl yet.")
+    ]
+    assert turns[0].speaker_is_guess, "unregistered: the heuristic owns this"
+
+
+def test_a_trailing_registered_name_is_not_a_guess() -> None:
+    """Same frame, name registered: identical answer, owned by the registry."""
+    frame = (
+        "You \"prefer your women\"? Hah, don't make me laugh, you haven't even "
+        "fucked a girl yet. \n \nVeronica \n"
+    )
+    turns = LunaParser(known_names=["Narrator", "Veronica"]).parse_turns(frame)
+    assert [(t.speaker, t.text) for t in turns] == [
+        ("Veronica", "You \"prefer your women\"? Hah, don't make me laugh, "
+         "you haven't even fucked a girl yet.")
+    ]
+    assert not turns[0].speaker_is_guess
+
+
+def test_a_trailing_scene_label_is_not_a_speaker() -> None:
+    """The strict half of the gate: a trailing label stays narration.
+
+    Same D50 strictness as everywhere else -- a trailing word ending in
+    punctuation, or an implausible one, must not become a character.
+    """
+    turns = LunaParser(known_names=["Narrator"]).parse_turns("He walked in. \nYeah.\n")
+    assert [(t.speaker, t.text) for t in turns] == [(None, "He walked in. Yeah.")]
+    turns = LunaParser(known_names=["Narrator"]).parse_turns("He walked in. \nKitchen\n")
+    assert [t.speaker for t in turns] == [None], "scene labels invent no one"
+
+
+def test_a_names_only_frame_stays_silent_when_registered() -> None:
+    """A name thread with no text voices nothing -- pinned, already correct.
+
+    Measured F21: seven Ashleys and four Veronicas, all registered, yield no
+    turn at all (each line is consumed as a forward-pending name that never
+    flushes). This test exists so the trailer fix cannot wake it.
+    """
+    block = ("Ashley\n\n" * 7) + ("Veronica\n\n" * 4)
+    turns = LunaParser(known_names=["Narrator", "Veronica", "Ashley"]).parse_turns(block)
+    assert turns == []
+
+
+def test_a_trailing_name_does_not_touch_explicit_speakers() -> None:
+    """Multi-turn frames and stated speakers are out of scope by construction.
+
+    Only a single speakerless turn may gain a trailer. Anything else keeps
+    today's answer, whatever it is -- changing it needs its own measurement.
+    """
+    turns = LunaParser(known_names=["Narrator", "Veronica"]).parse_turns(
+        "Tatsuo: Hi there.\nVeronica\n"
+    )
+    assert len(turns) == 1 and turns[0].speaker == "Tatsuo"
+
+
 def test_an_unregistered_multi_word_name_is_still_cut_at_its_first_word() -> None:
     """The widening is for registered names only.
 
