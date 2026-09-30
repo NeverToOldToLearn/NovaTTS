@@ -1,0 +1,16 @@
+# Chrono Ecstasy — LunaTranslator-hook (2026-09-30)
+#
+# De hook waarmee dit spel is aangehangen. Bewaard zodat een volgende sessie
+# reproduceerbaar begint: zelfde hook, zelfde stroom. Per-game, net als het
+# sprekersregister ernaast.
+EXHMXF2@Unity.TextMeshPro:TMPro:TMP_Text:set_text:1:JIT:UNITY
+#
+# Wat dit betekent (gelezen van de string, gesteund door metingen):
+# - Unity-spel, tekst via TextMeshProUGUI.set_text: ELKE getekende tekst komt
+#   als string naar buiten (dialoog, menu's, HUD).
+# - TMP-rich-text verklaart de kleurcodes in de frames (<color=#E0BCE7>, F20).
+# - Alleen de dialoogregel draagt Naam+tekst; de rest is UI-ruis. Daarom is
+#   hook-keuze/filtering in de GUI nog een open punt.
+# Luna-preprocessing staat aan: unicode-normalisatie, dubbele-regel- en
+# dubbele-tekenverwijdering (gemeld door de gebruiker 2026-09-30). Fixtures
+# in de suite zijn dus Luna-output, geen game-output.
