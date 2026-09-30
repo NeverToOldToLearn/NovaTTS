@@ -58,6 +58,22 @@ class TestStripMarkup:
         assert strip_markup("a < b and c > d") == "a < b and c > d"
         assert strip_markup("5<10 and 10>5") == "5<10 and 10>5"
 
+    def test_a_color_tag_with_a_hash_is_stripped(self) -> None:
+        """Game markup writes attributes with no space: "<color=#E0BCE7>".
+
+        Measured F20 on a live hook frame: the old pattern demanded leading
+        whitespace in the attribute group, so the opening tag survived, the
+        speaker check failed on the "<", and the color code was synthesized
+        with an empty voice.
+        """
+        assert strip_markup("<color=#E0BCE7>Tatsuo") == " Tatsuo"
+        assert strip_markup("weren\u2019t you?</color>") == "weren\u2019t you? "
+
+    def test_a_plain_equals_comparison_is_not_a_tag(self) -> None:
+        """The "=" allowance must not eat text without angle brackets."""
+        assert strip_markup("a=b and c=d") == "a=b and c=d"
+        assert strip_markup("5<10 and 10>5") == "5<10 and 10>5"
+
     def test_plain_text_is_untouched(self) -> None:
         assert strip_markup("Tatsuo\nConsider it your lucky day.") == (
             "Tatsuo\nConsider it your lucky day."
@@ -105,6 +121,11 @@ AGREE: list[tuple[str, str]] = [
         "today?”</b>",
     ),
     ("colon_form", "Anna: Move it!"),
+    (
+        "colored_name_colon_form",
+        "<color=#E0BCE7>Tatsuo: You actually hoped my powers are legit. You were  \n"
+        "curious how that feels during sex, weren\u2019t you?</color>\n",
+    ),
     ("an_escaped_tag_is_text", "&lt;b&gt;Hi&lt;/b&gt;"),
 ]
 

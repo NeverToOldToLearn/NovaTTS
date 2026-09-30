@@ -17,15 +17,21 @@ from __future__ import annotations
 import html
 import re
 
-# One tag of a rich-text payload: "<b>", "</b>", "<br/>". Three restrictions,
-# each answering a measured case:
+# One tag of a rich-text payload: "<b>", "</b>", "<br/>", "<color=#E0BCE7>".
+# Four restrictions, each answering a measured case:
 #
 #   * The name must start with a letter (optionally after "/"), because
 #     "<[^<>]{0,200}>" also matches a comparison -- "5<10 and 10>5" became
 #     "5 5". A real tag never starts with a digit or a space.
+#   * The attribute run may start with whitespace *or* "=", because game
+#     markup writes "<color=#E0BCE7>" with no space. Measured F20, live: the
+#     "=" form survived, speaker detection failed on the "<", and Qwen read
+#     the color code aloud. Stated tradeoff: "x<y=z>" now strips where it did
+#     not -- a letter directly after "<" followed by "=" is indistinguishable
+#     from a tag without a space, and real dialogue never looks like that.
 #   * The inner class forbids "<" and ">", so one tag cannot span two.
 #   * The 200 bound keeps a pathological payload from becoming quadratic.
-_TAG_PATTERN = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]{0,200})?/?>")
+_TAG_PATTERN = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:[\s=][^<>]{0,200})?/?>")
 
 
 def strip_markup(raw: str) -> str:
