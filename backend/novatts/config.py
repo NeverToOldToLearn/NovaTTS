@@ -104,6 +104,12 @@ class Settings(BaseSettings):
 
     # --- Audio ---
     audio_sample_rate: int = 22050
+    # Level every synthesized line to one peak (F19, ported from Luna-Hook).
+    # Qwen's output varies per voice and per line, so without this a quiet
+    # line drowns in the game mix. Runs on fresh syntheses and on cache hits;
+    # switching it off restores old behavior.
+    normalize_audio: bool = True
+    normalize_target_peak: float = 0.89
 
     # --- Cache ---
     cache_dir: Path = DATA_DIR / "cache"
