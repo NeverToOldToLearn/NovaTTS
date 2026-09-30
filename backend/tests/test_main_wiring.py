@@ -496,3 +496,28 @@ class TestViteDevCors:
         # looks identical to one that passes with the real list.
         resp = self._preflight(cors_client, "http://evil.example")
         assert resp.status_code == 400
+
+
+def test_hook_names_endpoint_marks_registered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /hook/names merges the radar with the registry.
+
+    Uses a real SpeakerRegistry (the registered flag is the point) and the
+    real endpoint function; the app is the usual __new__ shell. Narrator is
+    registered by construction, Veronica is radar-only.
+    """
+    from fastapi.testclient import TestClient as _TestClient
+
+    registry = SpeakerRegistry(tmp_path / "speakers.json", auto_save_interval=0.0)
+    app = main_mod.NovaApp.__new__(main_mod.NovaApp)
+    app.luna = main_mod.LunaAdapter(on_dialogue=lambda d: None)
+    app.registry = registry
+    app.luna._note_hook_names("Veronica", [], name_only=True)
+    monkeypatch.setattr(main_mod, "_runtime", app)
+    client = _TestClient(main_mod.app)
+    resp = client.get("/hook/names")
+    assert resp.status_code == 200, resp.text
+    by_name = {n["name"]: n for n in resp.json()["names"]}
+    assert by_name["Veronica"]["registered"] is False
+    assert by_name["Veronica"]["count"] == 1

@@ -69,6 +69,7 @@ import threading
 import time
 from collections.abc import Iterable
 from dataclasses import replace
+from typing import cast
 
 import websockets
 import websockets.asyncio.client
@@ -113,6 +114,11 @@ _PENDING_NAME_TTL = 0.6
 #: so a normal burst (Textractor re-emitting on window change) never
 #: touches it, while a stuck TTS call cannot grow memory without bound.
 _DISPATCH_QUEUE_SIZE = 64
+
+#: Names the hook-name radar keeps. A speaking cast is a handful of
+#: names; fifty bounds a pathological hook without ever dropping a
+#: real character. F22.
+_HOOK_NAMES_MAX = 50
 
 # How long ``start`` waits for the event loop to reach a definitive state
 # before it reports that the hook is not coming up. Paid only on failure: a
@@ -460,6 +466,13 @@ class LunaAdapter(InputAdapter):
         #: See :class:`HookTextProcessor` for why this is not a single
         #: shared object.
         self._processors: dict[int, HookTextProcessor] = {}
+        #: Names the hook delivered that the registry may not hold:
+        #: bare-name frames plus guessed speakers from parsed turns.
+        #: Keyed lowercase; the GUI's one-click register reads here.
+        #: Lives on the adapter (not the per-connection processor) so a
+        #: reconnect cannot wipe it -- that lesson is F18's.
+        self._hook_names: dict[str, dict[str, object]] = {}
+        self._names_lock = threading.Lock()
         #: The last name set set_known_speakers() delivered. Every new
         #: processor is built with it (see _new_processor): priming only
         #: walks live processors, and at (re)connect time the new processor
@@ -490,6 +503,41 @@ class LunaAdapter(InputAdapter):
 
     def is_running(self) -> bool:
         return self._running
+
+    def _note_hook_names(
+        self, text: str, dialogues: list[Dialogue], *, name_only: bool
+    ) -> None:
+        """Record names the hook saw that may need registering (F22)."""
+        found: list[str] = []
+        if name_only:
+            bare = text.strip().rstrip(":").strip()
+            if bare:
+                found.append(bare)
+        for dialogue in dialogues:
+            if dialogue.speaker and dialogue.speaker_is_guess:
+                found.append(dialogue.speaker)
+        if not found:
+            return
+        now = time.time()
+        with self._names_lock:
+            for name in found:
+                key = name.lower()
+                entry = self._hook_names.get(key)
+                if entry is None:
+                    if len(self._hook_names) >= _HOOK_NAMES_MAX:
+                        log.debug("Hook name radar full, dropping %r", name)
+                        continue
+                    self._hook_names[key] = {"name": name, "count": 1, "last_seen": now}
+                else:
+                    entry["count"] = cast(int, entry["count"]) + 1
+                    entry["last_seen"] = now
+
+    def snapshot_hook_names(self) -> list[dict[str, object]]:
+        """Radar contents, most recent first. The endpoint adds `registered`."""
+        with self._names_lock:
+            entries = list(self._hook_names.values())
+        entries.sort(key=lambda e: cast(float, e["last_seen"]), reverse=True)
+        return entries
 
     def set_known_speakers(self, names: Iterable[str]) -> None:
         """Sync every connected processor's registry-backed name set.
@@ -736,7 +784,9 @@ class LunaAdapter(InputAdapter):
             if not text.strip():
                 continue
             self.last_raw = text
-            for dialogue in proc.push(text):
+            dialogues = proc.push(text)
+            self._note_hook_names(text, dialogues, name_only=proc.is_name_only(text))
+            for dialogue in dialogues:
                 self._enqueue(dialogue)
 
     # -- Dispatch --------------------------------------------------------

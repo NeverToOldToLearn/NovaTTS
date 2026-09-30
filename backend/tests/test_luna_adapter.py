@@ -736,6 +736,80 @@ class TestClientRoundTrip:
         assert got[2].text == "Cut the corporate talk."  # type: ignore[attr-defined]
 
 
+class TestHookNameRadar:
+    """Names the hook saw that the registry may not have.
+
+    Man of the House renders its namebox on its own Luna thread, so bare
+    names ("Ashley" seven times, then "Veronica" four times) arrive as
+    frames of their own, and dialogue arrives with the name trailing. Both
+    shapes carry characters no registry holds yet -- measured F21/F22 live
+    via hook_last_raw. The store below is what the GUI's one-click register
+    reads; without it that button cannot exist.
+    """
+
+    def test_name_only_frame_is_noted(self) -> None:
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter._note_hook_names("Ashley", [], name_only=True)
+        snap = adapter.snapshot_hook_names()
+        assert [(n["name"], n["count"]) for n in snap] == [("Ashley", 1)]
+
+    def test_repeats_count_up_first_spelling_wins(self) -> None:
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter._note_hook_names("Ashley", [], name_only=True)
+        adapter._note_hook_names("ASHLEY", [], name_only=True)
+        snap = adapter.snapshot_hook_names()
+        assert len(snap) == 1
+        assert snap[0]["name"] == "Ashley"
+        assert snap[0]["count"] == 2
+
+    def test_guessed_speakers_are_noted_stated_ones_are_not(self) -> None:
+        from novatts.models import Dialogue as _Dialogue
+
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        adapter._note_hook_names(
+            "whatever",
+            [
+                _Dialogue(speaker="Veronica", text="Hi.", speaker_is_guess=True),
+                _Dialogue(speaker="Tatsuo", text="Yo.", speaker_is_guess=False),
+            ],
+            name_only=False,
+        )
+        names = [n["name"] for n in adapter.snapshot_hook_names()]
+        assert "Veronica" in names
+        assert "Tatsuo" not in names
+
+    def test_store_caps_at_fifty(self) -> None:
+        adapter = LunaAdapter(on_dialogue=lambda d: None)
+        for i in range(60):
+            adapter._note_hook_names(f"Extra{i}", [], name_only=True)
+        assert len(adapter.snapshot_hook_names()) == 50
+
+    def test_names_arrive_over_the_socket(self) -> None:
+        port = _free_port()
+        hook = _FakeHook(port)
+        hook.start()
+        got: list[object] = []
+
+        def on_dialogue(dialogue: object) -> None:
+            got.append(dialogue)
+
+        adapter = LunaAdapter(on_dialogue=on_dialogue)
+        adapter.ws_url = hook.url()
+        adapter.start()
+        try:
+            # A name-only frame yields no dialogue by design -- the radar,
+            # not the dispatch, is what this waits for.
+            hook.send("Veronica")
+            assert _wait_for(
+                lambda: any(
+                    n["name"] == "Veronica" for n in adapter.snapshot_hook_names()
+                )
+            ), "the radar missed a frame the log would show"
+        finally:
+            adapter.stop()
+            hook.stop()
+
+
     def test_client_mode_does_not_bind_a_port(self) -> None:
         """The two modes are exclusive, and this is how that is shown.
 

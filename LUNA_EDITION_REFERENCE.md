@@ -1977,6 +1977,18 @@ Instelbaar via `NOVATTS_NORMALIZE_AUDIO` / `NOVATTS_NORMALIZE_TARGET_PEAK`;
 uit = oud gedrag. Live: nieuwe synthese piekt exact 0.89. Port naar main
 staat in de F19-sectie als eigen stap, omdat de gebruiker hem op beide vroeg.
 
+#### F22 daarbij: namen die de hook ziet, één klik registreren
+
+De gebruiker vroeg om hook-keuze in de GUI, en de meting wees een kleinere
+vorm aan: Luna voegt de gekozen strings zelf samen (bewezen via
+hook_last_raw), dus in onze frames staat geen thread-ID om op te kiezen. Wat
+wél kan: de kale namen tonen die voorbijkomen (Ashley x7, Veronica x4) met
+één-klik registreren. De backend bewaart ze op de adapter -- niet op de
+processor, want die sterft bij elke reconnect (F18) -- uit twee conservatieve
+bronnen: kale-naam-frames en geraden sprekers. Een uitgesproken spreker wordt
+niet genoteerd (die staat al in het register). GET /hook/names voegt de
+register-vlag toe; het panel toont alleen ongeregistreerde, met telling.
+
 #### F21 daarbij: de naam die achteraan komt
 
 Man of the House stuurt de naam na de tekst: de naambox is een eigen
@@ -2079,6 +2091,12 @@ regressietest met controle: een verzonnen origin krijgt nog steeds 400.
 |---|---|---|
 | **D65** | **Een richting die de merge niet kent, bestaat niet -- meet beide uiteinden van het frame.** | F21. De merge hechtte alleen naar voren; een naam achteraan viel in beide registerstanden verkeerd (meegelezen of stil opgegeten). De fix zit ná de split met drie wachten (één beurt, geen spreker, niet-lege rest), zodat hij niets anders kan raken. |
 
+### 9.20 Uit F22 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D66** | **Vraag wat gemeten kan worden, niet wat gevraagd wordt -- maar zeg dat.** | F22. Gevraagd: hook-keuze. Gemeten: Luna voegt zelf samen, dus er valt niets te kiezen; wel te tonen. De kleinere vorm lost hetzelfde probleem op (namen zonder overtypen registreren) en is bewijsbaar. Een nee tegen de vraag met een ja tegen het probleem. |
+
 ## 10. Baseline-logboek
 
 ### 10.1 Nulmeting — gemeten op 2026-09-29, commit `38f2a57` (vóór enige codewijziging)
@@ -2143,6 +2161,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-30 | F19 | *"F19: elke regel op één piekniveau…"* | **477 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 470 → 477: pieken 0.16–0.65 (mediaan 0.39) → alles 0.89 na synthese. Nieuw `tts/normalize.py`, instelbaar, defensief tegen formaatwijzigingen. Live piek exact 0.89. |
 | 2026-09-30 | F20 | *"F20: kleurcodes werden voorgelezen…"* | **481 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 477 → 481: `<color=#…>` overleefde de strip, spreker stuk, code voorgelezen met lege voice. Eén tekenklasse erbij, corpus 0/377 anders, exact live-frame bewezen. |
 | 2026-09-30 | F21 | *"F21: de naam die achteraan komt…"* | **486 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 481 → 486: Man of the House stuurt tekst-dan-naam; beide standen fout (meegelezen/zonder geluid opgegeten). Trailer hecht naar achteren onder drie wachten. |
+| 2026-09-30 | F22 | *"F22: namen die de hook ziet…"* | **492 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 486 → 492: radar op de adapter (reconnect-vast, F18), twee conservatieve bronnen, GET /hook/names + panel met één-klik. |
 | 2026-09-29 | F14 | *"F14: strip_markup gedeeld…"* | **450 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 426 → 450: 24 tests, waarvan de belangrijkste `test_both_routes_give_the_same_turn` — dezelfde payload door beide routes, want dat was de regressie die zichzelf herhaalde. **De websocket-route vroeg niet om Textractor**: LunaTranslator publiceert zelf `/api/ws/text/trans` op poort 2333 met kale tekstframes, en dat formaat nam `decode_wire_message` al aan. Uit de bron gelezen, niet gemeten (de service draaide niet), dus versie-gebonden. Het echte gat: de markupfix zat alleen in `parser/renpy.py`, en op 90 multiline payload's gaf de websocket-route er 17 mis, waarvan 16 de vorm `<b>Tatsuo</b>`; na de fix 89/90, en de ene die overblijft is correct vertelling. De tag-voorwaarde bleek ook te ruim — `"5<10 and 10>5"` werd `"5 5"` — en de strakkere voorwaarde verandert 0 van 130 payload's. 9 mutaties, alle discriminerend, 3 controls op 0 failures. De eerste versie van die lijst had 8 fouten die allemaal mijn eigen verwachtingen waren, en één mutatie die niet was wat zijn label zei. `docs/LUNATRANSLATOR_HOOK.md` erbij, met de `0.0.0.0`-binding eruit gehaald. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
@@ -2183,6 +2202,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F19 Eén niveau | ✅ | Timide spraak bleek timide bestanden: mediaan 0.39, geen knop aanwezig. Normaliseren bij synthese en cache-hit, uit te zetten, live 0.89. `.spk`/`.rvq` zijn kloon-inputs en doen niet mee. **470 → 477 tests**, alle vijf gates groen; port naar main als eigen stap. |
 | F20 Kleurcodes | ✅ | Spel stuurt `<color=#E0BCE7>` mee; de strip kende geen `=` zonder spatie, dus de naam faalde en de code werd uitgesproken. Eén tekenklasse, corpus opnieuw 0 anders, beide routes eens over het live-frame. **477 → 481 tests**, alle vijf gates groen. |
 | F21 Naam achteraan | ✅ | Nieuw spel, nieuwe vorm: naambox is een eigen Luna-thread, dus het frame eindigt op een kale naam. Eén beurt zonder spreker krijgt hem als spreker; meerbeurt en expliciet blijven onaangeroerd. Het namenblok zonder tekst is bewust geen test (nooit als frame gezien). **481 → 486 tests**, alle vijf gates groen. |
+| F22 Namenradar | ✅ | Hook-keuze bleek niet te kunnen (Luna voegt zelf samen); tonen+registreren wel. Kale frames en geraden sprekers op de adapter bewaard, endpoint met register-vlag, panel met Registreer-knop. **486 → 492 tests**, alle vijf gates groen. |
 | F14 De echte vorm | ✅ | Ontstaan uit één klacht: *de naam wordt voorgelezen*. Het bleek dat de naam al in het klembord stond en alleen door de parser werd overgeslagen — terwijl F12 en F13 allebei naar de websocket-kant keken (D46). `RenPyParser` kreeg de bare-name-vorm en markup-stripping. Onderweg de `.env` van deze machine als oorzaak van 9 rode tests op een onaangeraakte commit, gemeten op de ongewijzigde bron en in drie lagen gedicht. En de websocket-route bleek **niet** om Textractor te vragen: LunaTranslator publiceert zelf `/api/ws/text/trans` op 2333. Het F14-gat was dat de twee routes hun markupgedrag niet deelden — puur een kwestie van bestandsindeling — dus `strip_markup` is verhuisd naar `parser/markup.py`. **377 → 426 → 450 tests.** De 5% multi-paire blijft vastgepind op eigen keuze; de websocket-route is niet tegen een draaiende LunaTranslator gemeten, want die draaide niet. |
 
 ---
@@ -2326,3 +2346,5 @@ En de omgekeerde richting heeft dezelfde valkuil, maar dan zichtbaar in `git sta
 39. **Nooit een regex verruimen zonder het corpus opnieuw te meten.** F20: de `=`-verruiming is bewezen met 0/377 in plaats van aangenomen, en de prijs (`x<y=z>` stript nu) staat in het commentaar bij het patroon. Een patroon bewijst alleen wat het gemeten corpus bevat (D64).
 
 40. **Nooit een richting aannemen die je niet gemeten hebt -- voor én achter.** F21: alles hechtte naar voren omdat alle frames tot dan toe de naam voorop hadden. De eerste naam-achteraan brak beide registerstanden. Meet het begin én het eind van het frame, en zet de fix waar hij niets anders kan raken (D65).
+
+41. **Nooit een feature bouwen op een keuze die de data niet heeft.** F22: er valt geen thread te kiezen zonder thread-ID in de frames. Bouw wat de meting wel toelaat (tonen + registreren) en zeg hardop wat vervalt (kiezen). Een kleinere ware vorm boven een grotere aangenomen (D66).

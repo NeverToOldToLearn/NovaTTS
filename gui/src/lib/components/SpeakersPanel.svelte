@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api } from "../api";
-  import type { Speaker } from "../types";
+  import type { HookName, Speaker } from "../types";
 
   let speakers: Record<string, Speaker> = $state({});
   let voices: string[] = $state([]);
@@ -10,6 +10,7 @@
   let qwenOnline = $state(false);
   let fallback: string = $state("Narrator");
   let newName = $state("");
+  let hookNames: HookName[] = $state([]);
   let err = $state("");
   let info = $state("");
   let previewBusy: string | null = $state(null);
@@ -37,12 +38,18 @@
     voiceUsed = (st as unknown as { voice_used_by?: Record<string, string[]> }).voice_used_by ?? {};
     qwenOnline = vs.qwen_online ?? st.qwen ?? false;
     fallback = sp.fallback ?? "Narrator";
+    try { hookNames = (await api.hookNames()).names ?? []; } catch { hookNames = []; }
   };
   const isStale = (name: string, voice: string) => stale.some((s) => s.speaker === name && s.voice === voice);
 
   const addSpeaker = async () => {
     err = ""; const n = newName.trim(); if (!n) return;
     try { await api.createSpeaker(n); newName = ""; info = `Added ${n}`; await load(); } catch (e) { err = (e as Error).message; }
+  };
+  const registerHookName = async (n: string) => {
+    err = "";
+    try { await api.createSpeaker(n); info = `Registered ${n} — applies from the next line, no restart`; await load(); }
+    catch (e) { err = (e as Error).message; }
   };
   const patchVoice = async (name: string, voice: string) => {
     err = "";
@@ -112,6 +119,15 @@
     <input class="field" bind:value={newName} placeholder="New character name…" onkeydown={(e) => e.key === "Enter" && addSpeaker()} />
     <button onclick={addSpeaker} disabled={!newName.trim()}>Add</button>
   </div>
+  {#if hookNames.some((h) => !h.registered)}
+  <div class="hook-radar">
+    <h3>Op de hook gezien</h3>
+    <p class="muted small">Namen uit de hook die nog niet geregistreerd zijn — één klik registreert, geldt vanaf de volgende regel.</p>
+    {#each hookNames.filter((h) => !h.registered) as h (h.name)}
+      <span class="radar-row"><span class="sname">{h.name}</span><span class="muted small">×{h.count}</span><button class="ghost small" onclick={() => registerHookName(h.name)}>Registreer</button></span>
+    {/each}
+  </div>
+  {/if}
 
   <div class="table-wrap">
   <table>

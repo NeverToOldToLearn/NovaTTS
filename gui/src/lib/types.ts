@@ -78,6 +78,17 @@ export interface SpeakersResponse {
   fallback: string;
 }
 
+export interface HookName {
+  name: string;
+  count: number;
+  last_seen: number;
+  registered: boolean;
+}
+
+export interface HookNamesResponse {
+  names: HookName[];
+}
+
 export interface EventEntry {
   type: string;
   payload: Record<string, unknown>;

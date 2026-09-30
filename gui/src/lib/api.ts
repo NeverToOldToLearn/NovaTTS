@@ -1,4 +1,4 @@
-import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, Speaker, SpeakBody, SpeakersResponse } from "./types";
+import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, Speaker, SpeakBody, SpeakersResponse, HookName, HookNamesResponse } from "./types";
 
 const BASE = "http://127.0.0.1:8765";
 
@@ -60,6 +60,7 @@ export const api = {
       body: JSON.stringify({ alias }),
     }),
 
+    hookNames: () => req<HookNamesResponse>("/hook/names"),
   qwenStatus: () => req<QwenStatus>("/qwen/status"),
   qwenStart: () => req<{ status: string; pid?: number }>("/qwen/start", { method: "POST" }),
   qwenStop: () => req<{ status: string }>("/qwen/stop", { method: "POST" }),

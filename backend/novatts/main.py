@@ -704,6 +704,20 @@ async def speak(body: SpeakBody) -> dict[str, Any]:
     )
 
 
+@app.get("/hook/names")
+async def hook_names() -> dict[str, Any]:
+    """Names the hook delivered that may not be registered yet (F22 radar)."""
+    rt = get_runtime()
+    known = {name.lower() for name in rt.registry.names()}
+    seen = rt.luna.snapshot_hook_names() if rt.luna else []
+    return {
+        "names": [
+            {**entry, "registered": str(entry["name"]).lower() in known}
+            for entry in seen
+        ]
+    }
+
+
 @app.get("/speakers")
 async def list_speakers() -> dict[str, Any]:
     rt = get_runtime()
