@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from novatts import main as main_mod
 from novatts.config import settings
@@ -450,3 +451,48 @@ def test_emotion_segments_keep_the_source_line_intact() -> None:
     assert segment.speaker == "Rick"
     assert segment.raw == "Rick Get out."
     assert segment.speaker_is_guess is True
+
+
+@pytest.fixture
+def cors_client() -> TestClient:
+    """The real app object, so the real middleware list is what is tested.
+
+    No context manager on purpose: entering one would run the lifespan hook
+    and start the TTS runtime, which this question does not need.
+    """
+    return TestClient(main_mod.app)
+
+
+class TestViteDevCors:
+    """The GUI in a plain browser tab must reach the backend.
+
+    Pinned F17: the allow-list named only tauri origins, so vite dev on 5173
+    got a 400 preflight and the browser blocked every fetch. The dashboard
+    then showed "..." everywhere and a red Qwen "offline" for a backend that
+    was healthy -- measured live, including a fresh preview synthesis seconds
+    before the empty dashboard was reported.
+    """
+
+    @staticmethod
+    def _preflight(client: TestClient, origin: str) -> Any:
+        return client.options(
+            "/health",
+            headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
+        )
+
+    def test_vite_dev_origin_gets_acao(self, cors_client: TestClient) -> None:
+        for origin in ("http://127.0.0.1:5173", "http://localhost:5173"):
+            resp = self._preflight(cors_client, origin)
+            assert resp.status_code == 200, origin
+            assert resp.headers.get("access-control-allow-origin") == origin, origin
+
+    def test_tauri_origin_still_gets_acao(self, cors_client: TestClient) -> None:
+        resp = self._preflight(cors_client, "http://127.0.0.1:1420")
+        assert resp.status_code == 200
+        assert resp.headers.get("access-control-allow-origin") == "http://127.0.0.1:1420"
+
+    def test_bogus_origin_is_still_refused(self, cors_client: TestClient) -> None:
+        # The control: without it a test that passes with allow_origins=["*"]
+        # looks identical to one that passes with the real list.
+        resp = self._preflight(cors_client, "http://evil.example")
+        assert resp.status_code == 400

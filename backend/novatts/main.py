@@ -571,7 +571,12 @@ app = FastAPI(title="NovaTTS", version="0.1.0", lifespan=lifespan)
 app.include_router(cutter_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost", "https://tauri.localhost"],
+    # The tauri origins are the packaged app and `tauri dev` (port 1420).
+    # The vite origins are `vite dev` (port 5173), the only way to open the
+    # GUI in a plain browser. Measured F17: without them every fetch from a
+    # browser tab is blocked, so the dashboard shows "..." plus a red Qwen
+    # "offline" while the backend is healthy. Loopback-only, like the rest.
+    allow_origins=["http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost", "https://tauri.localhost", "http://localhost:5173", "http://127.0.0.1:5173"],
     allow_origin_regex=r"https://.*\.tauri\.local.*",
     allow_methods=["*"],
     allow_headers=["*"],
