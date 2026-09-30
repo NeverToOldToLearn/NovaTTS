@@ -1931,6 +1931,34 @@ Live gemeten na herstart: `*ahem*` alleen → 400, `. . . . . .` → 400,
 `Aah!` alleen wordt wél gesynthetiseerd, en dat klopt: het is geen
 geregistreerd emotiewoord, dus het ís uitspreekbare tekst.
 
+#### F18 daarbij: een reconnect wist het register
+
+De gebruiker meldde `Work Inspector` weer als losse `Inspector` in de
+synthese — minuten nadat dezelfde backend de naam heel had bewezen. Het
+registerbestand was onaangeraakt en de suite groen. De reeks die het breekt:
+
+1. bij het opstarten loopt de priming over `_processors` — leeg, want in
+   clientmodus is er nog niets verbonden;
+2. de client-loop verbindt en bouwt `HookTextProcessor()` met lege namen;
+3. registreren via de GUI primeert de live processor — alles werkt
+   (dat was het F15-bewijs);
+4. de gebruiker hangt de game opnieuw aan in LunaTranslator → reconnect →
+   een verse processor met lege namen → de F15-bug is terug, stil.
+
+F13 had de client-processor wel in `_processors` gehangen zodat de loop hem
+bereikt, maar niemand primeert opnieuw bij verbinden: de loop loopt alleen
+bij opstarten, gameswitch en registratie. Fix: de adapter bewaart de laatste
+set (`_known_names`) en elke nieuwe processor — client- én serverkant —
+wordt ermee gebouwd via `_new_processor()`.
+
+De eerste regressietest faalde niet tegen ongepatchte code: de retry
+reconnect meestal vóór de hoofdthread primeert, dus de prime landde op de
+nieuwe processor en frame 2 ging goed zonder fix — een race als bewijs.
+Deterministische versie: primen, dan met een wegwerpframe geforceerd nóg een
+reconnect (`hook.connections >= 3` als bewaker tegen vacuüm slagen), dan pas
+de twee-woordsnaam. Die faalt exact zoals live: `assert 'Work' ==
+'Work Inspector'`.
+
 #### F17 daarbij: de GUI in een browser-tab kon de backend niet bereiken
 
 Midden in de smoketest meldde de gebruiker een leeg dashboard op
@@ -1982,6 +2010,12 @@ regressietest met controle: een verzonnen origin krijgt nog steeds 400.
 | # | Besluit | Gevolg |
 |---|---|---|
 | **D61** ✅ | **Een dashboard dat overal `...` toont is geen kapotte backend maar een geblokkeerde browser — lees het backendlog als eerste.** | F17. Honderden `OPTIONS … 400` bewezen dat de GUI-tab wel vroeg en de backend wel antwoordde, maar de browser alles weggooide. Zonder die regel was de volgende stap het herstarten van Qwen geweest, dat aantoonbaar draaide. CORS staat niet in de health-check omdat een health-check geen browser is; de regressietest stuurt daarom de preflight zelf. |
+
+### 9.16 Uit F18 voortgekomen besluiten
+
+| # | Besluit | Gevolg |
+|---|---|---|
+| **D62** ✅ | **Primen is geen eenmalige daad maar een toestand: elke nieuwe consument van een set moet hem bij geboorte meekrijgen.** | F18. `set_known_speakers()` liep alleen over levende processors; een processor gebouwd na de laatste prime startte leeg. De adapter bewaart de set nu en bouwt er elke processor mee, beide richtingen. Stil verval — geen fout, geen log, alleen een halve naam — is de duurste soort, want niets wijst naar de reconnect ertussen. |
 
 ## 10. Baseline-logboek
 
@@ -2043,6 +2077,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | 2026-09-30 | F15 | *"F15: de eerste echte frames…"* | **457 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 450 → 457: één gap-pin vervangen door vier tests (D58) en 13 echte frames erbij. **Deze fase begon met een meting en eindigde met een reparatie** — andersom zou er niets te repareren zijn geweest. De handdruk is nu gemeten in plaats van gelezen (101 op beide paden, 404 op twee verzonnen), en dat bracht meteen de belangrijkste bevinding: **13 frames op `/origin`, 0 op `/trans`** over vijf minuten spelen, dus de route die in alle docs als de vertaalroute stond was droog. Dat het op een draaiende dienst nog een echte bug opleverde was niet te voorspellen: `Work Inspector` werd `Work` + `"Inspector …"` in **alle drie** de vormen, ook de expliciete `naam: tekst`, omdat de grenszoeker per keer één woord matcht en de naam doormidden snijdt. Een eerste fix gaf de juiste spreker en een losse colon in de body; de uiteindelijke laat de guards gelden in plaats van er een tweede pad naast te zetten. **Twee zelfcorrecties:** de guard die ik zelf had toegevoegd (`covered_until`) bleek dood bij een sweep van 320 regels en is weggehaald (D57), en mijn eerste test voor de woordgrens kon die grens niet eens bereiken — de uitbreiding geldt alleen als de naam *langer* is dan het gematchte woord, dus `Rick` tegen `Rickardo` bewijst niets. Vier mutaties, alle discriminerend, één control op 0 failures. Ook het log gerepareerd: `started (client 127.0.0.1:6677` stond boven een regel die zei dat er op 2333 verbonden was. Live bevestigd: `hook_last_raw` toont de volledige naam en de synthese krijgt de body. |
 | 2026-09-30 | F16 | *"F16: de main-fix van gisteren…"* | **466 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 457 → 466: main-commit `b7c5cdd` overgezet als port (geen cherry-pick: `main.py` 359 regels gedivergeerd). Emotie-restinterpunctie gaat niet meer naar Qwen — live: `*ahem*` → 400, `. . .` → 400, tekst erna wel. |
 | 2026-09-30 | F17 | *"F17: de GUI-tab …"* | **469 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 466 → 469: CORS liet vite-dev (5173) nooit door — honderden `OPTIONS … 400` in het log, leeg dashboard. Twee origins erbij, test met controle (foute origin nog 400). |
+| 2026-09-30 | F18 | *"F18: de reconnect die het register wiste…"* | **470 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 469 → 470: re-hooken in LunaTranslator bouwde een lege processor — `Inspector …` met lege voice, live. Adapter bewaart de set; elke nieuwe processor ermee gebouwd. Eerste testversie won een race en bewees niets; deterministische versie faalt exact zoals live. |
 | 2026-09-29 | F14 | *"F14: strip_markup gedeeld…"* | **450 ✅** (0 ❌) | **0 ✅** | **0 ✅** | ✅ | 426 → 450: 24 tests, waarvan de belangrijkste `test_both_routes_give_the_same_turn` — dezelfde payload door beide routes, want dat was de regressie die zichzelf herhaalde. **De websocket-route vroeg niet om Textractor**: LunaTranslator publiceert zelf `/api/ws/text/trans` op poort 2333 met kale tekstframes, en dat formaat nam `decode_wire_message` al aan. Uit de bron gelezen, niet gemeten (de service draaide niet), dus versie-gebonden. Het echte gat: de markupfix zat alleen in `parser/renpy.py`, en op 90 multiline payload's gaf de websocket-route er 17 mis, waarvan 16 de vorm `<b>Tatsuo</b>`; na de fix 89/90, en de ene die overblijft is correct vertelling. De tag-voorwaarde bleek ook te ruim — `"5<10 and 10>5"` werd `"5 5"` — en de strakkere voorwaarde verandert 0 van 130 payload's. 9 mutaties, alle discriminerend, 3 controls op 0 failures. De eerste versie van die lijst had 8 fouten die allemaal mijn eigen verwachtingen waren, en één mutatie die niet was wat zijn label zei. `docs/LUNATRANSLATOR_HOOK.md` erbij, met de `0.0.0.0`-binding eruit gehaald. |
 
 > **Waarom staat hier geen hash?** Dit document zit ín de commit die het beschrijft, en een
@@ -2079,6 +2114,7 @@ verpakking (ontbrekende dev-deps) en de runner (de `|| true`) waren stuk.
 | F15 De eerste echte frames | ✅ | Ontstaan uit één vraag: *er zou een naam en een tekst af moeten komen*. Daarmee was de websocket-route voor het eerst tegen een draaiende dienst te meten, en de eerste meting corrigeerde meteen drie docs-claims (handdruk, binding, formaat) die in F14 uit de bron gelezen waren. De vondst is niet in de meting maar erin: `/trans` stond **0 frames** tegenover 13 op `/origin`, dus de als vertaalroute gedocumenteerde verbinding was droog — met `hook_clients: 1` en een "gestart"-regel, dus onmiskenbaar gezond ogend. De eerste echte frame bevatte een sprekersnaam van twee woorden, en die werd in **alle drie** de vormen doormidden gesneden, ook de expliciete `naam: tekst`. Opgelost door de kandidaat in de grenszoeker te verbreden zodat elke bestaande guard gewoon blijft gelden. Onderweg: een eigen guard die onbereikbaar bleek verwijderd (D57), een gap-pin omgezet naar vier positieve tests (D58), een logregel die de verkeerde poort noemde gerepareerd, en het actieve spel dat nog het register van een ander spel gebruikte — waardoor `Tatsuo` per ongeluk de juiste stem had. **450 → 457 tests**, alle vijf gates gemeten groen. |
 | F16 De main-fix | ✅ | Main bewoog één commit voorbij het splitspunt met exact de fix die de gebruiker bedoelde, en de branch had hem niet. Geen cherry-pick maar port: drie bestanden byte-identiek over, drie `main.py`-hunks met de hand, met behoud van `_segment_dialogue` en `dialogue.source`. Live bewezen dat kale interpunctie niet meer gesynthetiseerd wordt. **457 → 466 tests**, alle vijf gates gemeten groen. |
 | F17 De lege GUI | ✅ | Smoketest vond het: dashboard vol `...` en Qwen rood, bij een gezonde backend. Oorzaak in het backendlog, niet in de GUI: preflights 400. Twee regels CORS, drie tests waarvan één controle. **466 → 469 tests**, alle vijf gates gemeten groen. |
+| F18 De vergeten prime | ✅ | `Work Inspector` weer stuk zonder dat er een regel F15-code veranderde: de reconnect na het opnieuw aanhangen wast elke prime weg. Opgelost door de set te bewaren en elke processor ermee te bouwen. Onderweg: een test die per ongeluk slaagde omdat de retry de prime versloeg — wegwerpframe plus `connections >= 3` maken hem deterministisch. **469 → 470 tests**, alle vijf gates groen. |
 | F14 De echte vorm | ✅ | Ontstaan uit één klacht: *de naam wordt voorgelezen*. Het bleek dat de naam al in het klembord stond en alleen door de parser werd overgeslagen — terwijl F12 en F13 allebei naar de websocket-kant keken (D46). `RenPyParser` kreeg de bare-name-vorm en markup-stripping. Onderweg de `.env` van deze machine als oorzaak van 9 rode tests op een onaangeraakte commit, gemeten op de ongewijzigde bron en in drie lagen gedicht. En de websocket-route bleek **niet** om Textractor te vragen: LunaTranslator publiceert zelf `/api/ws/text/trans` op 2333. Het F14-gat was dat de twee routes hun markupgedrag niet deelden — puur een kwestie van bestandsindeling — dus `strip_markup` is verhuisd naar `parser/markup.py`. **377 → 426 → 450 tests.** De 5% multi-paire blijft vastgepind op eigen keuze; de websocket-route is niet tegen een draaiende LunaTranslator gemeten, want die draaide niet. |
 
 ---
@@ -2214,3 +2250,5 @@ En de omgekeerde richting heeft dezelfde valkuil, maar dan zichtbaar in `git sta
 35. **Nooit een fix schrijven zonder eerst te kijken of main hem al heeft.** F16: de branch leefde terwijl main één commit verder ging, en die ene commit was exact de fix die nodig was. Opnieuw afleiden was een tweede implementatie van hetzelfde gedrag geweest, met een tweede set randgevallen. Porten is goedkoper dan bedenken, zolang wat de branch beter doet behouden blijft — hier `_segment_dialogue` en `dialogue.source` (D60).
 
 36. **Nooit een leeg dashboard debuggen vanuit de GUI — eerst het backendlog.** F17: de pagina vroeg, de backend antwoordde 400 op elke preflight, en de browser toonde `...` plus een rode Qwen die draaide. Alles aan de voorkant wees naar Qwen; één regel in het backendlog wees naar CORS. Een statusregel zegt wat de server vindt, niet wat de browser doorlaat (D61).
+
+37. **Nooit primen zonder te zeggen voor wie de prime geldt als er later iemand bij komt.** F18: de loop bereikte elke levende processor, maar een processor gebouwd na de laatste prime startte leeg — en meldde niets. Bewaar de set op de eigenaar en bouw er elke consument mee, in beide richtingen (D62). En een test die zonder de fix kan slagen door een race, is geen test: forceer de volgorde en bewaak hem (`connections >= 3`).

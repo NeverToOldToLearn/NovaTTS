@@ -684,6 +684,58 @@ class TestClientRoundTrip:
         )
         assert [d.text for d in got] == ["First line", "Second line"]  # type: ignore[attr-defined]
 
+    def test_registered_names_survive_a_reconnect(self) -> None:
+        """A re-hooked game must not lose the registry. Measured F18, live.
+
+        The stand-in closes after every frame, so each frame reconnects --
+        exactly what re-hooking the game in LunaTranslator does. The GUI
+        registration between frames primes whatever processor is live; the
+        throwaway second frame then forces one more reconnect, so the
+        asserted third frame is parsed by a processor built after the last
+        prime. Without the fix that processor starts empty and
+        "Work Inspector" parses as speaker "Work" with "Inspector ..." as
+        dialogue: the F15 bug back without a single line of F15 code
+        changing.
+
+        The connections assertion is load-bearing, not decoration: without
+        it the test could pass vacuously on a stale connection that never
+        reconnected.
+        """
+        port = _free_port()
+        hook = _FakeHook(port)
+        hook.start()
+        got: list[object] = []
+        done = threading.Event()
+
+        def on_dialogue(dialogue: object) -> None:
+            got.append(dialogue)
+            if len(got) >= 3:
+                done.set()
+
+        adapter = LunaAdapter(on_dialogue=on_dialogue)
+        adapter.ws_url = hook.url()
+        adapter.start()
+        try:
+            hook.send("Tatsuo First line")
+            assert _wait_for(lambda: len(got) >= 1), "the first line never arrived"
+            # The GUI registration, while connected: primes the live processor.
+            adapter.set_known_speakers(["Tatsuo", "Work Inspector"])
+            # Throwaway: parsed fine either way, and its close forces the
+            # reconnect the asserted frame must arrive on.
+            hook.send("Tatsuo Second line")
+            assert _wait_for(lambda: len(got) >= 2), "the second line never arrived"
+            assert _wait_for(lambda: hook.connections >= 3), (
+                f"expected a second reconnect, the hook saw {hook.connections}"
+            )
+            hook.send("Work Inspector\nCut the corporate talk.")
+            assert done.wait(10.0), "the third line never arrived"
+        finally:
+            adapter.stop()
+            hook.stop()
+        assert got[2].speaker == "Work Inspector"  # type: ignore[attr-defined]
+        assert got[2].text == "Cut the corporate talk."  # type: ignore[attr-defined]
+
+
     def test_client_mode_does_not_bind_a_port(self) -> None:
         """The two modes are exclusive, and this is how that is shown.
 

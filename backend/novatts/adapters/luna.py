@@ -460,6 +460,12 @@ class LunaAdapter(InputAdapter):
         #: See :class:`HookTextProcessor` for why this is not a single
         #: shared object.
         self._processors: dict[int, HookTextProcessor] = {}
+        #: The last name set set_known_speakers() delivered. Every new
+        #: processor is built with it (see _new_processor): priming only
+        #: walks live processors, and at (re)connect time the new processor
+        #: does not exist yet -- measured F18, when re-hooking the game in
+        #: LunaTranslator silently dropped "Work Inspector" back to "Work".
+        self._known_names: tuple[str, ...] = ()
         self._client_lock = threading.Lock()
         self._clients = 0
         #: Counts lines dropped because the dispatch queue was full. Non-
@@ -492,9 +498,29 @@ class LunaAdapter(InputAdapter):
         added while three games are connected has to reach all three --
         otherwise a newly registered character stays unrecognised on the
         games that were already attached.
+
+        The set is also stored: a processor built later -- on every
+        (re)connect -- would otherwise start empty, because priming only
+        walks processors that already exist.
         """
+        self._known_names = tuple(names)
         for proc in self._processors.values():
             proc.set_known_names(names)
+
+    def _new_processor(self) -> HookTextProcessor:
+        """One processor for one connection, primed with the stored names.
+
+        Both directions build here so neither can forget the registry again:
+        the client loop (NovaTTS dials out, the LunaTranslator case) and the
+        server path (a hook dials in) create their processor after the last
+        prime ran, so constructing it bare leaves every multi-word name cut.
+        """
+        return HookTextProcessor(
+            min_text_length=self.min_text_length,
+            space_form=self.space_form,
+            dual_hook=self.dual_hook,
+            known_names=self._known_names,
+        )
 
     def start(self) -> None:
         if self._running:
@@ -612,11 +638,7 @@ class LunaAdapter(InputAdapter):
                     # set_known_speakers() walks. Leaving it out is silent:
                     # a speaker added in the GUI then never reaches the
                     # parser and every character name stays a guess.
-                    proc = HookTextProcessor(
-                        min_text_length=self.min_text_length,
-                        space_form=self.space_form,
-                        dual_hook=self.dual_hook,
-                    )
+                    proc = self._new_processor()
                     self._processors[id(ws)] = proc
                     # client_count answers "how many hook connections are
                     # open", and here there is exactly one. Between retry
@@ -650,11 +672,7 @@ class LunaAdapter(InputAdapter):
         # One processor per connection: Textractor interleaves lines across
         # clients, and a shared dual-hook buffer would merge a name from
         # one game with a line from another.
-        proc = HookTextProcessor(
-            min_text_length=self.min_text_length,
-            space_form=self.space_form,
-            dual_hook=self.dual_hook,
-        )
+        proc = self._new_processor()
         with self._client_lock:
             self._clients += 1
             count = self._clients
