@@ -409,6 +409,14 @@ pub fn run() {
             perfect_cut::open_path,
         ])
         .setup(move |app| {
+            // Perfect Cut hides on X instead of being destroyed (see
+            // perfect_cut::arm_hide_on_close): reopening is then always
+            // show()+focus() on the same live webview, never a rebuilt
+            // blank surface that no longer answers to close. Main-window
+            // close already quits via the on_window_event handler above.
+            if let Some(cutter) = app.get_webview_window("cutter") {
+                perfect_cut::arm_hide_on_close(&cutter);
+            }
             let handle = app.handle().clone();
             let backend_handle = handle.clone();
             let state = backend_state_setup.clone();

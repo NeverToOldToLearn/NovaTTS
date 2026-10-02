@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager, WebviewUrl};
+use tauri::{AppHandle, Manager, WebviewUrl, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 /// Must match the `label` of the cutter window in tauri.conf.json.
@@ -77,8 +77,11 @@ fn pick_file(
 /// screen* before this call.
 ///
 /// The window is also declared in tauri.conf.json (hidden) so it exists from
-/// startup; this command is the only thing that reveals it. If it was closed,
-/// it is rebuilt from scratch.
+/// startup; this command is the only thing that reveals it. Closing it with
+/// X only hides it (see `arm_hide_on_close`, wired in setup) so reopening is
+/// always show()+focus() on the same live webview — rebuilding a destroyed
+/// window could leave a blank WebView2 surface that no longer answers to
+/// close. If it was destroyed anyway, it is rebuilt from scratch.
 #[tauri::command]
 pub fn open_cutter(app: AppHandle) -> Result<bool, String> {
     if let Some(win) = app.get_webview_window(CUTTER_WINDOW) {
@@ -91,7 +94,7 @@ pub fn open_cutter(app: AppHandle) -> Result<bool, String> {
         let _ = win.set_focus();
         return Ok(was_visible);
     }
-    tauri::WebviewWindowBuilder::new(
+    let win = tauri::WebviewWindowBuilder::new(
         &app,
         CUTTER_WINDOW,
         WebviewUrl::App(CUTTER_URL.into()),
@@ -102,7 +105,32 @@ pub fn open_cutter(app: AppHandle) -> Result<bool, String> {
     .center()
     .build()
     .map_err(|e| e.to_string())?;
+    // A rebuilt window has no event handlers yet: hide-on-close again so the
+    // next X behaves exactly like the config-declared window.
+    if let Some(w) = app.get_webview_window(CUTTER_WINDOW) {
+        arm_hide_on_close(&w);
+    }
+    let _ = win.show();
+    let _ = win.set_focus();
     Ok(false)
+}
+
+/// Hide the cutter window instead of destroying it when the user presses X.
+///
+/// Rebuilding the window from scratch after a destroy is what produced the
+/// blank white surface that no longer answered to close: the new webview
+/// could come up without content while the old label was still tearing down.
+/// Hiding keeps the same live webview, so reopening is always show()+focus().
+/// Call once per window: in `setup` for the config-declared window and in
+/// `open_cutter` right after a rebuild.
+pub fn arm_hide_on_close(window: &tauri::WebviewWindow) {
+    let w = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = w.hide();
+        }
+    });
 }
 
 /// Read a local audio file as raw bytes for `decodeAudioData`.

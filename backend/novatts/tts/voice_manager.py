@@ -26,6 +26,34 @@ from .base import TTSBackend
 log = logging.getLogger(__name__)
 
 
+def default_voice_for_new_speaker(voices: list[str], used: set[str] | None = None) -> str:
+    """Pick a default voice for a newly discovered character.
+
+    Most samples are female and male samples are prefixed ``M-`` (or
+    ``M_``), so a new character — statistically most likely female — gets
+    an *unused* female voice first (alphabetically). Only when every female
+    voice is taken does it fall back to an unused male voice, then to a
+    reused female voice, and finally to ``""`` (model default) when there
+    are no voices at all (e.g. engine offline). Always overridable in
+    the GUI.
+    """
+    candidates = sorted({v for v in voices if v})
+    if not candidates:
+        return ""
+    is_female = lambda v: not v.lower().startswith(("m-", "m_"))
+    female = [v for v in candidates if is_female(v)]
+    used_set = {u for u in (used or set()) if u}
+    unused = [v for v in candidates if v not in used_set]
+    unused_female = [v for v in unused if is_female(v)]
+    if unused_female:
+        return unused_female[0]
+    if unused:
+        return unused[0]
+    if female:
+        return female[0]
+    return candidates[0]
+
+
 class VoiceManager:
     def __init__(
         self,

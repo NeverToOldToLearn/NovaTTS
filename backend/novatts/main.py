@@ -283,9 +283,23 @@ class NovaApp:
             try:
                 if dialogue.speaker not in self.registry.names():
                     self.registry.register(dialogue.speaker)
+                    # New characters are most likely female (male samples
+                    # carry an M- prefix); pre-assign an unused female
+                    # default so the line plays with a fitting, unique
+                    # voice immediately. Stays overridable in the GUI;
+                    # empty when the engine is offline (no voices known).
+                    try:
+                        from .tts.voice_manager import default_voice_for_new_speaker
+
+                        taken = {spk.voice for spk in self.registry.all() if spk.voice}
+                        suggestion = default_voice_for_new_speaker(self.voices.voice_options(), taken)
+                    except Exception:
+                        suggestion = ""
+                    if suggestion:
+                        self.registry.update(dialogue.speaker, voice=suggestion)
                     self.registry.save()
                     seen_new = True
-                    self._emit(Event("speaker_discovered", {"speaker": dialogue.speaker}))
+                    self._emit(Event("speaker_discovered", {"speaker": dialogue.speaker, "voice": suggestion or "(default)"}))
             except Exception:
                 pass
         voice = self.registry.lookup_voice(dialogue.speaker) if dialogue.speaker else ""
@@ -533,8 +547,23 @@ async def list_speakers() -> dict[str, Any]:
 
 @app.post("/speakers")
 async def create_speaker(body: SpeakerCreateBody) -> dict[str, Any]:
+    from .tts.voice_manager import default_voice_for_new_speaker
+
     rt = get_runtime()
+    is_new = body.name not in rt.registry.names()
     speaker = rt.registry.register(body.name)
+    if is_new:
+        # Same unused-female-first default as clipboard auto-discovery; the
+        # GUI select can always replace it (e.g. with an M- male voice).
+        try:
+            taken = {spk.voice for spk in rt.registry.all() if spk.voice}
+            suggestion = default_voice_for_new_speaker(rt.voices.voice_options(), taken)
+        except Exception:
+            suggestion = ""
+        if suggestion:
+            updated = rt.registry.update(body.name, voice=suggestion)
+            if updated is not None:
+                speaker = updated
     rt.registry.save()
     if rt.clipboard:
         rt.clipboard.set_known_speakers(rt.registry.names())

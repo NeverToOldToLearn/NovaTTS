@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from novatts.models import Dialogue
 from novatts.registry.speakers import SpeakerRegistry
-from novatts.tts.voice_manager import VoiceManager
+from novatts.tts.voice_manager import VoiceManager, default_voice_for_new_speaker
 
 
 class FakeBackend:
@@ -135,3 +135,35 @@ def test_clear_cache_absent_dir_is_noop(tmp_path):
     shutil.rmtree(mgr.cache_dir, ignore_errors=True)
     mgr.clear_cache()  # must not raise
     assert not mgr.cache_dir.exists()
+
+
+def test_default_voice_prefers_female():
+    assert default_voice_for_new_speaker(["M-Boris", "Anna", "M-Carl", "Zoe"]) == "Anna"
+
+
+def test_default_voice_skips_m_prefix_case_insensitive():
+    assert default_voice_for_new_speaker(["Eva", "m-boris", "M_Carl"]) == "Eva"
+
+
+def test_default_voice_all_male_falls_back_to_first():
+    assert default_voice_for_new_speaker(["M-Carl", "M-Boris"]) == "M-Boris"
+
+
+def test_default_voice_empty_when_engine_offline():
+    assert default_voice_for_new_speaker([]) == ""
+
+
+def test_default_voice_prefers_unused():
+    assert default_voice_for_new_speaker(["Anna", "Zoe", "M-Boris"], {"Anna"}) == "Zoe"
+
+
+def test_default_voice_unused_male_over_used_female():
+    assert default_voice_for_new_speaker(["Anna", "M-Boris"], {"Anna"}) == "M-Boris"
+
+
+def test_default_voice_all_used_falls_back_to_female():
+    assert default_voice_for_new_speaker(["Zoe", "Anna"], {"Anna", "Zoe"}) == "Anna"
+
+
+def test_default_voice_ignores_empty_used():
+    assert default_voice_for_new_speaker(["M-Boris", "Anna"], set()) == "Anna"
