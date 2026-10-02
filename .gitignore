@@ -39,6 +39,10 @@ Thumbs.db
 # Per-game stem-casting en Perfect Cut instellingen zijn lokaal
 data/games/*/speakers.json
 data/perfect_cut.json
+# Welke game geselecteerd is en je eigen blacklist-woorden: lokaal,
+# de app maakt ze zelf aan als ze ontbreken.
+data/active_game.json
+data/blacklist.json
 # Emotion mapping is per bibliotheek: de map met audio is lokaal en het map-bestand
 # is een cache van die map. De app maakt ze zelf aan; zie de *.json.example ernaast.
 data/emotion_sound_map.json
