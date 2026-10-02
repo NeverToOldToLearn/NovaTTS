@@ -15,7 +15,7 @@ becomes the tag.
 | File | Tracked | What it is |
 | --- | --- | --- |
 | `emotion_patterns.json` | yes | Shared defaults: regex → tag. Safe to edit, keep it if you like it. |
-| `speakers.json` | yes | Speaker → voice/instruct mapping. |
+| `speakers.json` | **no** | Default speaker → voice mapping (no active game). Created automatically. |
 | `blacklist.json` | **no** | Your text replacements. Created automatically. |
 | `active_game.json` | **no** | Which game is currently selected. Created automatically. |
 | `emotion_sound_map.json` | **no** | Cache of your sound folder. Generated, rewritten on every reload. |

@@ -43,6 +43,9 @@ data/perfect_cut.json
 # de app maakt ze zelf aan als ze ontbreken.
 data/active_game.json
 data/blacklist.json
+# Standaard stem-casting (zonder actieve game): lokaal, wordt aangemaakt
+# als hij ontbreekt.
+data/speakers.json
 # Emotion mapping is per bibliotheek: de map met audio is lokaal en het map-bestand
 # is een cache van die map. De app maakt ze zelf aan; zie de *.json.example ernaast.
 data/emotion_sound_map.json
