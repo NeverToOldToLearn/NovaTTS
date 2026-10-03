@@ -89,6 +89,18 @@ class Settings(BaseSettings):
     qwen_auto_import_samples: bool = True
     qwen_samples_dir: str = r"D:\!!Scripts!!\Samples_Clone"
     qwen_samples_dirs_extra: str = r""
+    # --- Sampling ---
+    # Sent on every request. Left out, qwentts.cpp samples with a fresh random
+    # seed at temperature 0.9 / top_p 1.0 / top_k 50, so the same line comes
+    # out differently every time and sometimes runs past its own full stop into
+    # a breath or a hic the text never asked for -- a sentence that ends as if
+    # it has more to say. These are the upstream defaults with the long tail
+    # closed off; the seed makes a line repeatable without a disk cache.
+    qwen_seed: int = 1234
+    qwen_temperature: float = 0.7
+    qwen_top_p: float = 0.8
+    qwen_top_k: int = 20
+    qwen_repetition_penalty: float = 1.05
     # qwen-codec.exe binary for pre-extracting .spk/.rvq voice references.
     # Leeg = auto-detect als sibling van NOVATTS_QWEN_BIN.
     qwen_codec_bin: str = ""
@@ -113,6 +125,12 @@ class Settings(BaseSettings):
 
     # --- Cache ---
     cache_dir: Path = DATA_DIR / "cache"
+    # The content-hash cache is inherited from the source project, where a
+    # synthesis cost enough to be worth deduplicating. Qwen3 is fast enough
+    # that a repeat costs nothing worth saving, and replaying a stored take
+    # also replays the emotion the model put in it that one time. Off by
+    # default; each line then gets a throwaway file, removed once it played.
+    cache_enabled: bool = False
 
     # --- Files ---
     speakers_file: Path = DATA_DIR / "speakers.json"

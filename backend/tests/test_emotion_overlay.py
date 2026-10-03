@@ -259,10 +259,68 @@ def test_speak_route_without_aliases_is_unchanged() -> None:
 
 def test_speak_route_never_hands_qwen_stranded_punctuation() -> None:
     """A removed emotion can leave ",." or a leading "!" behind."""
-    assert clean_emotion_text("I love it, aah.", {"aah": "moang"}) == "I love it,"
-    assert clean_emotion_text("Aah! Yes...", {"aah": "moang"}) == "Yes"
+    assert clean_emotion_text("I love it, aah.", {"aah": "moang"}) == "I love it."
+    assert clean_emotion_text("Aah! Yes...", {"aah": "moang"}) == "Yes..."
     assert clean_emotion_text("Zij zei slurp.", ALIASES) == "Zij zei."
     assert not has_speakable_text(clean_emotion_text("Hmm.", {"hmm": "hmm"}))
+
+
+def test_ellipsis_between_words_survives() -> None:
+    """The pause is prosody Qwen3 renders as silence; it must reach the model.
+
+    This is the line the user listened to: "if you want... I... ehm" only gets
+    its waiting periods if the dots reach the backend.
+    """
+    text = "Later, if you want... I... ehm... I'll do the same thing as the other day."
+    assert clean_emotion_text(text) == text
+
+
+def test_ellipsis_glued_to_a_word_survives() -> None:
+    assert clean_emotion_text("Yeah...") == "Yeah..."
+    assert clean_emotion_text("Wait... what?") == "Wait... what?"
+    assert clean_emotion_text("Is that all there is…") == "Is that all there is…"
+
+
+def test_ellipsis_on_its_own_is_dropped() -> None:
+    """A line of nothing but dots has nothing to say, so nothing is spoken."""
+    for line in ("...", "…", ".....", "  ...  ", "Aah! ...", "aah ...", "aah, ..."):
+        assert not has_speakable_text(clean_emotion_text(line, {"aah": "moang"})), line
+    assert clean_emotion_text("...") == ""
+
+
+def test_trailing_ellipsis_next_to_text_is_demoted_not_eaten() -> None:
+    """A pause glued to the last word stays; a detached one is dropped."""
+    assert clean_emotion_text("Yes... aah.", {"aah": "moang"}) == "Yes..."
+    assert clean_emotion_text("Yes... ...") == "Yes..."
+    # "Mm-hm" is not an emotion pattern here, so it stays real text and only
+    # the detached ellipsis after it goes.
+    assert clean_emotion_text("Mm-hm. ...") == "Mm-hm."
+
+
+def test_stranded_mark_between_two_marks_is_dropped() -> None:
+    assert clean_emotion_text("I love it, aah.", {"aah": "moang"}) == "I love it."
+    assert clean_emotion_text("I love it,. aah", {"aah": "moang"}) == "I love it."
+
+
+def test_deliberate_punctuation_survives() -> None:
+    """Question marks, exclamation marks and pauses are the model's job."""
+    assert clean_emotion_text("Really?!") == "Really?!"
+    assert clean_emotion_text("Yeah.") == "Yeah."
+    assert clean_emotion_text("Stop!") == "Stop!"
+
+
+def test_leading_and_trailing_strip_is_symmetric() -> None:
+    from novatts.text_clean import (
+        strip_leading_punctuation,
+        strip_trailing_stray_punctuation,
+    )
+
+    assert strip_leading_punctuation("! Yes") == "Yes"
+    assert strip_leading_punctuation("Yes...") == "Yes..."
+    assert strip_trailing_stray_punctuation("Yes...") == "Yes..."
+    assert strip_trailing_stray_punctuation("Yes... ...") == "Yes..."
+    assert strip_trailing_stray_punctuation("Yes") == "Yes"
+    assert strip_trailing_stray_punctuation("...") == "..."
 
 
 def test_punctuation_folding_spares_abbreviations() -> None:

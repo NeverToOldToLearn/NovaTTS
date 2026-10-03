@@ -216,7 +216,11 @@ class EmotionSounds:
           ("Aah! Yes..." -> "Yes..."). A trailing "..." on real text is
           deliberate prosody and is left alone.
         """
-        from .text_clean import has_speakable_text, strip_leading_punctuation
+        from .text_clean import (
+            has_speakable_text,
+            strip_leading_punctuation,
+            strip_trailing_stray_punctuation,
+        )
 
         ordered = sorted(positions)
         out: list[tuple[str, str]] = []
@@ -224,14 +228,18 @@ class EmotionSounds:
         for pos, tag in ordered:
             chunk = cleaned[last:pos]
             if last > 0:
+                # Both ends of a post-emotion chunk are cut points: punctuation
+                # can be stranded at either. The opening text is left alone --
+                # "Yes ..." keeps its pause, it is real text.
                 chunk = strip_leading_punctuation(chunk)
+                chunk = strip_trailing_stray_punctuation(chunk)
             chunk = chunk.strip()
             if has_speakable_text(chunk):
                 out.append(("text", chunk))
             out.append(("sound", tag))
             last = pos
-        tail = strip_leading_punctuation(cleaned[last:]) if ordered else cleaned[last:]
-        tail = tail.strip()
+        tail = cleaned[last:] if not ordered else strip_leading_punctuation(cleaned[last:])
+        tail = strip_trailing_stray_punctuation(tail).strip()
         if has_speakable_text(tail):
             out.append(("text", tail))
         return out

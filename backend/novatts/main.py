@@ -122,11 +122,16 @@ class NovaApp:
         self.registry = SpeakerRegistry(self.games.speakers_path())
         self.qwen = Qwen3Backend()
         self.qwen_mgr = QwenManager()
-        self.voices = VoiceManager(self.qwen, self.registry, settings.cache_dir)
+        self.voices = VoiceManager(
+            self.qwen, self.registry, settings.cache_dir, settings.cache_enabled
+        )
         self.player = AudioPlayer()
         self.emotions = EmotionSounds(player=self.player)
         self.blacklist = Blacklist()
-        self.player.on_finished = lambda _p: None  # reserved for event emit
+        # With the cache off, every line is a throwaway file that outlives its
+        # own playback by exactly nothing: drop it here, once the player is
+        # done. release() ignores emotion sounds and cached takes.
+        self.player.on_finished = self.voices.release
         self.clipboard: ClipboardAdapter | None = None
         self._event_history: list[Event] = []
         import threading
@@ -374,6 +379,7 @@ class NovaApp:
             "clipboard": self.clipboard.is_running() if self.clipboard else False,
             "queue_size": self.player.queue_size(),
             "current": str(self.player.current()) if self.player.current() else None,
+            "cache_enabled": self.voices.cache_enabled,
             "speaker_count": len(self.registry.names()),
         }
 

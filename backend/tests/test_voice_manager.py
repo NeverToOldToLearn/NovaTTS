@@ -1,8 +1,9 @@
-"""Tests for voice manager cache behavior."""
+"""Tests for voice manager synthesis and cache behavior."""
 
 import wave
 from dataclasses import replace
 
+from novatts.config import settings
 from novatts.models import Dialogue
 from novatts.registry.speakers import SpeakerRegistry
 from novatts.tts.voice_manager import VoiceManager, default_voice_for_new_speaker
@@ -24,7 +25,9 @@ class FakeBackend:
     def synthesize(
         self, text, output_path, *, voice=None, instruct=None, emotion=None, params=None
     ):
-        self.calls.append({"voice": voice, "text": text, "instruct": instruct})
+        self.calls.append(
+            {"voice": voice, "text": text, "instruct": instruct, "params": params}
+        )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with wave.open(str(output_path), "wb") as w:
             w.setnchannels(1)
@@ -34,11 +37,17 @@ class FakeBackend:
         return output_path
 
 
-def make_ctx(tmp_path):
+def make_ctx(tmp_path, *, cache_enabled=False):
     backend = FakeBackend()
     registry = SpeakerRegistry(tmp_path / "speakers.json")
-    mgr = VoiceManager(backend, registry, cache_dir=tmp_path / "cache")
+    mgr = VoiceManager(
+        backend, registry, cache_dir=tmp_path / "cache", cache_enabled=cache_enabled
+    )
     return backend, registry, mgr
+
+
+def cached_ctx(tmp_path):
+    return make_ctx(tmp_path, cache_enabled=True)
 
 
 def test_unknown_speaker_uses_fallback_voice(tmp_path):
@@ -65,7 +74,7 @@ def test_voice_override_wins(tmp_path):
 
 
 def test_cache_hit_avoids_second_synthesis(tmp_path):
-    backend, registry, mgr = make_ctx(tmp_path)
+    backend, registry, mgr = cached_ctx(tmp_path)
     d = Dialogue(speaker="Rick", text="Same line", source="api")
     mgr.synthesize(d)
     assert len(backend.calls) == 1
@@ -73,8 +82,77 @@ def test_cache_hit_avoids_second_synthesis(tmp_path):
     assert len(backend.calls) == 1  # cached
 
 
+def test_cache_off_resynthesizes_every_time(tmp_path):
+    backend, _, mgr = make_ctx(tmp_path)
+    assert mgr.cache_enabled is False
+    d = Dialogue(speaker="Rick", text="Same line", source="api")
+    pa = mgr.synthesize(d)
+    pb = mgr.synthesize(d)
+    assert len(backend.calls) == 2
+    assert pa != pb  # nothing is deduplicated any more
+
+
+def test_cache_off_never_reports_a_hit(tmp_path):
+    _, _, mgr = make_ctx(tmp_path)
+    mgr.synthesize(Dialogue(speaker="Rick", text="Same line", source="api"))
+    assert mgr.is_cached(Dialogue(speaker="Rick", text="Same line", source="api")) is False
+
+
+def test_cache_on_reports_a_hit(tmp_path):
+    _, _, mgr = cached_ctx(tmp_path)
+    d = Dialogue(speaker="Rick", text="Same line", source="api")
+    assert mgr.is_cached(d) is False
+    mgr.synthesize(d)
+    assert mgr.is_cached(d) is True
+
+
+def test_release_deletes_only_its_own_throwaway_files(tmp_path):
+    backend, _, mgr = make_ctx(tmp_path)
+    mine = mgr.synthesize(Dialogue(speaker="Rick", text="Mine", source="api"))
+    assert mine.exists()
+    mgr.release(mine)
+    assert not mine.exists()
+
+    # An emotion sound or a cached take is none of its business.
+    keeper = mgr.cache_dir / "breathing_heavily.wav"
+    keeper.write_bytes(b"RIFF")
+    mgr.release(keeper)
+    assert keeper.exists()
+    mgr.release(keeper)
+    assert keeper.exists()
+
+
+def test_release_is_harmless_on_unknown_or_missing_paths(tmp_path):
+    _, _, mgr = make_ctx(tmp_path)
+    mgr.release(None)
+    mgr.release(mgr.cache_dir / "never-existed.wav")
+    mgr.clear_cache()  # and a sweep must not choke either
+
+
+def test_clear_cache_removes_throwaway_files_too(tmp_path):
+    _, _, mgr = make_ctx(tmp_path)
+    mgr.synthesize(Dialogue(speaker="Rick", text="One", source="api"))
+    mgr.synthesize(Dialogue(speaker="Rick", text="Two", source="api"))
+    assert len(list(mgr.cache_dir.iterdir())) == 2
+    mgr.clear_cache()
+    assert len(list(mgr.cache_dir.iterdir())) == 0
+
+
+def test_sampling_params_are_always_sent(tmp_path):
+    backend, _, mgr = make_ctx(tmp_path)
+    mgr.synthesize(Dialogue(speaker="Rick", text="Yeah.", source="api"))
+    params = backend.calls[0]["params"]
+    # Omitted, the server samples on a fresh random seed, which is how a line
+    # can trail off past its full stop one time and not the next.
+    assert params["seed"] == settings.qwen_seed
+    assert params["temperature"] == settings.qwen_temperature
+    assert params["top_p"] == settings.qwen_top_p
+    assert params["top_k"] == settings.qwen_top_k
+    assert params["repetition_penalty"] == settings.qwen_repetition_penalty
+
+
 def test_same_text_different_voice_not_shared(tmp_path):
-    backend, registry, mgr = make_ctx(tmp_path)
+    backend, registry, mgr = cached_ctx(tmp_path)
     registry.register("A")
     registry.register("B")
     registry.update("A", voice="gpu1")
@@ -90,7 +168,7 @@ def test_same_text_different_voice_not_shared(tmp_path):
 
 
 def test_instruct_change_invalidates_cache(tmp_path):
-    backend, registry, mgr = make_ctx(tmp_path)
+    backend, registry, mgr = cached_ctx(tmp_path)
     d = Dialogue(speaker="Rick", text="Hey", source="api")
     mgr.synthesize(d)
     mgr.synthesize(replace(d, instruct="whisper"))
@@ -98,7 +176,7 @@ def test_instruct_change_invalidates_cache(tmp_path):
 
 
 def test_voice_mapping_change_produces_fresh_audio(tmp_path):
-    backend, registry, mgr = make_ctx(tmp_path)
+    backend, registry, mgr = cached_ctx(tmp_path)
     registry.register("Rick")
     d = Dialogue(speaker="Rick", text="Hello", source="api")
 
@@ -114,7 +192,7 @@ def test_voice_mapping_change_produces_fresh_audio(tmp_path):
 
 
 def test_clear_cache_removes_all_files(tmp_path):
-    backend, registry, mgr = make_ctx(tmp_path)
+    backend, registry, mgr = cached_ctx(tmp_path)
     mgr.synthesize(Dialogue(speaker="Rick", text="Hello", source="api"))
     mgr.synthesize(Dialogue(speaker="Rick", text="Another", source="api"))
     assert len(list(mgr.cache_dir.iterdir())) == 2
@@ -128,7 +206,7 @@ def test_clear_cache_removes_all_files(tmp_path):
 
 
 def test_clear_cache_absent_dir_is_noop(tmp_path):
-    backend, registry, mgr = make_ctx(tmp_path)
+    backend, registry, mgr = cached_ctx(tmp_path)
     # Cache dir created on construct; drop it to emulate "nothing cached".
     import shutil
 

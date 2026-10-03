@@ -1,9 +1,14 @@
 """Voice orchestration for NovaTTS.
 
-Bridges the speaker registry (``speaker → voice``) to the Qwen backend
-and caches generated audio on disk by content hash. The cache key
-includes text, voice, instruct and emotion so changing a mapping
-produces fresh audio without interfering with existing speakers.
+Bridges the speaker registry (``speaker → voice``) to the Qwen backend.
+The content-hash cache inherited from the source project is off by default
+(``NOVATTS_CACHE_ENABLED``): it existed when a synthesis was expensive
+enough to deduplicate, and replaying a stored take also replays whatever
+emotion the model happened to put in it that one time. With it off every
+line is synthesized fresh into a throwaway file that is deleted once it has
+been played. When it is switched on, the key includes text, voice, instruct
+and emotion so changing a mapping produces fresh audio without interfering
+with existing speakers.
 
 This module never holds mutable voice state across calls — the historic
 "Qwen couples voices on the GPU and the override slowly leaks" bug is
@@ -15,6 +20,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
+import uuid
 from pathlib import Path
 
 from ..config import settings
@@ -60,11 +67,18 @@ class VoiceManager:
         backend: TTSBackend,
         registry: SpeakerRegistry,
         cache_dir: str | Path = "",
+        cache_enabled: bool | None = None,
     ) -> None:
         self.backend = backend
         self.registry = registry
         self.cache_dir = Path(cache_dir or settings.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_enabled = settings.cache_enabled if cache_enabled is None else cache_enabled
+        # Throwaway files created while the cache is off, waiting to be deleted
+        # after playback. A lock because synthesis runs on the clipboard worker
+        # while /speak and voice previews arrive on request threads.
+        self._ephemeral: set[Path] = set()
+        self._ephemeral_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public API
@@ -84,7 +98,7 @@ class VoiceManager:
         *,
         voice_override: str | None = None,
     ) -> Path:
-        """Synthesize a line, returning the WAV path (cache hit when possible)."""
+        """Synthesize a line, returning the WAV path (cache hit when enabled)."""
         text = dialogue.text.strip()
         if not text:
             raise ValueError("Cannot synthesize empty text")
@@ -94,11 +108,15 @@ class VoiceManager:
         emotion = getattr(dialogue, "emotion", "") or ""
 
         voice = self.resolve_voice(speaker, voice_override)
-        path = self._cache_path(text, voice, instruct, emotion)
-
-        if path.exists():
-            log.debug("Cache hit: %s", path.name)
-            return path
+        if not self.cache_enabled:
+            # No dedup: a fresh file every time, keyed by nothing. release()
+            # removes it again once the player is done with it.
+            path = self._throwaway_path()
+        else:
+            path = self._cache_path(text, voice, instruct, emotion)
+            if path.exists():
+                log.debug("Cache hit: %s", path.name)
+                return path
 
         self.backend.synthesize(
             text,
@@ -106,14 +124,34 @@ class VoiceManager:
             voice=voice,
             instruct=instruct,
             emotion=emotion,
+            params=self._sampling_params(),
         )
         self._ensure_level(path)
         log.info("Synthesized %s -> %s (voice=%s)", text[:40], path.name, voice)
         return path
 
+    def release(self, path: Path | str | None) -> None:
+        """Delete a throwaway file after it finished playing.
+
+        Only ever touches files this manager created with the cache off: an
+        emotion sound or a cached take must survive. Never raises -- a failed
+        cleanup must not interrupt playback bookkeeping.
+        """
+        if path is None:
+            return
+        p = Path(path)
+        with self._ephemeral_lock:
+            if p not in self._ephemeral:
+                return
+            self._ephemeral.discard(p)
+        try:
+            p.unlink(missing_ok=True)
+        except Exception as exc:
+            log.warning("Could not remove throwaway file %s: %s", p.name, exc)
+
     def is_cached(self, dialogue: Dialogue | SpeakRequest) -> bool:
         text = dialogue.text.strip()
-        if not text:
+        if not text or not self.cache_enabled:
             return False
         speaker = getattr(dialogue, "speaker", None)
         instruct = getattr(dialogue, "instruct", "") or ""
@@ -169,14 +207,17 @@ class VoiceManager:
             del_fn(name)
 
     def clear_cache(self) -> None:
-        """Remove all cached synthesis output.
+        """Remove every synthesis output this manager wrote.
 
-        The cache is an ephemeral, session-scoped dedup store: it exists to
-        avoid re-synthesizing a line that plays repeatedly within one run.
-        Clearing it on clean shutdown keeps it from growing unboundedly
-        across sessions (a voice mapping change would otherwise force a full
-        rebuild anyway).
+        Both cache modes land in the same directory: hashed takes when the
+        cache is on, throwaway ``live-`` files when it is off. Either way it is
+        ephemeral and session-scoped, so clearing it on clean shutdown keeps it
+        from growing unboundedly (a voice mapping change would otherwise force
+        a full rebuild anyway). Throwaway files still queued for playback are
+        released too, so release() cannot try to delete them twice.
         """
+        with self._ephemeral_lock:
+            self._ephemeral.clear()
         if not self.cache_dir.exists():
             return
         try:
@@ -206,6 +247,32 @@ class VoiceManager:
     @staticmethod
     def _normalize(text: str) -> str:
         return " ".join(text.strip().split())
+
+    def _throwaway_path(self) -> Path:
+        """Reserve an unused filename for a line that is never deduplicated."""
+        path = self.cache_dir / f"live-{uuid.uuid4().hex}.wav"
+        with self._ephemeral_lock:
+            self._ephemeral.add(path)
+        return path
+
+    @staticmethod
+    def _sampling_params() -> dict[str, object]:
+        """Explicit sampling values, so no request runs on a random draw.
+
+        qwentts.cpp leaves every one of these unset by default and then samples
+        at temperature 0.9 with top_p 1.0 under a fresh hardware seed. That is
+        why the same sentence could come out clean once and, the next time,
+        trail off past its own full stop into a breath or a hic. Sent on every
+        call, they also make a line repeatable -- which the disk cache used to
+        provide, only without writing anything to disk.
+        """
+        return {
+            "seed": settings.qwen_seed,
+            "temperature": settings.qwen_temperature,
+            "top_p": settings.qwen_top_p,
+            "top_k": settings.qwen_top_k,
+            "repetition_penalty": settings.qwen_repetition_penalty,
+        }
 
     def _cache_path(
         self,

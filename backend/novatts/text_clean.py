@@ -8,7 +8,8 @@ literally, which breaks immersion.
 Rule of thumb from notes:
 - ``*...*`` with 1 word inside  -> emotion  -> remove entirely.
 - ``*...*`` with 2+ words        -> thought -> keep inner text sans asterisks.
-- ``...`` / ``...`` (ellipsis)    -> always an emotion pause -> strip.
+- ``...`` on its own             -> an emotional pause, nothing to say -> drop.
+- ``...`` between words         -> prosody Qwen3 renders as real silence -> KEEP.
 - Bare primal sounds (haha, hehe, aah, aaaaaaaaaah, etc.) -> remove.
 - Catches leftover ``*word*`` blocks via fallback ``\\*[^*]+\\*``.
 
@@ -80,6 +81,68 @@ def strip_leading_punctuation(text: str) -> str:
     deliberate prosody and must survive.
     """
     return _LEADING_PUNCT_RE.sub("", text or "")
+
+
+def strip_trailing_stray_punctuation(text: str) -> str:
+    """Tidy the line's ending without flattening its cadence.
+
+    Qwen3 reads punctuation, so what ends up in front of the model is not a
+    cosmetic detail:
+
+    - "Yes..." keeps its dots and "Really?!" keeps both marks. Glued to the
+      last word they are prosody, and a pause Qwen3 turns into silence is
+      exactly the timing the line wants.
+    - "Zij zei slurp." keeps its full stop once "slurp" is gone. The mark ends
+      up detached by a space, but it is still the sentence's own ending, so
+      it is glued back on.
+    - "I love it, ." loses its tail: a full stop after a comma is what an
+      emotion word removed from between two marks leaves behind, and no voice
+      can pronounce it.
+    """
+    s = (text or "").rstrip()
+    if not s or s[-1].isalnum():
+        return s
+    # Walk back over the trailing marks to what they are attached to: the last
+    # word, or a gap. Meeting the word first means the run is glued to it and
+    # is prosody. Meeting a gap first means it stands on its own.
+    last_ws = -1
+    word_end = -1
+    for i in range(len(s) - 1, -1, -1):
+        ch = s[i]
+        if ch.isspace():
+            last_ws = i
+            break
+        if ch.isalnum():
+            word_end = i + 1
+            break
+    if word_end > 0:
+        run = s[word_end:]
+        # A run mixing in a comma or semicolon cannot close a sentence, so it
+        # is stranded: "I love it,." drops to "I love it."
+        if any(ch in ",;" for ch in run):
+            return s[:word_end] + run[-1]
+        return s
+    if last_ws <= 0:
+        return s  # nothing but punctuation; the caller decides what that means
+    head = s[:last_ws].rstrip()
+    chunk = s[last_ws + 1 :]
+    # A lone terminator detached by the removal is the sentence's own ending,
+    # so it goes back on -- unless what it would join is a comma or a pause,
+    # which would only weld two runs into one the text never wrote.
+    if len(chunk) == 1 and chunk in ".?!" and head and head[-1] not in ",;:.…":
+        return head + chunk
+    return head
+
+
+def _close_up(m: re.Match[str]) -> str:
+    """Remove the space in front of a stranded mark: "Hello , world" -> "Hello,".
+
+    Not next to a pause though. After an emotion is removed, "Yes... ." is
+    what is left of "Yes... aah." and the space there is all that keeps the
+    sentence's full stop from welding onto the ellipsis, making one run of
+    four dots that says something the text never did.
+    """
+    return m.group(1)
 
 
 def _load_patterns() -> list[re.Pattern[str]]:
@@ -160,16 +223,15 @@ def clean_emotion_text(text: str, aliases: dict[str, str] | None = None) -> str:
     t = t.replace("*", "")
     for pat in pats:
         t = pat.sub(" ", t)
-    t = _ELLIPSIS_RE.sub(" ", t)
+    # "..." is an emotional pause only when it is all the line has left. Between
+    # words it is prosody that Qwen3 renders as real silence, and dropping it is
+    # what turned "if you want... I... ehm" into one flat run-on sentence.
+    if not has_speakable_text(t):
+        t = _ELLIPSIS_RE.sub(" ", t)
     t = _WS_RE.sub(" ", t).strip()
-    t = re.sub(r"\s+([,.!?;:])", r"\1", t)
-    # An emotion word can vanish between two marks -- "I love it, aah." leaves
-    # "I love it,." and "Aah! Yes..." leaves a leading "!". Neither is
-    # something a voice can pronounce, so fold each punctuation run down to
-    # the first mark and drop it when it starts the line. The trailing "..."
-    # on real text is prosody and is left alone.
-    t = re.sub(r"[,.!?;:]{2,}", lambda m: m.group(0)[0], t)
+    t = re.sub(r"(?<![.…])\s+([,.!?;:])", _close_up, t)
     t = strip_leading_punctuation(t)
+    t = strip_trailing_stray_punctuation(t)
     return t.strip()
 
 
