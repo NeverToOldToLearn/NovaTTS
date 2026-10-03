@@ -143,5 +143,87 @@ def test_map_file_is_synced_and_ignores_missing_files(tmp_path: Path) -> None:
     assert json.loads(stub.map_file.read_text(encoding="utf-8")) == stub.sound_map
 
 
+REPO_DATA = Path(__file__).resolve().parents[2] / "data"
+REAL_PATTERNS = REPO_DATA / "emotion_patterns.json"
+
+
+def _real() -> EmotionSounds:
+    """EmotionSounds reading the shipped emotion_patterns.json."""
+    es = EmotionSounds.__new__(EmotionSounds)
+    es.dir = REPO_DATA
+    es.map_file = REPO_DATA / "__nonexistent_map__.json"
+    es.patterns_file = REAL_PATTERNS
+    es.aliases_file = REPO_DATA / "__nonexistent_aliases__.json"
+    es._on_disk = {}
+    es._slug_index = {}
+    es._lock = __import__("threading").Lock()
+    es.sound_map = {}
+    es.pattern_defs = []
+    es.compiled = []
+    es.aliases = {}
+    es._reload()
+    return es
+
+
+# Ordinary words and the kind of names an AVN is full of. These used to be
+# played as a moan: "\b[mnhaeou]+[mngh][mnhaeou]{2,}\b" matches "human"
+# (hu + m + an) and every Anna / Emma / Hannah.
+REAL_WORDS = [
+    "human", "Anna", "Emma", "Hannah", "Anne", "Megan", "anana", "Nina",
+    "I felt human again.", "Anna looked at me.", "Emma and Hannah waited.",
+    "Megan and Anna hummed.", "Anne is human.",
+]
+
+# Words the shipped patterns themselves own. Names like "moan" or "gasp" are
+# only matched in their starred form (*moan*), and the spelled-out runs like
+# "aaaaaaaah" live in the user's alias file, so neither belongs in this list.
+REAL_SOUNDS = ["haha", "sigh", "aaannh", "hnnng", "hmpf", "argh"]
+
+
+def test_shipped_patterns_do_not_eat_real_words() -> None:
+    es = _real()
+    bad = [(line, tags) for line in REAL_WORDS for _, tags in [es.extract(line)] if tags]
+    assert not bad, f"woorden die als emotie werden afgespeeld: {bad}"
+
+
+def test_shipped_patterns_still_catch_real_emotions() -> None:
+    es = _real()
+    missed = [w for w in REAL_SOUNDS if not es.extract(w)[1]]
+    assert not missed, f"emoties die niet meer herkend worden: {missed}"
+
+
+def test_shipped_patterns_keep_every_pattern_compilable() -> None:
+    """The GUI edits this file, so a broken regex must fail loudly, not at runtime."""
+    es = _real()
+    assert es.pattern_defs, "emotion_patterns.json leverde geen patronen op"
+    for item in es.pattern_defs:
+        assert item.get("pattern"), f"patroon zonder regex: {item}"
+
+
+def test_three_letters_in_a_row_is_always_an_emotion() -> None:
+    """Any letter, not just [mnh]: no English or Dutch word has xxx in it."""
+    es = _real()
+    for word in ("harrrraaahrrreee", "haaaaaa", "ohhh", "eeeit", "tzzzz"):
+        cleaned, positions = es.extract(word)
+        assert word not in cleaned, f"{word!r} bereikte Qwen: {cleaned!r}"
+    # and it must not fire on anything pronounceable
+    for word in ("assess", "coffee", "committee", "bookkeeper", "successful", "mamma"):
+        cleaned, _ = es.extract(word)
+        assert word in cleaned, f"{word!r} werd onterecht verwijderd"
+
+
+def test_short_names_are_never_moan_patterns() -> None:
+    """The moan class needs two nasals after a vowel run; a name cannot supply both."""
+    es = _real()
+    for name in ("Anna", "Emma", "Hannah", "Nina", "Megan", "Anne", "Ines", "Emanuela"):
+        assert not es.extract(name)[1], f"{name!r} speelde een emotie"
+
+
+def test_old_loose_patterns_are_gone() -> None:
+    """Guards the specific regression: the character-class pattern is removed."""
+    patterns = [p["pattern"] for p in json.loads(REAL_PATTERNS.read_text(encoding="utf-8"))]
+    assert not [p for p in patterns if "[mnhaeou]" in p], "de losse-klasse-patronen zijn terug"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

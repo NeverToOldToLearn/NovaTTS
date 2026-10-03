@@ -244,23 +244,19 @@
         "tag": "moanb"
     },
     {
-        "pattern": "\\b[aou]+[mngh]+[aou]+\\b",
-        "tag": null
-    },
-    {
         "pattern": "\\b([mngh]){3,}([aouh]{1}[mngh]*)+\\b",
         "tag": "moanc"
     },
     {
-        "pattern": "\\b[mnhaeou]+[mngh][mnhaeou]{2,}\\b",
+        "pattern": "\\b[aeiou]{2,}[mn]{2,}[a-z'’-]*\\b",
         "tag": "moand"
     },
     {
-        "pattern": "\\b([mnh])\\1{2,}[aou]+[mgh]+\\b",
+        "pattern": "\\b[aeiou]{2,}[mngh]{1,3}\\b",
         "tag": null
     },
     {
-        "pattern": "\\b([a-zA-Z])\\1{2,}\\b",
+        "pattern": "\\b[a-z'’-]*([a-z])\\1{2,}[a-z'’-]*\\b",
         "tag": null
     },
     {
