@@ -13,7 +13,7 @@
   let err = $state("");
   let info = $state("");
   let previewBusy: string | null = $state(null);
-  let previewText = $state("Hello from NovaTTS.");
+  let previewText = $state("The quick brown fox jumps over the lazy dog.");
   let showAdvanced = $state(false);
   let showVoices = $state(false);
   let editing: string | null = $state(null);

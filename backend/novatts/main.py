@@ -777,7 +777,7 @@ async def preview_voice(name: str, body: SpeakBody) -> dict[str, Any]:
     # "Aah!" cleans down to "!" — truthy, but nothing a voice can pronounce.
     text = clean_emotion_text(body.text.strip())
     if not has_speakable_text(text):
-        text = "Hello from NovaTTS."
+        text = "The quick brown fox jumps over the lazy dog"
     try:
         path = rt.voices.synthesize(Dialogue(speaker=None, text=text, source="api"), voice_override=name)
         rt.player.enqueue_interrupt(path)
