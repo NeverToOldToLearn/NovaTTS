@@ -113,10 +113,38 @@ def _load_patterns() -> list[re.Pattern[str]]:
     return out
 
 
-def clean_emotion_text(text: str) -> str:
+def _alias_patterns(aliases: dict[str, str] | None) -> list[re.Pattern[str]]:
+    """Bare and starred forms of the user's own aliases.
+
+    Same two shapes EmotionSounds.extract() builds, so a word means the same
+    thing on the /speak route as it does on the clipboard route.
+    """
+    if not aliases:
+        return []
+    out: list[re.Pattern[str]] = []
+    for expr in aliases:
+        esc = re.escape(expr.strip("*"))
+        if not esc:
+            continue
+        for pat in (rf"\b{esc}\b", rf"\*{esc}\*"):
+            try:
+                out.append(re.compile(pat, re.I))
+            except re.error:
+                continue
+    return out
+
+
+def clean_emotion_text(text: str, aliases: dict[str, str] | None = None) -> str:
+    """Strip emotion words from `text` for the /speak and preview routes.
+
+    These routes play no sound, so an emotion word is removed rather than
+    spoken -- Qwen reads "spluuuurt" as gibberish. `aliases` is the user's own
+    phrase-to-tag mapping; without it those phrases were spoken here while the
+    clipboard route quietly removed them.
+    """
     if not text or not text.strip():
         return ""
-    pats = _load_patterns()
+    pats = _alias_patterns(aliases) + _load_patterns()
     t = text
 
     def _asterisk_replace(m: re.Match[str]) -> str:
@@ -135,7 +163,14 @@ def clean_emotion_text(text: str) -> str:
     t = _ELLIPSIS_RE.sub(" ", t)
     t = _WS_RE.sub(" ", t).strip()
     t = re.sub(r"\s+([,.!?;:])", r"\1", t)
-    return t
+    # An emotion word can vanish between two marks -- "I love it, aah." leaves
+    # "I love it,." and "Aah! Yes..." leaves a leading "!". Neither is
+    # something a voice can pronounce, so fold each punctuation run down to
+    # the first mark and drop it when it starts the line. The trailing "..."
+    # on real text is prosody and is left alone.
+    t = re.sub(r"[,.!?;:]{2,}", lambda m: m.group(0)[0], t)
+    t = strip_leading_punctuation(t)
+    return t.strip()
 
 
 def reload_patterns() -> None:

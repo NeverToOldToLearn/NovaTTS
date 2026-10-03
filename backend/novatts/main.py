@@ -320,7 +320,9 @@ class NovaApp:
     def speak(self, req: SpeakRequest) -> dict[str, Any]:
         from .text_clean import clean_emotion_text, has_speakable_text
 
-        cleaned = clean_emotion_text(req.text)
+        # The user's aliases count here too, or a word they mapped by hand
+        # would be spoken on this route while the clipboard route plays it.
+        cleaned = clean_emotion_text(req.text, self.emotions.aliases)
         # "Aah!" cleans down to "!", which is not empty but also not speakable.
         if not has_speakable_text(cleaned):
             raise HTTPException(status_code=400, detail="Text empty after emotion filtering")
@@ -775,7 +777,7 @@ async def preview_voice(name: str, body: SpeakBody) -> dict[str, Any]:
 
     rt = get_runtime()
     # "Aah!" cleans down to "!" — truthy, but nothing a voice can pronounce.
-    text = clean_emotion_text(body.text.strip())
+    text = clean_emotion_text(body.text.strip(), rt.emotions.aliases)
     if not has_speakable_text(text):
         text = "The quick brown fox jumps over the lazy dog"
     try:

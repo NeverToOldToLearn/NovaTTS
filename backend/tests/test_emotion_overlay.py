@@ -98,14 +98,15 @@ def test_strip_leading_punctuation_keeps_trailing() -> None:
     assert strip_leading_punctuation("Yes...") == "Yes..."
 
 
-def test_api_cleaner_leaves_punctuation_that_callers_must_guard() -> None:
-    """The /speak route uses clean_emotion_text, which stops at "!".
+def test_api_cleaner_no_longer_leaves_stranded_punctuation() -> None:
+    """An emotion that is the only content leaves nothing speakable.
 
-    Callers there check has_speakable_text() instead of .strip() -- that guard
-    is the only thing standing between a bare "!" and a synthesis request.
+    The callers still guard with has_speakable_text(); this pins down that
+    the guard has to stay.
     """
-    assert clean_emotion_text("*Aah*!").strip() == "!"
-    assert not has_speakable_text(clean_emotion_text("*Aah*!"))
+    cleaned = clean_emotion_text("*Aah*!")
+    assert not has_speakable_text(cleaned), f"{cleaned!r} zou naar Qwen gaan"
+    assert not has_speakable_text(clean_emotion_text("...", None))
 
 
 def test_map_file_is_synced_and_ignores_missing_files(tmp_path: Path) -> None:
@@ -217,6 +218,55 @@ def test_short_names_are_never_moan_patterns() -> None:
     es = _real()
     for name in ("Anna", "Emma", "Hannah", "Nina", "Megan", "Anne", "Ines", "Emanuela"):
         assert not es.extract(name)[1], f"{name!r} speelde een emotie"
+
+
+def test_sniff_family_all_reach_the_sniffle_sound() -> None:
+    """"sniff" is common in AVN text but is not always a sniffle."""
+    es = _real()
+    for word in ("sniff", "sniffs", "sniffle", "sniffles", "sniffling", "snifflings"):
+        cleaned, positions = es.extract(word)
+        assert [t for _, t in positions] == ["sniffle"], f"{word!r} -> {positions}"
+        assert not cleaned.strip(), f"{word!r} bereikte ook nog Qwen: {cleaned!r}"
+
+
+def test_sniff_family_does_not_swallow_ordinary_verbs() -> None:
+    """"sniffled" and "sniffily" are real words; only the -le/-ling forms go."""
+    es = _real()
+    for word in ("sniffled", "sniffily", "sniffl"):
+        assert not es.extract(word)[1], f"{word!r} speelde een emotie"
+
+
+def test_sobs_still_reaches_the_sniffle_sound() -> None:
+    es = _real()
+    assert [t for _, t in es.extract("sobs")[1]] == ["sniffle"]
+
+
+ALIASES = {"slurp": "slurp", "hiccup": "hic", "splurt": "moanb"}
+
+
+def test_speak_route_honours_the_users_aliases() -> None:
+    """Before, 26 of the shipped aliases were read out loud on this route."""
+    for expr in ALIASES:
+        line = f"Zij zei {expr} en lachte."
+        assert clean_emotion_text(line, ALIASES) == "Zij zei en lachte.", expr
+
+
+def test_speak_route_without_aliases_is_unchanged() -> None:
+    """The default must keep working for callers that pass no mapping."""
+    assert clean_emotion_text("*Aah!* Come here.") == "Come here."
+    assert clean_emotion_text("Zij zei slurp.") == "Zij zei slurp."
+
+
+def test_speak_route_never_hands_qwen_stranded_punctuation() -> None:
+    """A removed emotion can leave ",." or a leading "!" behind."""
+    assert clean_emotion_text("I love it, aah.", {"aah": "moang"}) == "I love it,"
+    assert clean_emotion_text("Aah! Yes...", {"aah": "moang"}) == "Yes"
+    assert clean_emotion_text("Zij zei slurp.", ALIASES) == "Zij zei."
+    assert not has_speakable_text(clean_emotion_text("Hmm.", {"hmm": "hmm"}))
+
+
+def test_punctuation_folding_spares_abbreviations() -> None:
+    assert clean_emotion_text("Mr. Smith said no.") == "Mr. Smith said no."
 
 
 def test_old_loose_patterns_are_gone() -> None:

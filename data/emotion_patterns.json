@@ -240,6 +240,22 @@
         "tag": "sniffle"
     },
     {
+        "pattern": "\\bsniffle\\b",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\bsniffles\\b",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\bsniffling\\b",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\bsnifflings\\b",
+        "tag": "sniffle"
+    },
+    {
         "pattern": "\\b[mn]{3,}[aouh][mngh]+\\b",
         "tag": "moanb"
     },
