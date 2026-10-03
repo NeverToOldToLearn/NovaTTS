@@ -195,6 +195,7 @@
   .rows{ list-style:none; margin:0; padding:0; }
   .rows li{ border-top:1px solid #262a33; font-size:0.78rem; min-width:0; }
   .rows li.stale{ background:#2a1f24; } .rows li.unassigned{ background:#1e2430; } .rows li.fallback .name-cell{ color:#8b8e9a; }
+  .rows li:hover{ background:#2c3140; }
   .name-cell{ display:flex; gap:0.3rem; align-items:center; flex-wrap:nowrap; min-width:0; overflow:hidden; }
   .sname{ font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1; }
   .badge{ border-radius:999px; font-size:0.6rem; padding:0.1rem 0.35rem; font-weight:600; white-space:nowrap; }
