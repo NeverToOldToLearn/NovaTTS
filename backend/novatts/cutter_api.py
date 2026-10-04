@@ -63,6 +63,10 @@ class BatchBody(BaseModel):
     whisper_exe: str = ""
     whisper_model: str = ""
     lang: str = "en"
+    split: bool = True
+    """Split long files into utterances (edgelock), merge sub-min_seg fragments."""
+    min_seg: float = 3.0
+    max_seg: float = 12.0
 
 
 @router.get("/config")
@@ -133,13 +137,19 @@ async def export(body: ExportBody) -> dict[str, Any]:
 
 @router.post("/batch/preflight")
 async def batch_preflight(body: BatchBody) -> dict[str, Any]:
-    ok, lines = preflight(body.input_dir, body.output_dir, body.whisper_exe, body.whisper_model)
+    ok, lines = preflight(
+        body.input_dir, body.output_dir, body.whisper_exe, body.whisper_model,
+        split=body.split, min_seg=body.min_seg, max_seg=body.max_seg,
+    )
     return {"ok": ok, "lines": lines}
 
 
 @router.post("/batch/start")
 async def batch_start(body: BatchBody) -> dict[str, Any]:
-    ok, lines = preflight(body.input_dir, body.output_dir, body.whisper_exe, body.whisper_model)
+    ok, lines = preflight(
+        body.input_dir, body.output_dir, body.whisper_exe, body.whisper_model,
+        split=body.split, min_seg=body.min_seg, max_seg=body.max_seg,
+    )
     if not ok:
         raise HTTPException(status_code=400, detail="preflight failed")
     if not _job.start(
@@ -148,6 +158,9 @@ async def batch_start(body: BatchBody) -> dict[str, Any]:
         whisper_exe=body.whisper_exe,
         whisper_model=body.whisper_model,
         lang=body.lang,
+        split=body.split,
+        min_seg=body.min_seg,
+        max_seg=body.max_seg,
     ):
         raise HTTPException(status_code=409, detail="a batch is already running")
     return {"status": "started", "lines": lines}

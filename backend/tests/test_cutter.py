@@ -228,6 +228,14 @@ def test_preflight_counts_wavs(tmp_path):
     assert any("1 wav(s)" in line for line in lines)
 
 
+def test_preflight_mentions_split_mode(tmp_path):
+    (tmp_path / "a.wav").write_bytes(b"RIFF")
+    _, lines = preflight(str(tmp_path), str(tmp_path), "", "", split=True, min_seg=3.0, max_seg=12.0)
+    assert any("utterance split on (3.0–12.0s" in line for line in lines)
+    _, lines = preflight(str(tmp_path), str(tmp_path), "", "", split=False)
+    assert any("whole files" in line for line in lines)
+
+
 def test_preflight_ok_when_everything_present(tmp_path, monkeypatch):
     for name in ("ffmpeg.exe", "whisper-cli.exe", "model.bin"):
         (tmp_path / name).write_bytes(b"MZ")
@@ -432,6 +440,40 @@ def test_api_batch_start_conflicts_when_one_is_already_running(
         json={"input_dir": "a", "output_dir": "b", "whisper_exe": "c", "whisper_model": "d"},
     )
     assert r.status_code == 409
+
+
+def test_api_batch_start_passes_split_options(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """New BatchBody fields reach the job; old payloads still validate via defaults."""
+    from novatts import cutter_api
+
+    seen: dict[str, object] = {}
+
+    class _CaptureJob:
+        def start(self, **kwargs: object) -> bool:
+            seen.update(kwargs)
+            return True
+
+        def stop(self) -> bool:
+            return False
+
+        def status(self) -> dict[str, object]:
+            return {"running": True, "lines": []}
+
+    monkeypatch.setattr(cutter_api, "preflight", lambda *_a, **_k: (True, ["ok"]))
+    monkeypatch.setattr(cutter_api, "_job", _CaptureJob())
+    r = client.post(
+        "/cutter/batch/start",
+        json={
+            "input_dir": "a", "output_dir": "b", "whisper_exe": "c", "whisper_model": "d",
+            "split": False, "min_seg": 4.0, "max_seg": 15.0,
+        },
+    )
+    assert r.status_code == 200
+    assert seen["split"] is False
+    assert seen["min_seg"] == 4.0
+    assert seen["max_seg"] == 15.0
 
 
 class _AlwaysRunningJob:

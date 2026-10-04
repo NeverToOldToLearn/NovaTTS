@@ -23,6 +23,9 @@
   let status = $state<BatchStatus | null>(null);
   let logLines = $state<string[]>([]);
   let busy = $state(false);
+  let split = $state(true);
+  let minSeg = $state(3);
+  let maxSeg = $state(12);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   /** Guards the "batch done" status line so it is announced only once. */
   let announced = false;
@@ -33,6 +36,9 @@
     whisper_exe: config.whisper_exe,
     whisper_model: config.whisper_model,
     lang: config.lang,
+    split,
+    min_seg: minSeg,
+    max_seg: maxSeg,
   });
 
   /**
@@ -185,7 +191,7 @@
   <header class="head">
     <div>
       <h2>Dataset Prep</h2>
-      <p class="subtitle">Batch clean (silenceremove + loudnorm → 24 kHz mono PCM16) + whisper transcription</p>
+      <p class="subtitle">Batch clean (silenceremove + loudnorm → 24 kHz mono PCM16) + utterance split + whisper transcription</p>
     </div>
     {#if status?.running}
       <span class="pill running">{status.index}/{status.total}</span>
@@ -257,6 +263,28 @@
 
   <div class="panel">
     <div class="row">
+      <h3>Segments</h3>
+    </div>
+    <label class="chk">
+      <input type="checkbox" bind:checked={split} />
+      <span>Split long files into utterances (edgelock) — shorts under <em>min</em> merge into a neighbour</span>
+    </label>
+    <div class="row">
+      <label class="f sm">
+        <span>Min (s)</span>
+        <input type="number" value={minSeg} min={0.5} max={30} step={0.5} disabled={!split} oninput={(e) => (minSeg = e.currentTarget.valueAsNumber || 3)} />
+      </label>
+      <label class="f sm">
+        <span>Max (s)</span>
+        <input type="number" value={maxSeg} min={1} max={60} step={1} disabled={!split} oninput={(e) => (maxSeg = e.currentTarget.valueAsNumber || 12)} />
+      </label>
+      <span class="spacer"></span>
+    </div>
+    <p class="muted">Split files become <code>name_001.wav</code> (+ .txt) per utterance. Files that need no split keep their plain name — same output as before.</p>
+  </div>
+
+  <div class="panel">
+    <div class="row">
       <button onclick={start} disabled={busy || !!status?.running}>▶ Start batch</button>
       <button class="ghost" onclick={stop} disabled={!status?.running}>■ Stop</button>
       <button class="ghost" onclick={preflight}>Preflight</button>
@@ -312,9 +340,15 @@
   .bar .fill{ height:100%; background:#3b4b8f; transition:width 0.3s ease; }
   .cur{ margin:0; color:#8b8e9a; font-size:0.75rem; }
   .log pre{ margin:0; background:#14151a; border:1px solid #2a2d36; border-radius:9px; padding:0.6rem 0.7rem; max-height:260px; overflow:auto; font-size:0.74rem; line-height:1.45; color:#b6b8c0; white-space:pre-wrap; word-break:break-word; }
+  .chk{ display:flex; gap:0.5rem; align-items:flex-start; font-size:0.84rem; color:#b6b8c0; cursor:pointer; line-height:1.4; }
+  .chk input{ accent-color:#3b4b8f; margin-top:0.2rem; }
+  .chk em{ font-style:normal; color:#8b8e9a; }
+  .muted{ margin:0; color:#8b8e9a; font-size:0.78rem; }
+  .muted code{ background:#232634; padding:0.05rem 0.3rem; border-radius:4px; font-size:0.72rem; }
   .foot{ margin:0; color:#6b6e79; font-size:0.75rem; }
   .foot code{ background:#232634; padding:0.05rem 0.3rem; border-radius:4px; font-size:0.72rem; }
   input,select{ background:#14151a; border:1px solid #343842; color:#e8e8ec; border-radius:9px; padding:0.45rem 0.6rem; font-size:0.85rem; line-height:1.2; }
+  input[type="checkbox"]{ padding:0; width:1rem; height:1rem; flex:none; }
   input.mono{ font-family:ui-monospace,monospace; }
   input:focus,select:focus{ outline:none; border-color:#4a5aa8; box-shadow:0 0 0 3px rgba(59,75,143,0.25); }
   button{ background:#3b4b8f; color:#fff; border:none; border-radius:9px; padding:0.5rem 0.85rem; cursor:pointer; font-size:0.84rem; font-weight:550; line-height:1; white-space:nowrap; }

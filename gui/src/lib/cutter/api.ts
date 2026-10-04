@@ -22,6 +22,9 @@ export interface BatchInput {
   whisper_exe: string;
   whisper_model: string;
   lang: string;
+  split: boolean;
+  min_seg: number;
+  max_seg: number;
 }
 
 export const cutterApi = {

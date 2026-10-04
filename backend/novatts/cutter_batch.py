@@ -19,11 +19,13 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .cutter import BATCH_CLEAN_FILTER, QWEN_SAMPLE_RATE, resolve_ffmpeg
+from .cutter import BATCH_CLEAN_FILTER, QWEN_SAMPLE_RATE, export_cut, resolve_ffmpeg
+from .cutter_segments import DEFAULT_MAX_SEG, DEFAULT_MIN_SEG, plan_segments, read_mono_float
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +73,10 @@ def preflight(
     output_dir: str,
     whisper_exe: str,
     whisper_model: str,
+    *,
+    split: bool = True,
+    min_seg: float = DEFAULT_MIN_SEG,
+    max_seg: float = DEFAULT_MAX_SEG,
 ) -> tuple[bool, list[str]]:
     """Validate every path the batch needs. Returns (ok, human-readable log)."""
     lines: list[str] = []
@@ -115,8 +121,17 @@ def preflight(
             lines.append(f"✗ ffmpeg unusable ({ffmpeg}): {exc}")
             ok = False
 
+    if split:
+        lines.append(f"✂ utterance split on ({min_seg:.1f}–{max_seg:.1f}s, shorts merged)")
+    else:
+        lines.append("▬ whole files (utterance split off)")
+
     lines.append("— preflight OK —" if ok else "⛔ fix the errors above before starting")
     return ok, lines
+
+
+class _AbortBatch(Exception):
+    """Internal control flow: a tool went missing — stop the whole batch."""
 
 
 class BatchJob:
@@ -147,12 +162,18 @@ class BatchJob:
         whisper_exe: str,
         whisper_model: str,
         lang: str,
+        split: bool = True,
+        min_seg: float = DEFAULT_MIN_SEG,
+        max_seg: float = DEFAULT_MAX_SEG,
     ) -> bool:
         with self._lock:
             if self._state.running:
                 return False
             self._stop.clear()
             self._state = BatchResult(running=True)
+        # Nonsense ranges must not produce nonsense segments.
+        min_seg = max(0.5, float(min_seg or DEFAULT_MIN_SEG))
+        max_seg = max(min_seg, float(max_seg or DEFAULT_MAX_SEG))
         self._thread = threading.Thread(
             target=self._run,
             kwargs={
@@ -161,6 +182,9 @@ class BatchJob:
                 "whisper_exe": whisper_exe,
                 "whisper_model": whisper_model,
                 "lang": lang or "en",
+                "split": bool(split),
+                "min_seg": min_seg,
+                "max_seg": max_seg,
             },
             name="cutter-batch",
             daemon=True,
@@ -191,6 +215,86 @@ class BatchJob:
             self._state.index = index
             self._state.name = name
 
+    def _plan_file(
+        self,
+        clean: Path,
+        stem: str,
+        *,
+        split: bool,
+        min_seg: float,
+        max_seg: float,
+    ) -> list[tuple[float, float]]:
+        """Utterance spans for one cleaned file (whole-file fallback, never empty)."""
+        with wave.open(str(clean), "rb") as w:
+            n, rate = w.getnframes(), w.getframerate() or 1
+        duration = n / rate
+        if not split:
+            return [(0.0, duration)]
+        try:
+            samples, sr = read_mono_float(clean)
+        except Exception as exc:
+            self._log(f"⚠ {stem}: unreadable cleaned audio ({exc}) — whole file")
+            return [(0.0, duration)]
+        try:
+            return plan_segments(samples, sr, min_seg=min_seg, max_seg=max_seg)
+        except Exception as exc:
+            self._log(f"⚠ {stem}: segmentation failed ({exc}) — whole file")
+            return [(0.0, duration)]
+
+    @staticmethod
+    def _clean_duration(clean: Path) -> float:
+        with wave.open(str(clean), "rb") as w:
+            return w.getnframes() / (w.getframerate() or 1)
+
+    def _transcribe_and_store(
+        self,
+        *,
+        clean_src: Path,
+        seg_stem: str,
+        tmpdir: Path,
+        out_dir: Path,
+        whisper_exe: str,
+        whisper_model: str,
+        lang: str,
+    ) -> bool:
+        """Whisper-transcribe one (possibly cut) cleaned file, move the pair out."""
+        try:
+            subprocess.run(
+                [whisper_exe, "-m", whisper_model, "-f", str(clean_src), "-l", lang,
+                 "-otxt", "-of", str(tmpdir / seg_stem)],
+                capture_output=True, text=True, timeout=WHISPER_TIMEOUT_S, check=True,
+            )
+        except FileNotFoundError:
+            self._log("✗ whisper-cli not found — aborting.")
+            raise _AbortBatch from None
+        except subprocess.TimeoutExpired:
+            self._log(f"✗ whisper timeout ({WHISPER_TIMEOUT_S}s) on {seg_stem}")
+            return False
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or exc.stdout or "")[-300:]
+            self._log(f"✗ whisper failed on {seg_stem}: {err}")
+            return False
+
+        txt = next(
+            (p for p in (
+                tmpdir / f"{seg_stem}.txt",
+                tmpdir / f"{seg_stem}_clean.wav.txt",
+                tmpdir / f"{seg_stem}_clean.txt",
+            ) if p.is_file()),
+            None,
+        )
+        if txt is None:
+            self._log(f"⚠ no transcript produced for {seg_stem}")
+            return False
+
+        try:
+            shutil.move(str(clean_src), str(out_dir / f"{seg_stem}.wav"))
+            shutil.move(str(txt), str(out_dir / f"{seg_stem}.txt"))
+        except OSError as exc:
+            self._log(f"✗ could not move results for {seg_stem}: {exc}")
+            return False
+        return True
+
     def _run(
         self,
         *,
@@ -199,6 +303,9 @@ class BatchJob:
         whisper_exe: str,
         whisper_model: str,
         lang: str,
+        split: bool,
+        min_seg: float,
+        max_seg: float,
     ) -> None:
         out_dir = Path(output_dir)
         ffmpeg = resolve_ffmpeg()
@@ -222,6 +329,7 @@ class BatchJob:
 
         with tempfile.TemporaryDirectory(prefix="novatts-cut-") as tmp:
             tmpdir = Path(tmp)
+            aborted = False
             for idx, wav in enumerate(files, start=1):
                 if self._stop.is_set():
                     self._log("⏹ stopped by user.")
@@ -253,48 +361,47 @@ class BatchJob:
                     self._bump(fail=True)
                     continue
 
-                self._log(f"[{idx}/{len(files)}] transcribing {stem}…")
+                segments = self._plan_file(clean, stem, split=split, min_seg=min_seg, max_seg=max_seg)
+                dur = self._clean_duration(clean)
+                multi = len(segments) > 1
+                if multi:
+                    lens = ", ".join(f"{e - s:.1f}s" for s, e in segments)
+                    self._log(f"✂ {stem} → {len(segments)} segments ({lens})")
+                file_ok = True
                 try:
-                    subprocess.run(
-                        [whisper_exe, "-m", whisper_model, "-f", str(clean), "-l", lang,
-                         "-otxt", "-of", str(tmpdir / stem)],
-                        capture_output=True, text=True, timeout=WHISPER_TIMEOUT_S, check=True,
-                    )
-                except FileNotFoundError:
-                    self._log("✗ whisper-cli not found — aborting.")
+                    for k, (s, e) in enumerate(segments):
+                        if self._stop.is_set():
+                            self._log("⏹ stopped by user.")
+                            aborted = True
+                            break
+                        seg_stem = f"{stem}_{k + 1:03d}" if multi else stem
+                        seg_clean = clean
+                        if multi or s > 0.005 or e < dur - 0.005:
+                            seg_clean = tmpdir / f"{seg_stem}_clean.wav"
+                            self._log(f"[{idx}/{len(files)}] cutting {seg_stem} ({e - s:.1f}s)…")
+                            try:
+                                export_cut(
+                                    src=str(clean), out=str(seg_clean),
+                                    start=s, end=e, mode="native", ffmpeg=ffmpeg,
+                                )
+                            except Exception as exc:
+                                self._log(f"✗ cut failed on {seg_stem}: {exc}")
+                                file_ok = False
+                                continue
+                        self._log(f"[{idx}/{len(files)}] transcribing {seg_stem}…")
+                        if not self._transcribe_and_store(
+                            clean_src=seg_clean, seg_stem=seg_stem, tmpdir=tmpdir,
+                            out_dir=out_dir, whisper_exe=whisper_exe,
+                            whisper_model=whisper_model, lang=lang,
+                        ):
+                            file_ok = False
+                except _AbortBatch:
                     break
-                except subprocess.TimeoutExpired:
-                    self._log(f"✗ whisper timeout ({WHISPER_TIMEOUT_S}s) on {stem}")
-                    self._bump(fail=True)
-                    continue
-                except subprocess.CalledProcessError as exc:
-                    err = (exc.stderr or exc.stdout or "")[-300:]
-                    self._log(f"✗ whisper failed on {stem}: {err}")
-                    self._bump(fail=True)
-                    continue
-
-                txt = next(
-                    (p for p in (
-                        tmpdir / f"{stem}.txt",
-                        tmpdir / f"{stem}_clean.wav.txt",
-                        tmpdir / f"{stem}_clean.txt",
-                    ) if p.is_file()),
-                    None,
-                )
-                if txt is None:
-                    self._log(f"⚠ no transcript produced for {stem}")
-                    self._bump(fail=True)
-                    continue
-
-                try:
-                    shutil.move(str(clean), str(out_dir / f"{stem}.wav"))
-                    shutil.move(str(txt), str(out_dir / f"{stem}.txt"))
-                except OSError as exc:
-                    self._log(f"✗ could not move results for {stem}: {exc}")
-                    self._bump(fail=True)
-                    continue
-                self._log(f"✓ {stem}")
-                self._bump()
+                if aborted:
+                    break
+                if file_ok:
+                    self._log(f"✓ {stem}")
+                self._bump(fail=not file_ok)
 
         with self._lock:
             ok, fail, total = self._state.ok, self._state.fail, self._state.total
