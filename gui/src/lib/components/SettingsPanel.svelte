@@ -175,6 +175,32 @@
   </div>
 
   <div class="section">
+    <h3>Voice Design (experimenteel)</h3>
+    <label class="chk"><input type="checkbox" bind:checked={form.voice_design_enabled} /> Inschakelen (opt-in — standaard uit)</label>
+    <div class="form-grid">
+      <label class="field-row">
+        <span class="fk">Voicedesign model (.gguf)</span>
+        <div class="fv">
+          <input class="field" bind:value={form.qwen_voicedesign_model} placeholder="qwen-talker-1.7b-voicedesign-Q8_0.gguf" />
+        </div>
+      </label>
+      <label class="field-row">
+        <span class="fk">qwen-tts binary</span>
+        <div class="fv">
+          <input class="field" bind:value={form.qwen_tts_bin} placeholder="auto = naast tts-server.exe" />
+        </div>
+      </label>
+      <label class="field-row">
+        <span class="fk">Output map</span>
+        <div class="fv">
+          <input class="field" bind:value={form.voice_design_dir} placeholder="data/voice_design" />
+        </div>
+      </label>
+    </div>
+    <p class="muted small">Genereert los van de draaiende engine via <code>qwen-tts.exe --instruct …</code>; de base server blijft ongemoeid.</p>
+  </div>
+
+  <div class="section">
     <h3>Voice Samples</h3>
     <div class="form-grid">
       <label class="field-row">

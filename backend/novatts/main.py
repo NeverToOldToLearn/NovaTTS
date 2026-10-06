@@ -88,6 +88,10 @@ class SettingsBody(BaseModel):
     qwen_samples_dir: str | None = None
     qwen_samples_dirs_extra: str | None = None
     qwen_codec_bin: str | None = None
+    qwen_voicedesign_model: str | None = None
+    qwen_tts_bin: str | None = None
+    voice_design_dir: str | None = None
+    voice_design_enabled: bool | None = None
     emotion_sounds_dir: str | None = None
     qwen_timeout: float | None = None
     qwen_extra_args: str | None = None
@@ -109,6 +113,24 @@ class OpenAISpeechBody(BaseModel):
     """Playback speed (0.25–4.0)."""
     instructions: str = ""
     """Voice design instructions."""
+
+
+class VoiceDesignBody(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+    """Te spreken zin (gaat via stdin naar qwen-tts)."""
+    instruct: str = Field(..., min_length=1, max_length=1000)
+    """Stem-beschrijving, bv. 'young female, cheerful, high pitch'."""
+    language: str = "auto"
+    seed: int = -1
+    temperature: float = 0.9
+    top_k: int = 50
+    top_p: float = 1.0
+    save_name: str = ""
+
+
+class VoiceDesignPromoteBody(BaseModel):
+    file: str = Field(..., min_length=1)
+    voice_name: str = Field(..., min_length=1, max_length=80)
 
 
 # ----------------------------------------------------------------------
@@ -749,6 +771,115 @@ async def qwen_convert_samples(force: bool = False) -> dict[str, Any]:
     return summary
 
 
+# ----------------------------------------------------------------------
+# Voice design (qwen-talker-*-voicedesign via qwen-tts CLI, los van tts-server)
+# ----------------------------------------------------------------------
+
+
+@app.get("/voice-design/status")
+async def voice_design_status() -> dict[str, Any]:
+    from . import voice_design as _vd
+
+    return dict(_vd.status())
+
+
+@app.post("/voice-design/generate")
+async def voice_design_generate(body: VoiceDesignBody) -> dict[str, Any]:
+    from . import voice_design as _vd
+    from .config import settings as _s
+
+    if not _s.voice_design_enabled:
+        raise HTTPException(status_code=403, detail="Voice-design staat uit — zet het aan onder Settings → Voice Design.")
+    try:
+        path = _vd.generate(
+            text=body.text,
+            instruct=body.instruct,
+            language=body.language,
+            seed=body.seed,
+            temperature=body.temperature,
+            top_k=body.top_k,
+            top_p=body.top_p,
+            save_name=body.save_name,
+        )
+    except (ValueError, FileNotFoundError, FileExistsError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "file": path.name, "size": path.stat().st_size}
+
+
+@app.get("/voice-design/files")
+async def voice_design_files() -> dict[str, Any]:
+    from . import voice_design as _vd
+
+    return {"files": _vd.list_files(), "dir": str(_vd.out_dir())}
+
+
+@app.get("/voice-design/audio/{name}")
+async def voice_design_audio(name: str) -> Any:
+    from fastapi.responses import FileResponse
+
+    from . import voice_design as _vd
+
+    safe = name.strip().replace("/", "").replace("\\", "")
+    path = _vd.out_dir() / safe
+    if not path.is_file() or path.suffix.lower() != ".wav":
+        raise HTTPException(status_code=404, detail=f"Design-bestand niet gevonden: {name}")
+    return FileResponse(str(path), media_type="audio/wav", filename=path.name)
+
+
+@app.delete("/voice-design/files/{name}")
+async def voice_design_delete(name: str) -> dict[str, Any]:
+    from . import voice_design as _vd
+
+    try:
+        ok = _vd.delete_file(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Design-bestand niet gevonden: {name}")
+    return {"status": "ok", "deleted": name}
+
+
+@app.post("/voice-design/promote")
+async def voice_design_promote(body: VoiceDesignPromoteBody) -> dict[str, Any]:
+    from . import voice_design as _vd
+    from .config import settings as _s
+
+    if not _s.voice_design_enabled:
+        raise HTTPException(status_code=403, detail="Voice-design staat uit — zet het aan onder Settings → Voice Design.")
+    try:
+        return {"status": "ok", **_vd.promote_to_samples(body.file, body.voice_name)}
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class VoiceDesignSpeedBody(BaseModel):
+    file: str = Field(..., min_length=1)
+    speed: float = Field(..., ge=0.25, le=2.0)
+
+
+@app.post("/voice-design/render-speed")
+async def voice_design_render_speed(body: VoiceDesignSpeedBody) -> dict[str, Any]:
+    """Bewaar een design-WAV op gehoorde afspeelsnelheid als nieuw bestand."""
+    from . import voice_design as _vd
+    from .config import settings as _s
+
+    if not _s.voice_design_enabled:
+        raise HTTPException(status_code=403, detail="Voice-design staat uit — zet het aan onder Settings → Voice Design.")
+    try:
+        path = _vd.render_speed(body.file, body.speed)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "file": path.name, "size": path.stat().st_size, "speed": body.speed}
+
+
 @app.post("/shutdown")
 async def shutdown() -> dict[str, Any]:
     import contextlib
@@ -934,6 +1065,10 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "qwen_model": "NOVATTS_QWEN_MODEL",
     "qwen_codec": "NOVATTS_QWEN_CODEC",
     "qwen_codec_bin": "NOVATTS_QWEN_CODEC_BIN",
+    "qwen_voicedesign_model": "NOVATTS_QWEN_VOICEDESIGN_MODEL",
+    "qwen_tts_bin": "NOVATTS_QWEN_TTS_BIN",
+    "voice_design_dir": "NOVATTS_VOICE_DESIGN_DIR",
+    "voice_design_enabled": "NOVATTS_VOICE_DESIGN_ENABLED",
     "qwen_url": "NOVATTS_QWEN_URL",
     "qwen_default_voice": "NOVATTS_QWEN_DEFAULT_VOICE",
     "qwen_samples_dir": "NOVATTS_QWEN_SAMPLES_DIR",
@@ -956,6 +1091,10 @@ def _settings_snapshot() -> dict[str, Any]:
         "qwen_model": settings.qwen_model,
         "qwen_codec": settings.qwen_codec,
         "qwen_codec_bin": settings.qwen_codec_bin,
+        "qwen_voicedesign_model": settings.qwen_voicedesign_model,
+        "qwen_tts_bin": settings.qwen_tts_bin,
+        "voice_design_dir": str(settings.voice_design_dir),
+        "voice_design_enabled": settings.voice_design_enabled,
         "qwen_url": settings.qwen_url,
         "qwen_default_voice": settings.qwen_default_voice,
         "qwen_samples_dir": settings.qwen_samples_dir,

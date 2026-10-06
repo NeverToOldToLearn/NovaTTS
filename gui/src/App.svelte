@@ -1,11 +1,25 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Dashboard from "./lib/components/Dashboard.svelte";
   import SpeakersPanel from "./lib/components/SpeakersPanel.svelte";
   import BlacklistPanel from "./lib/components/BlacklistPanel.svelte";
   import EmotionsPanel from "./lib/components/EmotionsPanel.svelte";
   import SettingsPanel from "./lib/components/SettingsPanel.svelte";
+  import VoiceDesignPanel from "./lib/components/VoiceDesignPanel.svelte";
+  import { api } from "./lib/api";
 
-  let tab: "dashboard" | "speakers" | "blacklist" | "emotions" | "settings" = "dashboard";
+  let tab: "dashboard" | "speakers" | "blacklist" | "emotions" | "voicedesign" | "settings" = $state("dashboard");
+  // Opt-in: sidebar-item alleen zichtbaar als voice-design aan staat (default uit).
+  let voiceDesignEnabled = $state(false);
+
+  onMount(async () => {
+    try {
+      const s = await api.settings();
+      voiceDesignEnabled = (s.settings as { voice_design_enabled?: boolean }).voice_design_enabled === true;
+    } catch {
+      voiceDesignEnabled = false;
+    }
+  });
 </script>
 
 <main class="app">
@@ -27,6 +41,11 @@
       <button class:active={tab === "emotions"} onclick={() => (tab = "emotions")}>
         <span class="ico">♪</span> Emotions
       </button>
+      {#if voiceDesignEnabled}
+      <button class:active={tab === "voicedesign"} onclick={() => (tab = "voicedesign")}>
+        <span class="ico">✦</span> Voice Design
+      </button>
+      {/if}
       <button class:active={tab === "settings"} onclick={() => (tab = "settings")}>
         <span class="ico">⚙</span> Settings
       </button>
@@ -43,6 +62,8 @@
       <BlacklistPanel />
     {:else if tab === "emotions"}
       <EmotionsPanel />
+    {:else if tab === "voicedesign"}
+      <VoiceDesignPanel />
     {:else}
       <SettingsPanel />
     {/if}

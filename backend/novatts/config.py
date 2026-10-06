@@ -104,6 +104,14 @@ class Settings(BaseSettings):
     # qwen-codec.exe binary for pre-extracting .spk/.rvq voice references.
     # Leeg = auto-detect als sibling van NOVATTS_QWEN_BIN.
     qwen_codec_bin: str = ""
+    # Voice-design (experimenteel): apart 1.7B voicedesign-model + qwen-tts CLI.
+    # qwen_tts_bin leeg = auto-detect als sibling van NOVATTS_QWEN_BIN (qwen-tts.exe).
+    qwen_voicedesign_model: str = r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-voicedesign-Q8_0.gguf"
+    qwen_tts_bin: str = ""
+    voice_design_dir: Path = DATA_DIR / "voice_design"
+    # Opt-in voor eindgebruik: uit = geen Voice Design-tab, generate/promote
+    # geven een duidelijke melding. Alles buiten voice-design blijft werken.
+    voice_design_enabled: bool = False
     blacklist_file: Path = DATA_DIR / "blacklist.json"
 
     # --- Clipboard adapter ---

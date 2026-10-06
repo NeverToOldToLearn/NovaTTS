@@ -116,6 +116,37 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  voiceDesignStatus: () =>
+    req<{
+      enabled: boolean;
+      tts_bin: string; model: string; codec: string; out_dir: string;
+      tts_exists: boolean; model_exists: boolean; codec_exists: boolean;
+      busy: boolean; languages: string[];
+    }>("/voice-design/status"),
+  voiceDesignGenerate: (body: {
+    text: string; instruct: string; language: string;
+    seed: number; temperature: number; top_k: number; top_p: number; save_name?: string;
+  }) =>
+    req<{ status: string; file: string; size: number }>("/voice-design/generate", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  voiceDesignFiles: () =>
+    req<{ files: { name: string; size: number; mtime: number }[]; dir: string }>("/voice-design/files"),
+  voiceDesignAudioUrl: (name: string) => `${BASE}/voice-design/audio/${encodeURIComponent(name)}`,
+  voiceDesignDelete: (name: string) =>
+    req<{ status: string; deleted: string }>(`/voice-design/files/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  voiceDesignPromote: (file: string, voice_name: string) =>
+    req<{ status: string; src: string; dest: string; voice: string; registered: boolean | null }>("/voice-design/promote", {
+      method: "POST",
+      body: JSON.stringify({ file, voice_name }),
+    }),
+  voiceDesignRenderSpeed: (file: string, speed: number) =>
+    req<{ status: string; file: string; size: number; speed: number }>("/voice-design/render-speed", {
+      method: "POST",
+      body: JSON.stringify({ file, speed }),
+    }),
   testTts: () => req<{ status: string; file: string; size: number }>("/test-tts", { method: "POST" }),
   openClipboardLog: () =>
     req<{ status: string; path: string }>("/clipboard-log/open", { method: "POST" }),

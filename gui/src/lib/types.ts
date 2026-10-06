@@ -83,6 +83,10 @@ export interface SettingsData {
   qwen_codec_bin: string;
   qwen_url: string;
   qwen_default_voice: string;
+  qwen_voicedesign_model: string;
+  qwen_tts_bin: string;
+  voice_design_dir: string;
+  voice_design_enabled: boolean;
   qwen_samples_dir: string;
   qwen_samples_dirs_extra: string;
   emotion_sounds_dir: string;
