@@ -29,11 +29,25 @@ data_datas = [
 
 block_cipher = None
 
+# sounddevice loads PortAudio from its own _sounddevice_data dir at runtime
+# (resolved relative to the package). Mirror that dir into the bundle so the
+# exe finds it; guarded so the spec still runs when sounddevice is absent at
+# build time (streaming then falls back to the file path at runtime).
+sd_datas: list[tuple[str, str]] = []
+try:
+    import sounddevice as _sd
+
+    _sd_data = Path(_sd.__file__).parent / "_sounddevice_data"
+    if _sd_data.is_dir():
+        sd_datas.append((str(_sd_data), "sounddevice/_sounddevice_data"))
+except Exception:
+    pass
+
 a = Analysis(
     [str(BACKEND_DIR / "run.py")],
     pathex=[str(BACKEND_DIR)],
     binaries=[],
-    datas=data_datas + [(str(BACKEND_DIR / ".env.example"), ".")],
+    datas=data_datas + [(str(BACKEND_DIR / ".env.example"), ".")] + sd_datas,
     hiddenimports=[
         "uvicorn.logging",
         "uvicorn.loops",
@@ -46,6 +60,8 @@ a = Analysis(
         "uvicorn.lifespan",
         "uvicorn.lifespan.on",
         "pygame",
+        "sounddevice",
+        "cffi",
     ],
     hookspath=[],
     hooksconfig={},

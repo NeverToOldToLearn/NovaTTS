@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 
@@ -50,3 +51,36 @@ class TTSBackend(abc.ABC):
         params: dict[str, object] | None = None,
     ) -> Path:
         """Synthesize ``text`` to a WAV at ``output_path``. Raises on failure."""
+
+    def synthesize_stream(
+        self,
+        text: str,
+        *,
+        voice: str | None = None,
+        instruct: str | None = None,
+        emotion: str | None = None,
+        params: dict[str, object] | None = None,
+        chunk_size: int = 65536,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[bytes]:
+        """Yield s16le 24 kHz mono PCM blocks as they are generated.
+
+        The default implementation synthesizes to a temp WAV and replays it
+        in chunks, so backends without true streaming still work (without
+        the latency win). Must be closed by the caller; may raise
+        NotImplementedError only when even the fallback cannot run.
+        """
+        import tempfile
+
+        from .pcm import file_to_pcm24
+
+        with tempfile.TemporaryDirectory(prefix="novatts-stream-") as tmp:
+            out = Path(tmp) / "full.wav"
+            self.synthesize(text, out, voice=voice, instruct=instruct, emotion=emotion, params=params)
+            pcm = file_to_pcm24(out)
+            if pcm is None:
+                raise RuntimeError("stream fallback could not decode its own synthesis")
+            for off in range(0, len(pcm), chunk_size):
+                if is_cancelled is not None and is_cancelled():
+                    break
+                yield pcm[off : off + chunk_size]

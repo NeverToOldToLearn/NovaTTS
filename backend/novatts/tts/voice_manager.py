@@ -22,6 +22,7 @@ import json
 import logging
 import threading
 import uuid
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from ..config import settings
@@ -47,7 +48,10 @@ def default_voice_for_new_speaker(voices: list[str], used: set[str] | None = Non
     candidates = sorted({v for v in voices if v})
     if not candidates:
         return ""
-    is_female = lambda v: not v.lower().startswith(("m-", "m_"))
+
+    def is_female(v: str) -> bool:
+        return not v.lower().startswith(("m-", "m_"))
+
     female = [v for v in candidates if is_female(v)]
     used_set = {u for u in (used or set()) if u}
     unused = [v for v in candidates if v not in used_set]
@@ -129,6 +133,38 @@ class VoiceManager:
         self._ensure_level(path)
         log.info("Synthesized %s -> %s (voice=%s)", text[:40], path.name, voice)
         return path
+
+    def stream_pcm(
+        self,
+        dialogue: Dialogue | SpeakRequest,
+        *,
+        voice_override: str | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[bytes]:
+        """Yield s16le 24 kHz mono PCM blocks for one text chunk, as generated.
+
+        Same voice resolution and sampling params as :meth:`synthesize`, but
+        with no file, no cache and no peak-normalize (the peak is only known
+        afterwards; the player applies the configured fixed lift instead).
+        The caller MUST close the generator to release the HTTP connection.
+        """
+        text = dialogue.text.strip()
+        if not text:
+            raise ValueError("Cannot synthesize empty text")
+        speaker = getattr(dialogue, "speaker", None)
+        instruct = getattr(dialogue, "instruct", "") or ""
+        emotion = getattr(dialogue, "emotion", "") or ""
+        voice = self.resolve_voice(speaker, voice_override)
+        gen = self.backend.synthesize_stream(
+            text,
+            voice=voice,
+            instruct=instruct,
+            emotion=emotion,
+            params=self._sampling_params(),
+            is_cancelled=is_cancelled,
+        )
+        log.info("Streaming %s (voice=%s)", text[:40], voice)
+        return gen
 
     def release(self, path: Path | str | None) -> None:
         """Delete a throwaway file after it finished playing.
