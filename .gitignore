@@ -58,3 +58,4 @@ installer/Output/
 *.log
 backend/dist/
 backend/build/
+data/game_links.json
