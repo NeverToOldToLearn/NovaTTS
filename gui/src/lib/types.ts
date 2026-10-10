@@ -58,6 +58,15 @@ export interface SpeakersResponse {
   fallback: string;
 }
 
+export interface GameLink {
+  game: string;
+  folder: string;
+  helper: string;
+  helper_file: string;
+  speakers: string;
+  migrated: boolean;
+}
+
 export interface EventEntry {
   type: string;
   payload: Record<string, unknown>;

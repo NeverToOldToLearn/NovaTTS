@@ -12,6 +12,10 @@
   let qwenMsg = $state("");
   let newGame = $state("");
   let importing = $state(false);
+  let folderPath = $state("");
+  let folders: Record<string, string> = $state({});
+  let linkMsg = $state("");
+  let linkBusy = $state(false);
 
   const levelOf = (t: string) => t === "error" ? "error" : t === "queued" ? "info" : t === "speaker_discovered" || t === "unassigned_speaker" ? "warn" : "muted";
 
@@ -20,6 +24,7 @@
       health = await api.health();
       status = await api.status();
       qwen = (status?.qwen_mgr as unknown as QwenStatus) ?? await api.qwenStatus();
+      try { folders = (await api.games()).folders ?? {}; } catch {}
     } catch { health = null; status = null; }
     if (logging) { try { events = await api.events(80); } catch {} }
   };
@@ -28,6 +33,25 @@
   const importNow = async () => { importing = true; qwenMsg = ""; try { const r = await api.importSamples(); qwenMsg = `Imported ${r.imported}/${r.total} voice(s) (${r.pairs} pairs, ${r.wavs} wavs${r.failed.length ? `, ${r.failed.length} failed` : ""})`; } catch (e) { qwenMsg = `Import failed: ${(e as Error).message}`; } importing = false; await poll(); };
   const createGame = async () => { const n = newGame.trim(); if (!n) return; await api.createGame(n); newGame = ""; await poll(); };
   const switchGame = async (name: string) => { await api.setActiveGame(name); await poll(); };
+  const linkFolder = async () => {
+    const game = status?.game; const folder = folderPath.trim();
+    if (!game || !folder || linkBusy) return;
+    linkBusy = true; linkMsg = "";
+    try {
+      const r = await api.linkGameFolder(game, folder);
+      linkMsg = `Gekoppeld — mod: ${r.helper}${r.migrated ? " · speakers verhuisd" : ""}${r.helper === "foreign" ? " · LET OP: eigen bestand met mod-naam blijft staan" : ""}`;
+      folderPath = "";
+    } catch (e) { linkMsg = `Koppelen mislukt: ${(e as Error).message}`; }
+    linkBusy = false; await poll();
+  };
+  const unlinkFolder = async () => {
+    const game = status?.game;
+    if (!game || linkBusy) return;
+    linkBusy = true; linkMsg = "";
+    try { await api.unlinkGameFolder(game); linkMsg = "Ontkoppeld — speakers staan weer in de data-map."; }
+    catch (e) { linkMsg = `Ontkoppelen mislukt: ${(e as Error).message}`; }
+    linkBusy = false; await poll();
+  };
   onMount(() => { poll(); const id = setInterval(poll, 2500); return () => clearInterval(id); });
 </script>
 
@@ -53,6 +77,18 @@
       <input class="field" bind:value={newGame} placeholder="New game name…" onkeydown={(e)=>e.key==="Enter"&&createGame()} />
       <button onclick={createGame} disabled={!newGame.trim()}>Add</button>
     </div>
+    {#if status?.game}
+      <div class="link-row">
+        {#if folders[status.game]}
+          <span class="mono small wrap" title={folders[status.game]}>🔗 {folders[status.game]}</span>
+          <button class="ghost" onclick={unlinkFolder} disabled={linkBusy}>Unlink</button>
+        {:else}
+          <input class="field" bind:value={folderPath} placeholder="Gamemap plakken… (map met game\ erin)" onkeydown={(e)=>e.key==="Enter"&&linkFolder()} />
+          <button class="ghost" onclick={linkFolder} disabled={linkBusy || !folderPath.trim()}>{linkBusy?"…":"Link folder"}</button>
+        {/if}
+      </div>
+      {#if linkMsg}<span class="hint">{linkMsg}</span>{/if}
+    {/if}
   </div>
 
   <div class="cards">
@@ -119,6 +155,8 @@
   .game-name{ font-size:0.95rem; }
   .game-controls{ display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; flex:1; justify-content:flex-end; }
   .game-controls select{ min-width:170px; flex:1 1 160px; max-width:220px; }
+  .link-row{ display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; flex-basis:100%; }
+  .link-row .field{ flex:1 1 220px; max-width:340px; }
   .field{ flex:1 1 180px; max-width:240px; min-width:160px; }
   .cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0.7rem; }
   .card{ background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:0.85rem 1rem; display:flex; flex-direction:column; gap:0.35rem; }

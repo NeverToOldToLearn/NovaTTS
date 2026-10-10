@@ -99,9 +99,16 @@ export const api = {
       { method: "POST", body: JSON.stringify({ text }) },
     ),
 
-  games: () => req<{ active: string; games: string[] }>("/games"),
+  games: () => req<{ active: string; games: string[]; folders?: Record<string, string> }>("/games"),
   createGame: (name: string) => req<{ game: string; games: string[] }>("/games", { method: "POST", body: JSON.stringify({ name }) }),
   setActiveGame: (name: string) => req<{ game: string; speakers: unknown; path: string }>("/games/active", { method: "POST", body: JSON.stringify({ name }) }),
+  linkGameFolder: (name: string, folder: string) =>
+    req<{ status: string; game: string; folder: string; helper: string; helper_file: string; speakers: string; migrated: boolean }>(
+      `/games/${encodeURIComponent(name)}/link`,
+      { method: "POST", body: JSON.stringify({ folder }) },
+    ),
+  unlinkGameFolder: (name: string) =>
+    req<{ status: string; game: string }>(`/games/${encodeURIComponent(name)}/link`, { method: "DELETE" }),
   blacklist: () => req<{ custom_words: string[]; enabled_presets: string[]; presets: string[] }>("/blacklist"),
   setBlacklist: (custom_words: string[] | null, enabled_presets: string[] | null) =>
     req<{ custom_words: string[]; enabled_presets: string[] }>("/blacklist", { method: "POST", body: JSON.stringify({ custom_words, enabled_presets }) }),

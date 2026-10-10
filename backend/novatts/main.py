@@ -559,7 +559,7 @@ async def health() -> dict[str, Any]:
 @app.get("/games")
 async def list_games() -> dict[str, Any]:
     rt = get_runtime()
-    return {"active": rt.games.active(), "games": rt.games.list_games()}
+    return {"active": rt.games.active(), "games": rt.games.list_games(), "folders": rt.games.links()}
 
 
 @app.post("/games")
@@ -585,6 +585,38 @@ async def game_speakers(name: str) -> dict[str, Any]:
     rt = get_runtime()
     reg = _SR(rt.games.speakers_path(name))
     return {"game": name, "speakers": reg.to_dict()}
+
+
+class FolderBody(BaseModel):
+    folder: str = Field(..., min_length=1)
+
+
+@app.post("/games/{name}/link")
+async def link_game(name: str, body: FolderBody) -> dict[str, Any]:
+    """Link a game to its folder: install the helper mod there and move its
+    speakers.json along, so both vanish with the game on uninstall."""
+    rt = get_runtime()
+    try:
+        result = rt.games.set_link(name, body.folder)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Link failed: {exc}") from exc
+    if rt.games.active() == result["game"]:
+        with suppress(Exception):
+            rt.switch_game(result["game"])
+    return {"status": "linked", **result}
+
+
+@app.delete("/games/{name}/link")
+async def unlink_game(name: str) -> dict[str, Any]:
+    """Drop a folder link; the game falls back to data-dir storage."""
+    rt = get_runtime()
+    removed = rt.games.remove_link(name)
+    if rt.games.active() == removed:
+        with suppress(Exception):
+            rt.switch_game(removed)
+    return {"status": "unlinked", "game": removed}
 
 
 @app.get("/blacklist")
