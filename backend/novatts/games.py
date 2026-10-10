@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from pathlib import Path
@@ -34,10 +35,8 @@ class GameManager:
         return ""
 
     def _save_active(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.active_file.write_text(json.dumps({"active": self._active}, indent=2), encoding="utf-8")
-        except Exception:
-            pass
 
     def active(self) -> str:
         return self._active

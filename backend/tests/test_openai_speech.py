@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from novatts.main import app, _runtime, get_runtime, NovaApp
+from novatts.main import NovaApp, app
 
 
 @pytest.fixture(autouse=True)
 def setup_runtime() -> None:
     """Ensure runtime is initialized for tests."""
     import novatts.main as main_module
-    
+
     if main_module._runtime is None:
         main_module._runtime = NovaApp()
         main_module._runtime.start()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ from .cutter_api import router as cutter_router
 from .emotions import EmotionSounds
 from .games import GameManager
 from .models import Dialogue, Event, SpeakRequest
-from .player.audio import AudioPlayer
+from .player.audio import AudioPlayer, StreamUnavailable
 from .qwen_manager import QwenManager
 from .registry.speakers import SpeakerRegistry
 from .tts.qwen import Qwen3Backend
@@ -188,15 +188,11 @@ class NovaApp:
         if self.clipboard:
             self.clipboard.stop()
         self._running = False
-        try:
+        with suppress(Exception):
             self._wake.set()
-        except Exception:
-            pass
         if self._worker:
-            try:
+            with suppress(Exception):
                 self._worker.join(timeout=2.0)
-            except Exception:
-                pass
             self._worker = None
         self.player.stop()
         import contextlib
@@ -264,6 +260,16 @@ class NovaApp:
                 log.info("Skipped stale dialogue seq=%d latest=%d", seq, latest)
                 self._emit(Event("skipped", {"speaker": dialogue.speaker, "text": dialogue.text[:60]}))
                 continue
+            if settings.streaming_enabled:
+                try:
+                    self._play_streaming(dialogue, seq)
+                    continue
+                except StreamUnavailable as exc:
+                    log.warning("Live stream unavailable (%s); file fallback", exc)
+                except Exception as exc:
+                    log.error("Streaming failed: %s", exc)
+                    self._emit(Event("error", {"source": "clipboard", "error": str(exc)}))
+                    continue
             voice = self.registry.lookup_voice(dialogue.speaker) if dialogue.speaker else ""
             try:
                 paths = self._synth_emotion_aware(dialogue)
@@ -285,6 +291,88 @@ class NovaApp:
             self._emit(Event("queued", {"speaker": dialogue.speaker, "voice": voice or "(default)", "files": len(paths)}))
 
     # -- dialogue pipeline ---------------------------------------------
+
+    def _is_stale(self, seq: int) -> bool:
+        with self._pending_lock:
+            return seq != self._pending_seq
+
+    def _play_streaming(self, dialogue: Dialogue, seq: int) -> None:
+        """Play a clipboard line straight from the pcm stream (no WAV file).
+
+        Raises StreamUnavailable when no audio device is usable, so the
+        caller can fall back to the file path before any GPU work starts.
+        A line superseded mid-stream is cut off and reported as skipped,
+        mirroring the file path's stale checks.
+        """
+        from .tts.pcm import file_to_pcm24
+
+        cleaned, emotions = self.emotions.extract(dialogue.text)
+        plan = self.emotions.plan(cleaned, emotions)
+        if not plan:
+            return
+        session = self.player.begin_stream(
+            prebuffer_sec=settings.stream_prebuffer_sec,
+            gain=settings.stream_gain,
+        )
+        voice = self.registry.lookup_voice(dialogue.speaker) if dialogue.speaker else ""
+        fed_any = False
+        stopped = False
+        try:
+            for kind, value in plan:
+                if stopped or self._is_stale(seq):
+                    stopped = True
+                    break
+                if kind == "sound":
+                    ep = self.emotions.resolve_path(value)
+                    if ep is None:
+                        continue
+                    pcm = file_to_pcm24(ep)
+                    if not pcm:
+                        continue
+                    if not self.player.feed_stream(session, pcm):
+                        stopped = True
+                        break
+                    fed_any = True
+                    continue
+                gen = self.voices.stream_pcm(
+                    Dialogue(
+                        speaker=dialogue.speaker,
+                        text=value,
+                        source=dialogue.source,
+                        instruct=dialogue.instruct,
+                    ),
+                    is_cancelled=lambda: self._is_stale(seq),
+                )
+                try:
+                    for block in gen:
+                        if self._is_stale(seq) or not self.player.feed_stream(session, block):
+                            stopped = True
+                            break
+                        fed_any = True
+                except Exception as exc:
+                    # A truncated HTTP stream plays whatever arrived: the
+                    # server documents mid-stream failure as truncation.
+                    # Anything else before the first byte is a real failure.
+                    if not fed_any:
+                        raise
+                    log.warning("Stream truncated, playing buffered audio: %s", exc)
+                    break
+                finally:
+                    gen.close()
+            if stopped or self._is_stale(seq):
+                self.player.abort_stream(session)
+                log.info("Skipped stale stream seq=%d", seq)
+                self._emit(Event("skipped", {"speaker": dialogue.speaker, "text": dialogue.text[:60]}))
+                return
+            if not fed_any:
+                # Nothing playable (same as the file path's empty plan).
+                self.player.abort_stream(session)
+                return
+            self.player.finish_stream(session)
+            self._emit(Event("queued", {"speaker": dialogue.speaker, "voice": voice or "(default)", "stream": True}))
+        except BaseException:
+            self.player.abort_stream(session)
+            raise
 
     def _check_exception_filter(self, raw_text: str) -> bool:
         if is_renpy_exception(raw_text):
@@ -336,10 +424,8 @@ class NovaApp:
         with self._pending_lock:
             self._pending_seq += 1
             self._pending_dialogue = dialogue
-        try:
+        with suppress(Exception):
             self.player.stop_current()
-        except Exception:
-            pass
         self._wake.set()
 
     # -- API helpers ----------------------------------------------------
@@ -400,6 +486,8 @@ class NovaApp:
             "games": self.games.list_games(),
             "clipboard": self.clipboard.is_running() if self.clipboard else False,
             "queue_size": self.player.queue_size(),
+            "streaming": self.player.is_streaming(),
+            "keep_warm": self.player.keep_warm_active(),
             "current": str(self.player.current()) if self.player.current() else None,
             "cache_enabled": self.voices.cache_enabled,
             "speaker_count": len(self.registry.names()),
@@ -1038,10 +1126,7 @@ async def openai_speech(body: OpenAISpeechBody) -> Any:
 
     # Convert to requested format if not WAV
     try:
-        if format_name == "wav":
-            audio_data = path.read_bytes()
-        else:
-            audio_data = convert_audio(path, format_name)
+        audio_data = path.read_bytes() if format_name == "wav" else convert_audio(path, format_name)
     except Exception as exc:
         log.error("Audio format conversion failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Format conversion failed: {exc}") from exc

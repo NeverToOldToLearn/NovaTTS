@@ -5,3 +5,5 @@ pydantic-settings>=2.6
 pyperclip>=1.9
 pygame>=2.6
 requests>=2.32
+sounddevice>=0.5
+numpy>=1.26

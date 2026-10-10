@@ -9,6 +9,7 @@ previous voice onto the next line (the historic GPU-leak bug).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -162,3 +163,94 @@ class Qwen3Backend(TTSBackend):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(r.content)
         return output_path
+
+    def synthesize_stream(
+        self,
+        text: str,
+        *,
+        voice: str | None = None,
+        instruct: str | None = None,
+        emotion: str | None = None,
+        params: dict[str, object] | None = None,
+        chunk_size: int = 65536,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[bytes]:
+        """Yield raw s16le 24 kHz mono PCM blocks as the engine makes them.
+
+        Same request as :meth:`synthesize` but with ``response_format`` pcm,
+        which the server sends chunked per generated frame instead of as one
+        RIFF file at the end. Closing the generator (or ``is_cancelled``
+        turning true) drops the connection, and the server aborts generation
+        on its side instead of finishing a stream nobody reads.
+
+        Yields are sample-aligned (even byte counts). The caller MUST close
+        the generator (exhaust it, break out and ``close()`` it, or let the
+        ``finally`` below run) to release the HTTP connection back to the
+        pool. Mid-stream transport errors propagate to the caller, which
+        should play whatever arrived so far: the server documents that a
+        failure after streaming started surfaces as a truncated stream.
+        """
+        payload: dict[str, Any] = {
+            "input": text,
+            "response_format": "pcm",
+        }
+        chosen = voice or self.default_voice
+        if chosen:
+            payload["voice"] = chosen
+        if instruct:
+            payload["instruct"] = instruct
+        if emotion:
+            payload["emotion"] = emotion
+        if params:
+            for key in _SPEECH_PARAM_KEYS:
+                if key in params:
+                    payload[key] = params[key]
+
+        log.debug("Qwen stream: voice=%s chars=%d", chosen, len(text))
+        first = self._session.post(
+            f"{self.base_url}/v1/audio/speech",
+            json=payload,
+            timeout=self.timeout,
+            stream=True,
+        )
+        if first.status_code != 200 and chosen and "unknown voice" in first.text.lower():
+            log.warning("Unknown voice '%s' — retrying stream with model default", chosen)
+            first.close()
+            payload.pop("voice", None)
+            first = self._session.post(
+                f"{self.base_url}/v1/audio/speech",
+                json=payload,
+                timeout=self.timeout,
+                stream=True,
+            )
+        if first.status_code != 200:
+            detail = first.text[:200]
+            first.close()
+            raise RuntimeError(f"Qwen streaming failed ({first.status_code}): {detail}")
+        return self._read_stream(first, chunk_size=chunk_size, is_cancelled=is_cancelled)
+
+    def _read_stream(
+        self,
+        response: Any,
+        *,
+        chunk_size: int,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> Iterator[bytes]:
+        carry = b""
+        try:
+            for http_chunk in response.iter_content(chunk_size=chunk_size):
+                if is_cancelled is not None and is_cancelled():
+                    break
+                if not http_chunk:
+                    continue
+                data = carry + bytes(http_chunk)
+                # Keep sample alignment: a chunk may split an s16 sample.
+                if len(data) & 1:
+                    carry = data[-1:]
+                    data = data[:-1]
+                else:
+                    carry = b""
+                if data:
+                    yield data
+        finally:
+            response.close()

@@ -89,6 +89,27 @@ class Settings(BaseSettings):
     qwen_auto_import_samples: bool = True
     qwen_samples_dir: str = r"D:\!!Scripts!!\Samples_Clone"
     qwen_samples_dirs_extra: str = r""
+    # --- Streaming (pcm direct van tts-server, zonder WAV-omweg) ---
+    # Clipboard-regels gaan per chunk naar de luidspreker zodra de engine ze
+    # oplevert, in plaats van pas na de volledige synthese. Scheelt bij lange
+    # zinnen seconden time-to-first-audio (anders sneed RenPy-autoforward de
+    # lijn af voor hij begon). /speak, previews en de OpenAI-route blijven
+    # files gebruiken; bij een onbeschikbaar audio-device valt de worker
+    # stilzwijgend terug op het file-pad.
+    streaming_enabled: bool = True
+    # Start de weergave zodra zoveel audio gebufferd is (of de stream eindigt
+    # met minder). Hoger = minder kans op haperen, lager = sneller starten.
+    stream_prebuffer_sec: float = 0.4
+    # Vaste lift op de live stream: peak-normalize kent het piekniveau pas
+    # achteraf en kan hier dus niet draaien. 2.0 tilt de gemeten mediane
+    # ruwe piek (~0.39) naar het 0.89-doel; een tanh-limiter vangt clipping af.
+    stream_gain: float = 2.0
+    # Houd het output-device wakker met onhoorbare stilte terwijl de backend
+    # draait. Draadloze headsets (en DSP-stacks) slapen na idle in; de eerste
+    # seconden daarna klinken dan krakend tot de link/DSP is bijgetrokken --
+    # op beide afspeelpaden, want het zit niet in onze audio. Uit = bespaar
+    # headset-batterij; het device slaapt dan weer in bij stilte.
+    keep_warm_enabled: bool = True
     # --- Sampling ---
     # Sent on every request. Left out, qwentts.cpp samples with a fresh random
     # seed at temperature 0.9 / top_p 1.0 / top_k 50, so the same line comes

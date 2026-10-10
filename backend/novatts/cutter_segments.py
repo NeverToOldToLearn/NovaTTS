@@ -191,7 +191,7 @@ def _otsu(values: list[float]) -> float:
         hist[_clamp(int((v - lo) / (hi - lo) * bins), 0, bins - 1)] += 1
     centers = [lo + (i + 0.5) * (hi - lo) / bins for i in range(bins)]
     total = len(values)
-    sum_total = sum(h * c for h, c in zip(hist, centers))
+    sum_total = sum(h * c for h, c in zip(hist, centers, strict=True))
     w_b = 0
     sum_b = 0.0
     max_var = 0.0

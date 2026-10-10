@@ -21,6 +21,13 @@ from ..models import Dialogue
 _COLON_PATTERN = re.compile(r"^\s*(?P<name>[^:]{1,40})\s*:\s*(?P<line>\S.*?)\s*$")
 _PAREN_COLON_PATTERN = re.compile(r"^\s*\((?P<name>[^)]+)\)\s*:\s*(?P<line>\S.*?)\s*$")
 _PAREN_PATTERN = re.compile(r"^\s*\((?P<name>[^)]+)\)\s*(?P<line>\S.*?)\s*$")
+# Candidate speaker tags anywhere in the line, used for history-stripping
+# (see _strip_history). Deliberately tight -- at most 2 words, each starting
+# with an uppercase letter -- so a stale prefix can never be swallowed into
+# the tag itself ("... Caroline gav Samantha:" must yield "Samantha", not
+# "Caroline gav Samantha"). Longer / lowercase registered names are handled
+# separately via an explicit search in _strip_history.
+_HISTORY_TAG_PATTERN = re.compile(r"(?P<name>[A-Z][^:\s]{0,29}(?: [A-Z][^:\s]{0,29})?)\s*:\s+(?P<line>\S)")
 
 _MAX_SPEAKER_WORDS = 2
 
@@ -113,6 +120,13 @@ class RenPyParser:
         text = _normalize_text(raw)
         if not text:
             return Dialogue(speaker=None, text="", source=source)
+        # The game sometimes puts dialogue history on the clipboard ahead of
+        # the current line ("<stale fragment>  Name: <current line>"). The
+        # stale prefix has no speaker tag of its own, so without this the
+        # whole blob falls through to narration and TTS speaks the fragment
+        # plus the line back to back -- the "dubbel" from the log. Keep only
+        # the segment after the LAST valid speaker tag.
+        text = self._strip_history(text)
 
         # Parenthesized narrator prefix, with or without a colon.
         for pattern in (_PAREN_COLON_PATTERN, _PAREN_PATTERN):
@@ -153,6 +167,54 @@ class RenPyParser:
 
         # No colon: plain narration.
         return Dialogue(speaker=None, text=text, source=source, instruct=instruct)
+
+    def _strip_history(self, text: str) -> str:
+        """Drop stale history ahead of the current line, if any.
+
+        The game sometimes puts dialogue history on the clipboard ahead of
+        the current line ("<stale fragment>  Name: <current line>"). The
+        stale prefix carries no speaker tag of its own, so the tag of the
+        current line sits past position 0 -- which never happens for a
+        clean single capture (leading whitespace is already normalized
+        away). In that case keep only the segment from the LAST valid tag
+        on (a registered name wins, otherwise the strict heuristics).
+
+        Tags that fail validation -- times ("12:00"), narration starters
+        ("I said: ...") -- are skipped, so a plain line comes back
+        unchanged. Registered names that the tight pattern cannot express
+        (3+ words, lowercase start) are searched explicitly. Tradeoff:
+        narration with a valid-looking ``Name:`` tag mid-sentence is treated
+        as history + line; that shape is rare in VNs while history blobs are
+        observed on every affected capture.
+        """
+        # 0. A clean line starting with a registered tag is returned as-is,
+        #    so step 2 can never strip a suffix off a multi-word name
+        #    ("Charles Mettador Savieur:" -> "Mettador Savieur:").
+        for key in sorted(self._known, key=len, reverse=True):
+            if not key:
+                continue
+            if re.match(re.escape(key) + r"\s*:\s+\S", text, re.IGNORECASE):
+                return text
+        # 1. Registered names first (longest first so "Ann" never shadows
+        #    "Ann Marie"). Case-insensitive, mapped back by parse().
+        for key in sorted(self._known, key=len, reverse=True):
+            if not key:
+                continue
+            pat = re.compile(re.escape(key) + r"\s*:\s+\S", re.IGNORECASE)
+            found = [m for m in pat.finditer(text) if m.start() > 0]
+            if found:
+                return text[found[-1].start():].strip()
+        # 2. Strict 1-2 word tags: the last one wins, but only when the prefix
+        #    ahead of it is longer than any valid single tag (40 chars, the
+        #    same cap _COLON_PATTERN uses). That keeps short multi-word
+        #    prefixes untouched ("Fred Smith Jones: Hello." stays narration
+        #    per the strict rules) while history blobs -- whose stale prefix
+        #    is a whole sentence fragment -- are stripped.
+        matches = [m for m in _HISTORY_TAG_PATTERN.finditer(text) if m.start("name") > 40]
+        for m in reversed(matches):
+            if self._clean_speaker(m.group("name").strip()) is not None:
+                return text[m.start("name"):].strip()
+        return text
 
     @staticmethod
     def _clean_speaker(raw: str) -> str | None:
