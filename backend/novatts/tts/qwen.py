@@ -19,7 +19,14 @@ from .base import TTSBackend
 
 log = logging.getLogger(__name__)
 
-_SPEECH_PARAM_KEYS = ("seed", "temperature", "top_p", "top_k", "repetition_penalty")
+_SPEECH_PARAM_KEYS = (
+    "seed",
+    "temperature",
+    "top_p",
+    "top_k",
+    "repetition_penalty",
+    "max_new_tokens",
+)
 
 
 class Qwen3Backend(TTSBackend):

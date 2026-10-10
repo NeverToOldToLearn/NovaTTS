@@ -142,13 +142,46 @@ def test_sampling_params_are_always_sent(tmp_path):
     backend, _, mgr = make_ctx(tmp_path)
     mgr.synthesize(Dialogue(speaker="Rick", text="Yeah.", source="api"))
     params = backend.calls[0]["params"]
-    # Omitted, the server samples on a fresh random seed, which is how a line
-    # can trail off past its full stop one time and not the next.
+    # Sent explicitly so the voice cannot drift if qwentts.cpp changes its own
+    # defaults underneath us.
     assert params["seed"] == settings.qwen_seed
     assert params["temperature"] == settings.qwen_temperature
     assert params["top_p"] == settings.qwen_top_p
     assert params["top_k"] == settings.qwen_top_k
     assert params["repetition_penalty"] == settings.qwen_repetition_penalty
+    assert params["max_new_tokens"] == settings.qwen_max_new_tokens
+
+
+def test_sampling_defaults_stay_on_the_server_defaults():
+    """Guard rail, not a tuning knob.
+
+    These are deliberately the qwentts.cpp defaults. Measured on the
+    EldernNaratorToLateNow clone (8 samples each): narrowing top_p/top_k to
+    0.8/20 cost 19% of the syllable rate and lengthened the line, and changed
+    the trailing silence not at all (51-181ms either way) -- so it bought
+    nothing. Below temperature ~0.5 the model stops terminating and runs to
+    max_new_tokens (163.84s, 3 out of 3 at temperature 0).
+
+    If this test fails, someone changed the numbers without listening to the
+    result. Put them back, or bring measurements.
+    """
+    assert settings.qwen_temperature == 0.9
+    assert settings.qwen_top_p == 1.0
+    assert settings.qwen_top_k == 50
+    assert settings.qwen_repetition_penalty == 1.05
+
+
+def test_max_new_tokens_stays_above_real_line_length():
+    """The cap must not eat real speech.
+
+    A VN line goes to Qwen in one request (emotions.plan only splits on
+    emotion words), so the cap has to clear the longest plausible line. Token
+    need measured at 12.5Hz: 1 word 8, 17 words 83, 54 words 201, 148 words
+    555. 1024 keeps ~1.8x headroom over the longest one tested while still
+    bounding a runaway at 82s instead of 163.84s.
+    """
+    assert settings.qwen_max_new_tokens >= 600
+    assert settings.qwen_max_new_tokens <= 2048
 
 
 def test_same_text_different_voice_not_shared(tmp_path):

@@ -257,14 +257,18 @@ class VoiceManager:
 
     @staticmethod
     def _sampling_params() -> dict[str, object]:
-        """Explicit sampling values, so no request runs on a random draw.
+        """Explicit sampling values, so the voice cannot drift under us.
 
-        qwentts.cpp leaves every one of these unset by default and then samples
-        at temperature 0.9 with top_p 1.0 under a fresh hardware seed. That is
-        why the same sentence could come out clean once and, the next time,
-        trail off past its own full stop into a breath or a hic. Sent on every
-        call, they also make a line repeatable -- which the disk cache used to
-        provide, only without writing anything to disk.
+        qwentts.cpp has its own defaults for all of these; sending them pins the
+        behaviour against a future change on that side. The values are NOT
+        tuned -- they are the upstream defaults, because narrowing top_p/top_k
+        measurably dulls the delivery (-19% syllable rate on the narrator
+        clone) while leaving the trailing silence exactly as long, and anything
+        below temperature ~0.5 makes the model run to max_new_tokens (163s).
+
+        The seed is not a repeatability guarantee: the GPU is non-deterministic,
+        so the same seed still returns different audio every call. See the
+        sampling block in config.py for the measurements.
         """
         return {
             "seed": settings.qwen_seed,
@@ -272,6 +276,7 @@ class VoiceManager:
             "top_p": settings.qwen_top_p,
             "top_k": settings.qwen_top_k,
             "repetition_penalty": settings.qwen_repetition_penalty,
+            "max_new_tokens": settings.qwen_max_new_tokens,
         }
 
     def _cache_path(

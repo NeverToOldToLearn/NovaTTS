@@ -19,6 +19,10 @@ PRESETS: dict[str, list[str]] = {
 _RENPY_STRONG = [re.compile(p, re.I) for p in [r"An exception has occurred", r"Full traceback\s*:", r"Ignores the exception, allowing you to continue", r"Traceback \(most recent call last\)"]]
 _RENPY_ALL = [re.compile(p, re.I) for p in [r"An exception has occurred", r"Full traceback\s*:", r"While running game code", r"Ignores the exception, allowing you to continue", r"NameError:\s*name\s+'[^']+'\s+is not defined", r"Traceback \(most recent call last\)", r'File\s+"[^"]+\.rpy",\s*line\s+\d+', r'File\s+"renpy/[^"]+",\s*line\s+\d+']]
 
+# Leading "Name: " / "[tag]: " segment of a spoken line, protected from the
+# word pass so a blacklisted word cannot swallow a real speaker.
+_PREFIX_PATTERN = re.compile(r"^(\[[^\]]+\]:\s*|[A-Za-z][A-Za-z0-9 ._\-]{0,29}:\s+)")
+
 
 def is_renpy_exception(text: str) -> bool:
     if not text or not text.strip():
@@ -61,24 +65,43 @@ class Blacklist:
 
     def _rebuild(self) -> None:
         self._word_set = {w.lower() for w in self.custom_words}
-        self._patterns = []
+        # Every pass is a deletion, so the longer literal has to go first:
+        # otherwise a short entry ("Auto Forward") eats part of a longer one
+        # ("Auto Forward selected") and the remainder leaks through.
+        items: list[str] = []
         for preset in self.enabled_presets:
-            for item in PRESETS.get(preset, []):
-                if item.startswith("\\") or re.match(r"\d", item) or "/" in item or "-" in item:
-                    try:
-                        self._patterns.append(re.compile(item, re.I))
-                    except re.error:
-                        continue
-                else:
-                    try:
-                        self._patterns.append(re.compile(r"\b" + re.escape(item.lower()) + r"\b", re.I))
-                    except re.error:
-                        continue
+            items.extend(PRESETS.get(preset, []))
+        items.sort(key=len, reverse=True)
+        self._patterns = []
+        for item in items:
+            if item.startswith("\\") or re.match(r"\d", item) or "/" in item or "-" in item:
+                try:
+                    self._patterns.append(re.compile(item, re.I))
+                except re.error:
+                    continue
+            else:
+                try:
+                    self._patterns.append(re.compile(r"\b" + re.escape(item.lower()) + r"\b", re.I))
+                except re.error:
+                    continue
 
-    def filter_text(self, text: str) -> str:
+    def filter_text(self, text: str, *, preserve_prefix: bool = True) -> str:
+        """Remove blacklisted words/patterns from ``text``.
+
+        ``preserve_prefix`` protects a leading ``Name: `` segment from the
+        word pass. That is what the spoken-body pass wants: the speaker is
+        already resolved there, so a character whose name happens to match
+        a blacklisted word keeps it.
+
+        Pass ``preserve_prefix=False`` when filtering a *raw* line that
+        still has to be parsed afterwards. There the whole line is
+        filtered, so UI junk glued in front of the dialogue
+        ("250 $: Rick: Hi" -> "Rick: Hi") is removed before a speaker is
+        ever picked.
+        """
         if not text or not text.strip():
             return ""
-        m = re.match(r"^(\[[^\]]+\]:\s*|[A-Za-z][A-Za-z0-9 ._\-]{0,29}:\s+)", text)
+        m = re.match(_PREFIX_PATTERN, text) if preserve_prefix else None
         prefix = m.group(0) if m else ""
         content = text[len(prefix):] if prefix else text
         filtered = content
@@ -90,7 +113,16 @@ class Blacklist:
                 filtered = re.compile(r"(?<![A-Za-z])" + re.escape(word) + r"(?![A-Za-z])[:\s]*", re.I).sub("", filtered)
         for pat in self._patterns:
             filtered = pat.sub("", filtered)
-        filtered = re.sub(r"\s*:\s*(?=\s|$)", "", filtered)
+        if prefix:
+            # Speaker already resolved: a colon left dangling mid-text by a
+            # blacklisted word is noise, drop it.
+            filtered = re.sub(r"\s*:\s*(?=\s|$)", "", filtered)
+        else:
+            # No speaker protected and the line still has to be parsed: only
+            # orphaned EDGE colons go, an interior "Name:" colon is the
+            # speaker anchor the parser needs.
+            filtered = re.sub(r"^[\s:]+", "", filtered)
+            filtered = re.sub(r"\s*:\s*$", "", filtered)
         filtered = re.sub(r"\s+", " ", filtered).strip()
         if not filtered:
             return ""

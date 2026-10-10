@@ -9,8 +9,10 @@ Format (single line, no tabs/newlines lost):
     YYYY-MM-DD HH:MM:SS.mmm  <status>  <raw text>
 
 ``<status>`` is one of:
-- OK              dialed the parser (may still be narration/skipped later)
-- BLOCKED:...     rejected before parsing (see the reason)
+- OK                  dialed the parser with the text unchanged
+- OK:filtered -> ..   dialed the parser after the blacklist rewrote the
+                      line; the arrow shows what the parser received
+- BLOCKED:...         rejected before parsing (see the reason)
 """
 
 from __future__ import annotations

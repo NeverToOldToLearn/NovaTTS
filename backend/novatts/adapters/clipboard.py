@@ -2,6 +2,11 @@
 
 Polls the system clipboard for Ren'Py ``copy_voice_to_clipboard`` output
 (``Name: Text``) and forwards normalized dialogue to the callback.
+
+Gate order matters: the blacklist runs on the RAW clipboard string, before
+the parser picks a speaker. A game that keeps its HUD visible pushes lines
+like ``250 $: Rick: Hi``; filtering the raw line removes the HUD value and
+leaves the real speaker, instead of handing the leftover to the narrator.
 """
 
 from __future__ import annotations
@@ -13,10 +18,10 @@ from collections.abc import Iterable
 
 import pyperclip
 
-from ..blacklist import is_renpy_exception
+from ..blacklist import Blacklist, is_renpy_exception
 from ..config import settings
 from ..parser.renpy import RenPyParser
-from .base import DialogueCallback, InputAdapter
+from .base import DialogueCallback, FilteredCallback, InputAdapter
 from .rawclipboard import RawClipboardLogger
 
 log = logging.getLogger(__name__)
@@ -25,12 +30,13 @@ log = logging.getLogger(__name__)
 class ClipboardAdapter(InputAdapter):
     """Poll-based adapter for the RenPy clipboard pipeline."""
 
-    def __init__(self, on_dialogue: DialogueCallback) -> None:
-        super().__init__(on_dialogue)
+    def __init__(self, on_dialogue: DialogueCallback, blacklist: Blacklist | None = None, on_filtered: FilteredCallback | None = None) -> None:
+        super().__init__(on_dialogue, on_filtered)
         self._thread: threading.Thread | None = None
         self._running = False
         self._last_clipboard: str = ""
         self.parser = RenPyParser()
+        self.blacklist = blacklist
         self.raw_log = RawClipboardLogger(
             settings.clipboard_raw_log,
             enabled=settings.log_raw_clipboard,
@@ -84,6 +90,7 @@ class ClipboardAdapter(InputAdapter):
             if is_renpy_exception(current):
                 self.raw_log.log_entry(current, "BLOCKED:renpy_exception")
                 log.debug("Skipping RenPy exception dump: %r", current[:80])
+                self.notify_filtered("renpy_exception", current)
                 return
 
             if len(current) < settings.min_text_length:
@@ -92,18 +99,45 @@ class ClipboardAdapter(InputAdapter):
             if self._is_garbage(current):
                 self.raw_log.log_entry(current, "BLOCKED:garbage")
                 log.debug("Skipping non-dialogue clipboard: %r", current[:60])
+                self.notify_filtered("garbage", current)
+                return
+
+            # Blacklist BEFORE parsing: the whole raw line is filtered, so
+            # UI junk in front of a real speaker is removed and only the
+            # dialogue is left to pick a voice from. A registered speaker
+            # name is protected so a blacklisted word that happens to be a
+            # character name cannot swallow it.
+            raw = current
+            current = self._apply_blacklist(raw)
+            if not current:
                 return
 
             dialogue = self.parser.parse(current, source=self.name)
             if not dialogue.is_voiceable:
-                self.raw_log.log_entry(current, "BLOCKED:not_voiceable")
+                self.raw_log.log_entry(raw, "BLOCKED:not_voiceable")
                 return
-            self.raw_log.log_entry(current, "OK")
+            self.raw_log.log_entry(raw, "OK" if current == raw else f"OK:filtered -> {current[:80]}")
             log.debug("Clipboard -> %s: %s", dialogue.speaker, dialogue.text[:60])
             try:
                 self.on_dialogue(dialogue)
             except Exception:
                 log.exception("on_dialogue callback failed (swallowed)")
+
+    def _apply_blacklist(self, raw: str) -> str:
+        """Blacklist a raw capture, returning the text to parse ("" = drop)."""
+        if self.blacklist is None:
+            return raw
+        try:
+            preserve = self.parser.has_known_speaker_prefix(raw)
+            filtered = self.blacklist.filter_text(raw, preserve_prefix=preserve)
+        except Exception:
+            log.exception("Blacklist pass failed (swallowed)")
+            return raw
+        if not filtered:
+            self.raw_log.log_entry(raw, "BLOCKED:blacklist")
+            log.debug("Blacklisted clipboard line: %r", raw[:80])
+            self.notify_filtered("blacklist", raw)
+        return filtered
 
     @staticmethod
     def _is_garbage(text: str) -> bool:

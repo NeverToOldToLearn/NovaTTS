@@ -90,17 +90,39 @@ class Settings(BaseSettings):
     qwen_samples_dir: str = r"D:\!!Scripts!!\Samples_Clone"
     qwen_samples_dirs_extra: str = r""
     # --- Sampling ---
-    # Sent on every request. Left out, qwentts.cpp samples with a fresh random
-    # seed at temperature 0.9 / top_p 1.0 / top_k 50, so the same line comes
-    # out differently every time and sometimes runs past its own full stop into
-    # a breath or a hic the text never asked for -- a sentence that ends as if
-    # it has more to say. These are the upstream defaults with the long tail
-    # closed off; the seed makes a line repeatable without a disk cache.
+    # Sent on every request so a change in qwentts.cpp's own defaults cannot
+    # silently alter the voice. The values ARE the upstream defaults
+    # (qwen.h:296-315) -- do not "improve" them without measuring first:
+    #
+    # * Narrowing top_p/top_k measurably dulls the delivery. On the
+    #   EldernNaratorToLateNow clone, temp 0.7 / top_p 0.8 / top_k 20 cost 19%
+    #   of the syllable rate (2.38 vs 2.94 syllables/s, 8 samples, non-
+    #   overlapping) and lengthened the line by 0.43s. A gentler 0.8 / 0.9 / 40
+    #   was no better (-18%), so there is no useful middle setting.
+    # * It buys nothing. Trailing silence is 51-181ms either way, so closing
+    #   the candidate set does NOT stop a line from ending in a breath or hic.
+    # * Going lower is actively dangerous: below ~0.5 the model stops
+    #   terminating and runs to max_new_tokens -- 163.84s (2048 tokens at
+    #   12.5Hz), measured 3 times out of 3 at temperature 0.
+    #
+    # The seed does NOT make a line repeatable. The GPU is not deterministic,
+    # so a fixed seed still yields different audio every call (measured, never
+    # byte-identical). It only fixes the RNG stream, nothing more.
     qwen_seed: int = 1234
-    qwen_temperature: float = 0.7
-    qwen_top_p: float = 0.8
-    qwen_top_k: int = 20
+    qwen_temperature: float = 0.9
+    qwen_top_p: float = 0.9
+    qwen_top_k: int = 50
     qwen_repetition_penalty: float = 1.05
+    # Hard bound on one request, 1024 tokens = 82s at the codec's 12.5Hz.
+    # qwentts.cpp otherwise runs to 2048 tokens (163.84s) when the model stops
+    # terminating. Deliberately generous, because the two failures are not
+    # symmetric: truncating real speech loses words silently, whereas a long
+    # pathological clip is merely ugly. Measured token need for real lines --
+    # 1 word 8, 17 words 83, 54 words 201, 148 words 555 -- so 1024 leaves
+    # ~1.8x headroom over the longest line tested. At the temperatures above
+    # nothing runs away (163.84s measured only at temperature 0, 3 of 3), so
+    # this is a sanity bound, not something that fires in normal use.
+    qwen_max_new_tokens: int = 1024
     # qwen-codec.exe binary for pre-extracting .spk/.rvq voice references.
     # Leeg = auto-detect als sibling van NOVATTS_QWEN_BIN.
     qwen_codec_bin: str = ""

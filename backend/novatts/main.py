@@ -179,7 +179,11 @@ class NovaApp:
         self._running = True
         self._worker = threading.Thread(target=self._dialogue_worker, name="dialogue-worker", daemon=True)
         self._worker.start()
-        self.clipboard = ClipboardAdapter(on_dialogue=self.on_dialogue)
+        self.clipboard = ClipboardAdapter(
+            on_dialogue=self.on_dialogue,
+            blacklist=self.blacklist,
+            on_filtered=self._on_adapter_filtered,
+        )
         self.clipboard.set_known_speakers(self.registry.names())
         self.clipboard.start()
         log.info("NovaTTS started (qwen_online=%s)", self.qwen.is_available())
@@ -293,10 +297,17 @@ class NovaApp:
             return True
         return False
 
+    def _on_adapter_filtered(self, reason: str, raw: str) -> None:
+        """Report a capture the adapter dropped before parsing."""
+        self._emit(Event("filtered", {"reason": reason, "text": raw[:120]}))
+
     def on_dialogue(self, dialogue: Dialogue) -> None:
         raw = dialogue.text
         if self._check_exception_filter(raw):
             return
+        # Second pass for non-clipboard sources (the clipboard adapter has
+        # already filtered the raw line pre-parse). The speaker is resolved
+        # by now, so the "Name: " prefix stays protected.
         filtered = self.blacklist.filter_text(raw)
         if not filtered.strip():
             self._emit(Event("filtered", {"reason": "blacklist", "speaker": dialogue.speaker, "text": raw[:80]}))
@@ -646,7 +657,7 @@ async def test_tts() -> dict[str, Any]:
     rt = get_runtime()
     try:
         path = rt.voices.synthesize(
-            Dialogue(speaker=None, text="Hello from NovaTTS.", source="api"),
+            Dialogue(speaker=None, text="The quick brown fox jumps over the lazy dog", source="api"),
             voice_override=None,
         )
         return {"status": "ok", "file": str(path), "size": path.stat().st_size}

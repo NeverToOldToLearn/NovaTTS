@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
@@ -12,6 +12,13 @@ type BackendHandle = Arc<Mutex<Option<Child>>>;
 /// Managed tauri state wrappers — distinct types so both can be registered.
 struct BackendState(BackendHandle);
 struct FrontendState(BackendHandle);
+
+/// Label of the main window. Must match `tauri.conf.json`.
+const MAIN_WINDOW: &str = "main";
+
+/// Cleanup runs once per process; both the main-window close handler and the
+/// Tauri exit hook call it.
+static SHUTDOWN_ONCE: Once = Once::new();
 
 fn app_base_dir(handle: &tauri::AppHandle) -> PathBuf {
     if let Ok(d) = handle.path().resource_dir() {
@@ -208,6 +215,15 @@ fn ensure_frontend(handle: &tauri::AppHandle, state: BackendHandle) {
         cmd.arg("/C");
         cmd.arg("npm run dev");
         cmd.current_dir(&gui_dir);
+        // A release build has no console of its own (see main.rs), so a plain
+        // `cmd` here pops a stray CMD window next to the GUI. Suppress it —
+        // `eprintln!` is only visible in debug anyway, and the app shows its
+        // own state in the dashboard.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
 
         let Ok(child) = cmd.spawn() else {
             eprintln!("[NovaTTS] failed to start `npm run dev`");
@@ -386,18 +402,36 @@ fn kill_frontend(state: &BackendHandle) {
     }
 }
 
+/// Stop the backend and the Vite dev server, at most once per process.
+///
+/// `tauri.conf.json` declares a second, permanently hidden `cutter` window,
+/// and Tauri only emits `ExitRequested`/`Exit` once *every* window is gone.
+/// So closing the visible `main` window used to leave this process alive
+/// with no window on screen and no cleanup: the backend kept polling the
+/// clipboard and Qwen kept holding the GPU. The close handler calls this
+/// directly, and the exit hook calls it as a safety net — hence the `Once`.
+fn shutdown_all(app: &tauri::AppHandle) {
+    SHUTDOWN_ONCE.call_once(|| {
+        if let Some(state) = app.try_state::<BackendState>() {
+            kill_managed(&state.0);
+        }
+        if let Some(state) = app.try_state::<FrontendState>() {
+            kill_frontend(&state.0);
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend_state: BackendHandle = Arc::new(Mutex::new(None));
     let frontend_state: BackendHandle = Arc::new(Mutex::new(None));
     let backend_state_setup = backend_state.clone();
-    let backend_state_events = backend_state.clone();
     let frontend_state_setup = frontend_state.clone();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(BackendState(backend_state.clone()))
-        .manage(FrontendState(frontend_state.clone()))
+        .manage(BackendState(backend_state))
+        .manage(FrontendState(frontend_state))
         .invoke_handler(tauri::generate_handler![
             perfect_cut::open_cutter,
             perfect_cut::read_audio_file,
@@ -408,6 +442,23 @@ pub fn run() {
             perfect_cut::pick_model,
             perfect_cut::open_path,
         ])
+        .on_window_event(|window, event| {
+            // Closing the main window means "quit the app". The hidden
+            // `cutter` window keeps the process alive otherwise, and the
+            // exit hook that stops the backend never fires.
+            //
+            // Note: `api.prevent_close()` is deliberately NOT called. Doing
+            // so and then closing the window again is what caused the
+            // close-hang fixed on 21-26 sep; `app.exit(0)` terminates
+            // cleanly without re-entering the handler.
+            if window.label() == MAIN_WINDOW
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            {
+                let app = window.app_handle();
+                shutdown_all(app);
+                app.exit(0);
+            }
+        })
         .setup(move |app| {
             // Perfect Cut hides on X instead of being destroyed (see
             // perfect_cut::arm_hide_on_close): reopening is then always
@@ -428,16 +479,10 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(move |app_handle, event| match event {
-        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
-            let backend = app_handle
-                .try_state::<BackendState>()
-                .map(|s| s.0.clone())
-                .unwrap_or_else(|| backend_state_events.clone());
-            kill_managed(&backend);
-            if let Some(fs) = app_handle.try_state::<FrontendState>() {
-                kill_frontend(&fs.0);
-            }
-        }
+        // Safety net for the paths that bypass the close handler (taskbar
+        // "close all windows", `app.exit(0)`, dev reload). `shutdown_all`
+        // is a no-op when the close handler already ran.
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => shutdown_all(app_handle),
         _ => {}
     });
 }

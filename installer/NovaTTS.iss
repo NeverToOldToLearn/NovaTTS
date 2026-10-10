@@ -7,7 +7,7 @@
 ; Vereisten: Inno Setup 6 (https://jrsoftware.org/isdl.php) — optioneel, zip werkt ook zonder.
 
 #define MyAppName "NovaTTS"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "1.0.0.a"
 #define MyAppPublisher "NovaTTS"
 #define MyAppURL "https://github.com/"
 #define MyAppExeName "start_all.cmd"

@@ -112,3 +112,85 @@ def test_default_parser_no_known_names():
     p = RenPyParser()
     d = p.parse("Passenger 1: Move it!")
     assert d.speaker is None
+
+
+# -- decoration in front of a name (some VNs emit "/ Rick: ...") ------------
+
+
+def test_slash_prefix_keeps_the_speaker():
+    d = parser.parse("/ Rick: Get out of here!")
+    assert d.speaker == "Rick"
+    assert d.text == "Get out of here!"
+
+
+def test_slash_without_space_keeps_the_speaker():
+    d = parser.parse("/Rick: Get out of here!")
+    assert d.speaker == "Rick"
+    assert d.text == "Get out of here!"
+
+
+def test_dash_and_chevron_prefixes():
+    assert parser.parse("- Rick: Hi.").speaker == "Rick"
+    assert parser.parse("> Rick: Hi.").speaker == "Rick"
+    assert parser.parse("-Rick-: Hi.").speaker == "Rick"
+
+
+def test_decoration_on_registered_name_maps_to_canonical():
+    p = RenPyParser(known_names=["Passenger 1"])
+    d = p.parse("/ Passenger 1: Move it!")
+    assert d.speaker == "Passenger 1"
+    assert d.text == "Move it!"
+
+
+def test_quoted_narration_stays_narration():
+    # Only unambiguous prefix markers are stripped; a quote is text.
+    for raw in ("'Hello: world'", '"Hello: world"', "[Boss] Mike: hello."):
+        d = parser.parse(raw)
+        assert d.speaker is None, raw
+
+
+# -- a junk prefix in front of a real line (game keeps its HUD visible) ------
+
+
+def test_non_speaker_prefix_is_skipped():
+    d = parser.parse("250 $: Rick: Move it!")
+    assert d.speaker == "Rick"
+    assert d.text == "Move it!"
+
+
+def test_junk_prefix_with_no_inner_speaker_stays_narration():
+    d = parser.parse("250 $: Move it!")
+    assert d.speaker is None
+    assert d.text == "250 $: Move it!"
+
+
+def test_registered_speaker_wins_over_skipped_prefix():
+    p = RenPyParser(known_names=["Thoughts"])
+    d = p.parse("250 $: Thoughts: I have to go.")
+    assert d.speaker == "Thoughts"
+    assert d.text == "I have to go."
+
+
+def test_junk_prefix_skip_is_bounded():
+    d = parser.parse("1: 2: 3: 4: Rick: Deep.")
+    # Stops after a few skips and keeps the line as narration rather than
+    # recursing forever through an arbitrary colon chain.
+    assert d.speaker is None
+    assert d.text == "1: 2: 3: 4: Rick: Deep."
+
+
+# -- has_known_speaker_prefix -----------------------------------------------
+
+
+def test_known_speaker_prefix_detected():
+    p = RenPyParser(known_names=["Rick", "Save"])
+    assert p.has_known_speaker_prefix("Rick: Hi.") is True
+    assert p.has_known_speaker_prefix("/ Rick: Hi.") is True
+    assert p.has_known_speaker_prefix("Save: Are you sure?") is True
+
+
+def test_known_speaker_prefix_rejects_junk_and_unknown():
+    p = RenPyParser(known_names=["Rick"])
+    assert p.has_known_speaker_prefix("250 $: Rick: Hi.") is False
+    assert p.has_known_speaker_prefix("Mood: Rick: Hi.") is False
+    assert p.has_known_speaker_prefix("Just narration.") is False

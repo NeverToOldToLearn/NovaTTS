@@ -62,13 +62,14 @@ taskkill /F /IM tts-server.exe >nul 2>nul
 
 echo [1/2] Backend (http://127.0.0.1:8765) - autostart Qwen via backend/.env (AUTOSTART=1) ...
 
-if "%MODE%"=="hidden" (
-  echo   Mode: hidden ^(geen vensters^) - logs in .log
-  start "" /B cmd /c "cd /d "%ROOT%\backend" && "%PY%" run.py > "%ROOT%\backend.log" 2>&1"
-) else if "%MODE%"=="visible" (
-  start "NovaTTS-backend" cmd /k "cd /d "%ROOT%\backend" && "%PY%" run.py"
+REM /c, not /k: the console window belongs to the backend and must close
+REM with it. With /k the window lingers after the backend exits.
+REM Only --visible opens a console; every other mode stays windowless and
+REM logs to backend.log / gui.log, because the app reports its own state.
+if "%MODE%"=="visible" (
+  start "NovaTTS-backend" cmd /c "cd /d "%ROOT%\backend" && "%PY%" run.py"
 ) else (
-  start "NovaTTS-backend" /MIN cmd /k "cd /d "%ROOT%\backend" && "%PY%" run.py"
+  start "" /B cmd /c "cd /d "%ROOT%\backend" && "%PY%" run.py > "%ROOT%\backend.log" 2>&1"
 )
 
 REM brief wait for backend to bind port 8765
@@ -92,30 +93,31 @@ if "%TAURI_READY%"=="0" (
   if exist "%ROOT%\node_modules\.bin\tauri.cmd" set "TAURI_READY=1"
 )
 
+set "GUI_CMD=npx tauri dev"
 if "%TAURI_READY%"=="0" (
-  echo   Tauri CLI niet beschikbaar — browser dev fallback op http://localhost:1420
-  if "%MODE%"=="hidden" (
-    start "" /B cmd /c "cd /d "%ROOT%\gui" && npm run dev > "%ROOT%\gui.log" 2>&1"
-  ) else if "%MODE%"=="visible" (
-    start "NovaTTS-gui" cmd /k "cd /d "%ROOT%\gui" && npm run dev"
-  ) else (
-    start "NovaTTS-gui" /MIN cmd /k "cd /d "%ROOT%\gui" && npm run dev"
-  )
+  set "GUI_CMD=npm run dev"
+  set "NO_TAURI=1"
+)
+
+if "%MODE%"=="visible" (
+  start "NovaTTS-gui" cmd /c "cd /d "%ROOT%\gui" && %GUI_CMD%"
 ) else (
-  REM npx tauri dev opent zelf al een window; backend blijft /MIN of /B
-  if "%MODE%"=="hidden" (
-    echo   hidden: tauri wordt normaal gestart ^(eigen window wel zichtbaar^), backend blijft verborgen
-  )
-  start "NovaTTS-gui" cmd /k "cd /d "%ROOT%\gui" && npx tauri dev"
+  start "" /B cmd /c "cd /d "%ROOT%\gui" && %GUI_CMD% > "%ROOT%\gui.log" 2>&1"
 )
 
 echo.
 echo Backend: http://127.0.0.1:8765/health  ^|  GUI: Tauri window of http://localhost:1420
-echo Modes: start_all.cmd [--min^| --visible ^| --hidden ^| --repair]  default=--min
-echo Repair: start_all.cmd --repair  (of setup.ps1 -Force)
-echo Qwen: autostart + auto-import Samples_Clone ^(bg, ~1-2 min^). Dashboard toont progress.
-echo Sluiten: stop_all.cmd  ^(anders blijft backend clip-pollen^).
-if not "%MODE%"=="hidden" pause
+echo Logs:    backend.log  ^|  gui.log
+echo Modes:   start_all.cmd [--min^| --visible ^| --hidden ^| --repair]  default=--min ^(geen vensters^)
+echo Repair:  start_all.cmd --repair  ^(of setup.ps1 -Force^)
+echo Qwen:    autostart + auto-import Samples_Clone ^(bg, ~1-2 min^). Dashboard toont progress.
+echo Sluiten: het NovaTTS-venster sluiten stopt backend + Qwen mee.
+echo Alleen bij een crash: stop_all.cmd
+if defined NO_TAURI if not "%MODE%"=="hidden" (
+  echo.
+  echo Tauri CLI ontbreekt — de GUI draait nu als browserpagina op http://localhost:1420
+  pause
+)
 exit /b 0
 
 :repair
@@ -126,8 +128,8 @@ exit /b 0
 
 :help
 echo Gebruik: start_all.cmd [--min ^| --visible ^| --hidden ^| --repair]
-echo   --min      ^(default^) vensters geminimaliseerd
-echo   --visible  vensters normaal zichtbaar
-echo   --hidden   backend/gui zonder venster ^(logs naar backend.log / gui.log^)
+echo   --min      ^(default^) geen console-vensters; logs naar backend.log / gui.log
+echo   --hidden   als --min, maar zonder pauze-klaarmelding
+echo   --visible  console-vensters zichtbaar ^(debuggen^)
 echo   --repair   force rebuild venv + npm (na verhuizing)
 exit /b 0

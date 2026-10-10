@@ -40,7 +40,7 @@
   <header>
     <div>
       <h2>Blacklist</h2>
-      <p class="subtitle">Filtered before TTS · presets + custom words · RenPy exception dumps are always skipped (no preset needed).</p>
+      <p class="subtitle">Checked on the raw clipboard line before a voice is picked, so a UI value in front of the dialogue (<code>250 $: Rick: Hi</code> → <code>Rick: Hi</code>) is removed first · presets + custom words · RenPy exception dumps are always skipped (no preset needed).</p>
     </div>
   </header>
 

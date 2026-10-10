@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import abc
+import logging
 from collections.abc import Callable
 
 from ..models import Dialogue
 
+log = logging.getLogger(__name__)
+
 DialogueCallback = Callable[[Dialogue], None]
+FilteredCallback = Callable[[str, str], None]
+"""Notified with ``(reason, raw_text)`` when a capture is dropped."""
 
 
 class InputAdapter(abc.ABC):
@@ -18,8 +23,18 @@ class InputAdapter(abc.ABC):
     the host process; all internal errors are caught and logged.
     """
 
-    def __init__(self, on_dialogue: DialogueCallback) -> None:
+    def __init__(self, on_dialogue: DialogueCallback, on_filtered: FilteredCallback | None = None) -> None:
         self.on_dialogue = on_dialogue
+        self._on_filtered = on_filtered
+
+    def notify_filtered(self, reason: str, raw: str) -> None:
+        """Report a dropped capture; never propagates callback errors."""
+        if self._on_filtered is None:
+            return
+        try:
+            self._on_filtered(reason, raw)
+        except Exception:
+            log.exception("on_filtered callback failed (swallowed)")
 
     @property
     @abc.abstractmethod

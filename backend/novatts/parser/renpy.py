@@ -9,6 +9,15 @@ Strict rules (all must hold):
 - First word is not a common English narration starter ("I said: ...")
   or UI chrome.
 - "(narrator)"/"(narrator):" prefixes are narration.
+
+Two robustness rules for visual-novel clipboard noise:
+- Decoration around the name is stripped, so ``/ Rick: Hi`` keeps Rick's
+  voice instead of falling through to the narrator (which would read the
+  slash and the name out loud).
+- A leading token that cannot be a speaker (a HUD value, a menu label) is
+  treated as noise and skipped, so ``250 $: Rick: Hi`` resolves to Rick.
+  This is what keeps a game with a permanently visible UI from sending
+  every line to the narrator.
 """
 
 from __future__ import annotations
@@ -23,6 +32,15 @@ _PAREN_COLON_PATTERN = re.compile(r"^\s*\((?P<name>[^)]+)\)\s*:\s*(?P<line>\S.*?
 _PAREN_PATTERN = re.compile(r"^\s*\((?P<name>[^)]+)\)\s*(?P<line>\S.*?)\s*$")
 
 _MAX_SPEAKER_WORDS = 2
+
+# Punctuation some VNs put in front of a name ("/ Rick:", "- Rick:",
+# "> Rick:", "#Rick:"). Stripped from the name candidate before validation.
+# Deliberately narrow: only characters that can never start or end a real
+# name, so quoted narration ('Hello: world') keeps staying narration.
+_NAME_DECORATION = re.compile(r"^[/\\|>#~•\-–—]+|[\-–—_]+$")
+
+# How many junk prefixes ("250 $:", "Menu:") to skip before giving up.
+_MAX_PREFIX_SKIP = 3
 
 # Common English sentence-starters that must never become speakers.
 _NARRATION_STOPLIST = frozenset(
@@ -84,6 +102,19 @@ def _word_passes(word: str) -> bool:
     return base[0].isalpha() and base[0].isupper()
 
 
+def _strip_decoration(name: str) -> str:
+    """Remove leading/trailing punctuation from a speaker candidate.
+
+    ``"/ Rick"`` -> ``"Rick"``, ``"- Rick -"`` -> ``"Rick"``. The raw
+    clipboard string is re-parsed on the stripped name, so the decoration
+    is dropped instead of being handed to the TTS engine.
+    """
+    cleaned = _NAME_DECORATION.sub("", name)
+    # A separator between a decoration and the name ("/ Rick") leaves a
+    # space behind; collapse it so the name is not seen as "/ Rick".
+    return " ".join(cleaned.split())
+
+
 class RenPyParser:
     """Parses a single raw clipboard string into a Dialogue.
 
@@ -109,7 +140,22 @@ class RenPyParser:
             if n and n.strip():
                 self._known[n.strip().lower()] = n.strip()
 
-    def parse(self, raw: str, source: str = "renpy", instruct: str = "") -> Dialogue:
+    def has_known_speaker_prefix(self, text: str) -> bool:
+        """Whether ``text`` starts with ``Name: `` where ``Name`` is a
+        *registered* speaker (decoration ignored, so ``/ Rick:`` counts).
+
+        Callers that rewrite a line in place (the blacklist) use this to
+        keep a real speaker name from being filtered away while still
+        filtering everything around it.
+        """
+        text = _normalize_text(text)
+        m = _COLON_PATTERN.match(text)
+        if m is None:
+            return False
+        name = _strip_decoration(m.group("name"))
+        return bool(name) and self._known.get(name.lower()) is not None
+
+    def parse(self, raw: str, source: str = "renpy", instruct: str = "", _skip: int = 0) -> Dialogue:
         text = _normalize_text(raw)
         if not text:
             return Dialogue(speaker=None, text="", source=source)
@@ -134,7 +180,7 @@ class RenPyParser:
         # "Name: text" form.
         m = _COLON_PATTERN.match(text)
         if m is not None:
-            raw_name = m.group("name").strip()
+            raw_name = _strip_decoration(m.group("name").strip())
             raw_line = _normalize_text(m.group("line"))
             if not raw_line:
                 # "Rick:" with no dialogue — keep the speaker, nothing to say.
@@ -142,13 +188,20 @@ class RenPyParser:
                 return Dialogue(speaker=speaker, text="", source=source, instruct=instruct)
             # A user-registered name always wins over the strict heuristics,
             # and maps to its canonical spelling so the registry matches.
-            canonical = self._known.get(raw_name.lower())
+            canonical = self._known.get(raw_name.lower()) if raw_name else None
             if canonical is not None:
                 return Dialogue(speaker=canonical, text=raw_line, source=source, instruct=instruct)
             speaker = self._clean_speaker(raw_name)
             if speaker is not None:
                 return Dialogue(speaker=speaker, text=raw_line, source=source, instruct=instruct)
-            # Colon-prefix that failed the name rules: keep the whole line.
+            # The prefix cannot be a speaker (a HUD value like "250 $", a
+            # menu label, ...). If the rest is itself "Name: text", drop
+            # the noise and speak the real line; otherwise keep the whole
+            # line as narration.
+            if _skip < _MAX_PREFIX_SKIP:
+                inner = self.parse(raw_line, source=source, instruct=instruct, _skip=_skip + 1)
+                if inner.speaker is not None:
+                    return inner
             return Dialogue(speaker=None, text=text, source=source, instruct=instruct)
 
         # No colon: plain narration.
@@ -158,11 +211,11 @@ class RenPyParser:
     def _clean_speaker(raw: str) -> str | None:
         if not raw:
             return None
-        words = raw.split()
+        words = _strip_decoration(raw).split()
         if not words or len(words) > _MAX_SPEAKER_WORDS:
             return None
         if words[0].lower() in _NARRATION_STOPLIST:
             return None
         if not all(_word_passes(w) for w in words):
             return None
-        return raw
+        return " ".join(words)
