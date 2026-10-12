@@ -55,6 +55,7 @@ _BUILTIN = [
 ]
 
 _ASTERISK_TOKEN_RE = re.compile(r"\*([^*]{1,80})\*")
+_ASTERISK_PAD_RE = re.compile(r"\*([^*]+?)\s*\*")
 _ELLIPSIS_RE = re.compile(r"\.{2,}|…+")
 _WS_RE = re.compile(r"\s+")
 
@@ -72,6 +73,20 @@ _compiled: list[re.Pattern[str]] | None = None
 def has_speakable_text(text: str) -> bool:
     """True when `text` holds at least one letter or digit to pronounce."""
     return bool(_SPEAKABLE_RE.search(text or ""))
+
+
+def normalize_asterisk_tokens(text: str) -> str:
+    """Fold padding inside ``*...*`` tokens: ``*laughs *`` -> ``*laughs*``.
+
+    Some novels pad the closing (or opening) asterisk with a space. Every
+    emotion pattern matches the tight form, so without this the token slips
+    through: no emotion sound plays and stray asterisks reach the TTS model.
+    Runs before any matching, so all downstream offsets stay aligned.
+    ``**bold**`` and asterisk-free text come back unchanged.
+    """
+    if not text or "*" not in text:
+        return text
+    return _ASTERISK_PAD_RE.sub(lambda m: "*" + m.group(1).strip() + "*", text)
 
 
 def strip_leading_punctuation(text: str) -> str:
@@ -208,7 +223,7 @@ def clean_emotion_text(text: str, aliases: dict[str, str] | None = None) -> str:
     if not text or not text.strip():
         return ""
     pats = _alias_patterns(aliases) + _load_patterns()
-    t = text
+    t = normalize_asterisk_tokens(text)
 
     def _asterisk_replace(m: re.Match[str]) -> str:
         inner = m.group(1).strip()

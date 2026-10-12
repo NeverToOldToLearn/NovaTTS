@@ -174,6 +174,9 @@ class EmotionSounds:
         return base
 
     def extract(self, text: str) -> tuple[str, list[tuple[int, str]]]:
+        from .text_clean import normalize_asterisk_tokens
+
+        text = normalize_asterisk_tokens(text)
         pats: list[tuple[re.Pattern[str], str | None]] = []
         for expr, tag in self.aliases.items():
             esc = re.escape(expr)
