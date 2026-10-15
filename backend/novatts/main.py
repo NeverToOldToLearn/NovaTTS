@@ -148,7 +148,7 @@ class NovaApp:
             self.qwen, self.registry, settings.cache_dir, settings.cache_enabled
         )
         self.player = AudioPlayer()
-        self.emotions = EmotionSounds(player=self.player)
+        self.emotions = EmotionSounds(player=self.player, speak_words=settings.emotion_speak_words)
         self.blacklist = Blacklist()
         # With the cache off, every line is a throwaway file that outlives its
         # own playback by exactly nothing: drop it here, once the player is
@@ -446,7 +446,7 @@ class NovaApp:
 
         # The user's aliases count here too, or a word they mapped by hand
         # would be spoken on this route while the clipboard route plays it.
-        cleaned = clean_emotion_text(req.text, self.emotions.aliases)
+        cleaned = clean_emotion_text(req.text, self.emotions.aliases, settings.emotion_speak_words)
         # "Aah!" cleans down to "!", which is not empty but also not speakable.
         if not has_speakable_text(cleaned):
             raise HTTPException(status_code=400, detail="Text empty after emotion filtering")
@@ -659,7 +659,7 @@ async def add_emotion_alias(body: EmotionAliasBody) -> dict[str, Any]:
     return rt.emotions.to_dict()
 
 
-@app.delete("/emotions/alias/{expr}")
+@app.delete("/emotions/alias/{expr:path}")
 async def delete_emotion_alias(expr: str) -> dict[str, Any]:
     import json
 
@@ -711,8 +711,11 @@ async def create_speaker(body: SpeakerCreateBody) -> dict[str, Any]:
     from .tts.voice_manager import default_voice_for_new_speaker
 
     rt = get_runtime()
-    is_new = body.name not in rt.registry.names()
-    speaker = rt.registry.register(body.name)
+    try:
+        is_new = body.name not in rt.registry.names()
+        speaker = rt.registry.register(body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if is_new:
         # Same unused-female-first default as clipboard auto-discovery; the
         # GUI select can always replace it (e.g. with an M- male voice).
@@ -731,27 +734,7 @@ async def create_speaker(body: SpeakerCreateBody) -> dict[str, Any]:
     return speaker.to_dict()
 
 
-@app.patch("/speakers/{name}")
-async def update_speaker(name: str, body: SpeakerPatchBody) -> dict[str, Any]:
-    rt = get_runtime()
-    updated = rt.registry.update(name, voice=body.voice)
-    if updated is None:
-        raise HTTPException(status_code=404, detail=f"Speaker {name!r} not found")
-    rt.registry.save()
-    return updated.to_dict()
-
-
-@app.delete("/speakers/{name}")
-async def delete_speaker(name: str) -> dict[str, Any]:
-    rt = get_runtime()
-    removed = rt.registry.remove(name)
-    if not removed:
-        raise HTTPException(status_code=404, detail=f"Speaker {name!r} not found")
-    rt.registry.save()
-    return {"deleted": name}
-
-
-@app.post("/speakers/{name}/rename")
+@app.post("/speakers/{name:path}/rename")
 async def rename_speaker(name: str, body: SpeakerRenameBody) -> dict[str, Any]:
     rt = get_runtime()
     renamed = rt.registry.rename(name, body.new_name)
@@ -761,7 +744,7 @@ async def rename_speaker(name: str, body: SpeakerRenameBody) -> dict[str, Any]:
     return renamed.to_dict()
 
 
-@app.post("/speakers/{name}/alias")
+@app.post("/speakers/{name:path}/alias")
 async def alias_speaker(name: str, body: SpeakerAliasBody) -> dict[str, Any]:
     rt = get_runtime()
     spk = rt.registry.alias(name, body.alias)
@@ -769,6 +752,26 @@ async def alias_speaker(name: str, body: SpeakerAliasBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Cannot alias {name!r} as {body.alias!r}")
     rt.registry.save()
     return spk.to_dict()
+
+
+@app.patch("/speakers/{name:path}")
+async def update_speaker(name: str, body: SpeakerPatchBody) -> dict[str, Any]:
+    rt = get_runtime()
+    updated = rt.registry.update(name, voice=body.voice)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Speaker {name!r} not found")
+    rt.registry.save()
+    return updated.to_dict()
+
+
+@app.delete("/speakers/{name:path}")
+async def delete_speaker(name: str) -> dict[str, Any]:
+    rt = get_runtime()
+    removed = rt.registry.remove(name)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Speaker {name!r} not found")
+    rt.registry.save()
+    return {"deleted": name}
 
 
 @app.post("/test-tts")
@@ -807,7 +810,7 @@ async def clone_voice(body: VoiceCloneBody) -> dict[str, Any]:
     return {"status": "ok", "voice": body.name, "bytes": len(raw)}
 
 
-@app.delete("/voices/{name}")
+@app.delete("/voices/{name:path}")
 async def delete_voice(name: str) -> dict[str, Any]:
     rt = get_runtime()
     if not rt.qwen.is_available():
@@ -1038,14 +1041,14 @@ async def shutdown() -> dict[str, Any]:
     return {"status": "shutting_down"}
 
 
-@app.post("/voices/{name}/preview")
+@app.post("/voices/{name:path}/preview")
 async def preview_voice(name: str, body: SpeakBody) -> dict[str, Any]:
     """Preview a voice without changing any speaker mapping."""
     from .text_clean import clean_emotion_text, has_speakable_text
 
     rt = get_runtime()
     # "Aah!" cleans down to "!" — truthy, but nothing a voice can pronounce.
-    text = clean_emotion_text(body.text.strip(), rt.emotions.aliases)
+    text = clean_emotion_text(body.text.strip(), rt.emotions.aliases, settings.emotion_speak_words)
     if not has_speakable_text(text):
         text = "The quick brown fox jumps over the lazy dog"
     try:

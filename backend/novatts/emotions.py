@@ -19,7 +19,11 @@ def _slug(value: str) -> str:
 
 
 class EmotionSounds:
-    def __init__(self, player: object | None = None) -> None:
+    def __init__(self, player: object | None = None, speak_words: bool = False) -> None:
+        """``speak_words`` (see ``settings.emotion_speak_words``) keeps emotion
+        words as speakable text instead of swapping in .wav clips: extract()
+        then returns no sound positions and leaves the words standing."""
+        self.speak_words = speak_words
         self.dir = Path(settings.emotion_sounds_dir) if hasattr(settings, "emotion_sounds_dir") else Path(r"C:\Piper\emotion_sounds")
         self.map_file = Path(settings.emotion_sound_map_file) if hasattr(settings, "emotion_sound_map_file") else settings.cache_dir.parent / "emotion_sound_map.json"
         self.patterns_file = Path(settings.emotion_patterns_file) if hasattr(settings, "emotion_patterns_file") else settings.cache_dir.parent / "emotion_patterns.json"
@@ -177,6 +181,10 @@ class EmotionSounds:
         from .text_clean import glued_to_apostrophe, normalize_asterisk_tokens
 
         text = normalize_asterisk_tokens(text)
+        if getattr(self, "speak_words", False):
+            # Test mode: no clips, words stay. Asterisks are markup, not speech.
+            cleaned = re.sub(r"\s+", " ", text.replace("*", " ")).strip()
+            return cleaned, []
         pats: list[tuple[re.Pattern[str], str | None]] = []
         for expr, tag in self.aliases.items():
             esc = re.escape(expr)

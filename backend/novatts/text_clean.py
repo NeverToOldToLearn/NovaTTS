@@ -105,6 +105,16 @@ def glued_to_apostrophe(text: str, start: int, end: int) -> bool:
     )
 
 
+def _asterisk_replace(m: re.Match[str]) -> str:
+    inner = m.group(1).strip()
+    if not inner:
+        return ""
+    words = inner.split()
+    if len(words) == 1:
+        return ""
+    return f" {inner} "
+
+
 def sub_preserving_contractions(pat: re.Pattern[str], text: str) -> str:
     """Like ``pat.sub(" ", text)`` but keeps contraction-glued matches."""
     out: list[str] = []
@@ -243,32 +253,31 @@ def _alias_patterns(aliases: dict[str, str] | None) -> list[re.Pattern[str]]:
     return out
 
 
-def clean_emotion_text(text: str, aliases: dict[str, str] | None = None) -> str:
+def clean_emotion_text(
+    text: str, aliases: dict[str, str] | None = None, speak_words: bool = False
+) -> str:
     """Strip emotion words from `text` for the /speak and preview routes.
 
     These routes play no sound, so an emotion word is removed rather than
     spoken -- Qwen reads "spluuuurt" as gibberish. `aliases` is the user's own
     phrase-to-tag mapping; without it those phrases were spoken here while the
-    clipboard route quietly removed them.
+    clipboard route quietly removed them. With `speak_words` (see
+    ``settings.emotion_speak_words``) nothing is stripped: emotion words stay
+    as speakable text so Qwen's own rendering can be judged.
     """
     if not text or not text.strip():
         return ""
     pats = _alias_patterns(aliases) + _load_patterns()
     t = normalize_asterisk_tokens(text)
-
-    def _asterisk_replace(m: re.Match[str]) -> str:
-        inner = m.group(1).strip()
-        if not inner:
-            return ""
-        words = inner.split()
-        if len(words) == 1:
-            return ""
-        return f" {inner} "
-
-    t = _ASTERISK_TOKEN_RE.sub(_asterisk_replace, t)
-    t = t.replace("*", "")
-    for pat in pats:
-        t = sub_preserving_contractions(pat, t)
+    if speak_words:
+        # Test mode: asterisks are markup, words are speech. Punctuation and
+        # pauses below still apply so "..." keeps working as silence.
+        t = t.replace("*", " ")
+    else:
+        t = _ASTERISK_TOKEN_RE.sub(_asterisk_replace, t)
+        t = t.replace("*", "")
+        for pat in pats:
+            t = sub_preserving_contractions(pat, t)
     # "..." is an emotional pause only when it is all the line has left. Between
     # words it is prosody that Qwen3 renders as real silence, and dropping it is
     # what turned "if you want... I... ehm" into one flat run-on sentence.
