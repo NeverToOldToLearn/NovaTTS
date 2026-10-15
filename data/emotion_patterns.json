@@ -304,5 +304,15 @@
         "pattern": "\\baah\\b",
         "tag": "ahh",
         "speak": true
+    },
+    {
+        "pattern": "\\beugh\\b",
+        "tag": "eugh",
+        "speak": true
+    },
+    {
+        "pattern": "\\beuhm?\\b",
+        "tag": "euhm",
+        "speak": true
     }
 ]

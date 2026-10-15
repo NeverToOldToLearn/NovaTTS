@@ -38,6 +38,20 @@ def test_bare_words_without_own_pattern_still_flow():
     assert "ugh" in cleaned
 
 
+def test_dutch_hesitations_and_disgust_flow():
+    # eugh/euhm/euh were eaten by the generic moan pattern; they are
+    # vocalizations, so speak-marked now. Stretched forms stay blocked.
+    for word in ["eugh", "euhm", "euh", "ew", "bah", "uhm"]:
+        assert clean_emotion_text(f"zeg {word} maar") == f"zeg {word} maar", word
+    es = EmotionSounds(player=None)
+    for word in ["eugh", "euhm"]:
+        cleaned, emo = es.extract(f"zeg {word} maar")
+        assert word in cleaned, word
+        assert emo == []
+    for stretched in ["ewww", "baaaah", "eughhh"]:
+        assert stretched not in clean_emotion_text(f"zeg {stretched} maar").split()
+
+
 def test_labels_are_not_speak_spans():
     for span in ["laughs", "*laughs*", "*sighs*", "*kiss*", "sigh", "giggles"]:
         assert not is_speak_span(span), span
