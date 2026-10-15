@@ -175,11 +175,12 @@ class Settings(BaseSettings):
     normalize_target_peak: float = 0.89
 
     # --- Emotions: speak instead of swap ---
-    # Test mode: keep emotion words as speakable text ("haaa", "hehe",
-    # "*laughs*") instead of stripping them or swapping in a pre-recorded
-    # .wav clip. Qwen renders short sounds well on its own; this measures
-    # how far that stretches before filtering earns its keep. Off = current
-    # behavior (strip + wav clips). Needs a backend restart to toggle.
+    # Test mode: single-word emotion sounds stay as speakable text ("haaa",
+    # "hehe", "*laughs*") instead of being stripped or swapped for a
+    # pre-recorded .wav clip; multi-word stage directions (*Leaning in
+    # slightly*) still drop. Qwen renders short sounds well on its own; this
+    # measures how far that stretches before filtering earns its keep.
+    # Off = current behavior (strip + wav clips). Backend restart to toggle.
     emotion_speak_words: bool = False
 
     # --- Cache ---

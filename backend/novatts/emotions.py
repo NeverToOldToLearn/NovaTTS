@@ -178,12 +178,13 @@ class EmotionSounds:
         return base
 
     def extract(self, text: str) -> tuple[str, list[tuple[int, str]]]:
-        from .text_clean import glued_to_apostrophe, normalize_asterisk_tokens
+        from .text_clean import glued_to_apostrophe, normalize_asterisk_tokens, speakify_asterisks
 
         text = normalize_asterisk_tokens(text)
         if getattr(self, "speak_words", False):
-            # Test mode: no clips, words stay. Asterisks are markup, not speech.
-            cleaned = re.sub(r"\s+", " ", text.replace("*", " ")).strip()
+            # Test mode: no clips; single-word sounds stay, stage directions
+            # drop, bare words are never filtered.
+            cleaned = re.sub(r"\s+", " ", speakify_asterisks(text)).strip()
             return cleaned, []
         pats: list[tuple[re.Pattern[str], str | None]] = []
         for expr, tag in self.aliases.items():

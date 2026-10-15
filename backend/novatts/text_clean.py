@@ -115,6 +115,22 @@ def _asterisk_replace(m: re.Match[str]) -> str:
     return f" {inner} "
 
 
+def speakify_asterisks(text: str) -> str:
+    """Fold ``*...*`` markup for speak-through: single words stay audible
+    (``*laughs*`` -> ``laughs``), longer spans are stage directions and drop
+    (``*Leaning in slightly*`` -> ````). Bare words are untouched."""
+    if not text or "*" not in text:
+        return text
+
+    def _repl(m: re.Match[str]) -> str:
+        inner = m.group(1).strip()
+        if inner and len(inner.split()) == 1:
+            return f" {inner} "
+        return " "
+
+    return _ASTERISK_TOKEN_RE.sub(_repl, text)
+
+
 def sub_preserving_contractions(pat: re.Pattern[str], text: str) -> str:
     """Like ``pat.sub(" ", text)`` but keeps contraction-glued matches."""
     out: list[str] = []
@@ -270,9 +286,10 @@ def clean_emotion_text(
     pats = _alias_patterns(aliases) + _load_patterns()
     t = normalize_asterisk_tokens(text)
     if speak_words:
-        # Test mode: asterisks are markup, words are speech. Punctuation and
-        # pauses below still apply so "..." keeps working as silence.
-        t = t.replace("*", " ")
+        # Test mode: single-word sounds stay audible, stage directions drop,
+        # bare words are never filtered. Punctuation and pauses below still
+        # apply so "..." keeps working as silence.
+        t = speakify_asterisks(t)
     else:
         t = _ASTERISK_TOKEN_RE.sub(_asterisk_replace, t)
         t = t.replace("*", "")

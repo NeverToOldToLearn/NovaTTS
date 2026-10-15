@@ -29,6 +29,15 @@ def test_extract_returns_no_sounds_in_speak_mode():
     assert "hahaha" in cleaned
 
 
+def test_speak_mode_drops_stage_directions():
+    assert clean_emotion_text("*Leaning in slightly* Well hi.", speak_words=True) == "Well hi."
+    assert clean_emotion_text("*Lets out a slow chuckle * Well hi.", speak_words=True) == "Well hi."
+    es = EmotionSounds(player=None, speak_words=True)
+    cleaned, emo = es.extract("*Leaning in slightly* Well hi.")
+    assert emo == []
+    assert cleaned == "Well hi."
+
+
 def test_extract_default_still_finds_sounds():
     es = EmotionSounds(player=None)
     _, emo = es.extract("*Laughs* Oh no.")
