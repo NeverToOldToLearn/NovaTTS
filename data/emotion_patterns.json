@@ -1,23 +1,28 @@
 [
     {
         "pattern": "\\b(ha){3,}\\b",
-        "tag": "haha"
+        "tag": "haha",
+        "speak": true
     },
     {
         "pattern": "\\bhaha\\b",
-        "tag": "haha"
+        "tag": "haha",
+        "speak": true
     },
     {
-        "pattern": "\\b(he){3,}\\b",
-        "tag": "hehe"
+        "pattern": "\\b(he){2,}\\b",
+        "tag": "hehe",
+        "speak": true
     },
     {
         "pattern": "\\bahem\\b",
-        "tag": "ahem"
+        "tag": "ahem",
+        "speak": true
     },
     {
         "pattern": "\\*ahem\\*",
-        "tag": "ahem"
+        "tag": "ahem",
+        "speak": true
     },
     {
         "pattern": "\\*gag(?:ing|e)?s?\\*",
@@ -101,19 +106,23 @@
     },
     {
         "pattern": "\\*ah\\*",
-        "tag": "ahhh"
+        "tag": "ahhh",
+        "speak": true
     },
     {
         "pattern": "\\*ahh+\\*",
-        "tag": "ahh"
+        "tag": "ahh",
+        "speak": true
     },
     {
         "pattern": "\\bahh+\\b",
-        "tag": "ahh"
+        "tag": "ahh",
+        "speak": true
     },
     {
         "pattern": "\\*argh\\*",
-        "tag": "argh"
+        "tag": "argh",
+        "speak": true
     },
     {
         "pattern": "\\*gulp(?:ing|ed)?s?\\*",
@@ -129,27 +138,33 @@
     },
     {
         "pattern": "\\*huh\\*",
-        "tag": "huh"
+        "tag": "huh",
+        "speak": true
     },
     {
         "pattern": "\\*hic\\*",
-        "tag": "hic"
+        "tag": "hic",
+        "speak": true
     },
     {
         "pattern": "\\*mwha\\*",
-        "tag": "kiss"
+        "tag": "kiss",
+        "speak": true
     },
     {
         "pattern": "\\bmwah\\b",
-        "tag": "kiss"
+        "tag": "kiss",
+        "speak": true
     },
     {
         "pattern": "\\*ooh\\*",
-        "tag": "ooh"
+        "tag": "ooh",
+        "speak": true
     },
     {
         "pattern": "\\*ugh\\*",
-        "tag": "ugh"
+        "tag": "ugh",
+        "speak": true
     },
     {
         "pattern": "\\*suck(?:ing|ed)?s?\\*",
@@ -165,7 +180,8 @@
     },
     {
         "pattern": "\\bmwha\\b",
-        "tag": "kiss"
+        "tag": "kiss",
+        "speak": true
     },
     {
         "pattern": "\\bhnnng\\b",
@@ -173,31 +189,38 @@
     },
     {
         "pattern": "\\*hmm\\*",
-        "tag": "hmm"
+        "tag": "hmm",
+        "speak": true
     },
     {
         "pattern": "\\bhmm\\b",
-        "tag": "hmm"
+        "tag": "hmm",
+        "speak": true
     },
     {
         "pattern": "\\bha\\b",
-        "tag": "haha"
+        "tag": "haha",
+        "speak": true
     },
     {
         "pattern": "\\*sh+\\*",
-        "tag": "shhh"
+        "tag": "shhh",
+        "speak": true
     },
     {
         "pattern": "\\bsh+\\b",
-        "tag": "shhh"
+        "tag": "shhh",
+        "speak": true
     },
     {
         "pattern": "\\bhmpf\\b",
-        "tag": "pfft"
+        "tag": "pfft",
+        "speak": true
     },
     {
         "pattern": "\\bphew\\b",
-        "tag": "wistle"
+        "tag": "wistle",
+        "speak": true
     },
     {
         "pattern": "\\bsobs\\b",
@@ -209,7 +232,8 @@
     },
     {
         "pattern": "\\bargh\\b",
-        "tag": "argh"
+        "tag": "argh",
+        "speak": true
     },
     {
         "pattern": "\\bsniffs\\b",
@@ -270,5 +294,15 @@
     {
         "pattern": "\\*[^*]+\\*",
         "tag": null
+    },
+    {
+        "pattern": "\\booh\\b",
+        "tag": "ooh",
+        "speak": true
+    },
+    {
+        "pattern": "\\baah\\b",
+        "tag": "ahh",
+        "speak": true
     }
 ]

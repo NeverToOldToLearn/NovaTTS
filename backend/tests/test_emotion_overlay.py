@@ -102,9 +102,9 @@ def test_api_cleaner_no_longer_leaves_stranded_punctuation() -> None:
     """An emotion that is the only content leaves nothing speakable.
 
     The callers still guard with has_speakable_text(); this pins down that
-    the guard has to stay.
+    the guard has to stay. (Aah itself is speakable now; sighs still drops.)
     """
-    cleaned = clean_emotion_text("*Aah*!")
+    cleaned = clean_emotion_text("*sighs*!")
     assert not has_speakable_text(cleaned), f"{cleaned!r} zou naar Qwen gaan"
     assert not has_speakable_text(clean_emotion_text("...", None))
 
@@ -178,7 +178,9 @@ REAL_WORDS = [
 # Words the shipped patterns themselves own. Names like "moan" or "gasp" are
 # only matched in their starred form (*moan*), and the spelled-out runs like
 # "aaaaaaaah" live in the user's alias file, so neither belongs in this list.
-REAL_SOUNDS = ["haha", "sigh", "aaannh", "hnnng", "hmpf", "argh"]
+# haha, hmpf and argh are speakable vocalizations now: they reach Qwen as
+# text instead of a clip (see test_speak_markers.py).
+REAL_SOUNDS = ["sigh", "aaannh", "hnnng"]
 
 
 def test_shipped_patterns_do_not_eat_real_words() -> None:
@@ -253,7 +255,7 @@ def test_speak_route_honours_the_users_aliases() -> None:
 
 def test_speak_route_without_aliases_is_unchanged() -> None:
     """The default must keep working for callers that pass no mapping."""
-    assert clean_emotion_text("*Aah!* Come here.") == "Come here."
+    assert clean_emotion_text("*sighs* Come here.") == "Come here."
     assert clean_emotion_text("Zij zei slurp.") == "Zij zei slurp."
 
 
@@ -262,7 +264,7 @@ def test_speak_route_never_hands_qwen_stranded_punctuation() -> None:
     assert clean_emotion_text("I love it, aah.", {"aah": "moang"}) == "I love it."
     assert clean_emotion_text("Aah! Yes...", {"aah": "moang"}) == "Yes..."
     assert clean_emotion_text("Zij zei slurp.", ALIASES) == "Zij zei."
-    assert not has_speakable_text(clean_emotion_text("Hmm.", {"hmm": "hmm"}))
+    assert not has_speakable_text(clean_emotion_text("Sigh.", {"sigh": "sigh"}))
 
 
 def test_ellipsis_between_words_survives() -> None:

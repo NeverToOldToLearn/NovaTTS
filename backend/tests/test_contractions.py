@@ -34,12 +34,18 @@ def test_aint_survives_extract():
 
 
 def test_real_moans_still_stripped():
-    assert clean_emotion_text("aaah ooh") == ""
+    assert clean_emotion_text("aaah eenn") == ""
     assert clean_emotion_text("Well aaah, yes.") == "Well, yes."
     es = EmotionSounds(player=None)
     cleaned, emo = es.extract("*sighs* Well, yes.")
     assert "*" not in cleaned
     assert [tag for _, tag in emo] == ["sigh"]
+
+
+def test_short_vocalizations_are_spoken():
+    # Sayable shorts reach Qwen as text instead of a clip or a drop.
+    assert clean_emotion_text("ooh aah") == "ooh aah"
+    assert clean_emotion_text("*Aah!* Come here.") == "Aah! Come here."
 
 
 def test_real_words_survive_moan_pattern():
@@ -52,11 +58,17 @@ def test_real_words_survive_moan_pattern():
         cleaned, emo = es.extract(f"zeg {w} maar")
         assert w in cleaned, w
         assert emo == []
-    for moan in ["ooh", "aah", "aaah", "aam", "mmm", "eenn"]:
+    for moan in ["aaah", "aam", "mmm", "eenn"]:
         assert moan not in clean_emotion_text(f"zeg {moan} maar").split(), moan
+    for vocal in ["ooh", "aah"]:
+        assert vocal in clean_emotion_text(f"zeg {vocal} maar").split(), vocal
 
 
-def test_lone_ha_maps_to_haha_sound():
+def test_lone_ha_is_spoken_not_clipped():
+    # "ha" is a speakable vocalization (haha.wav exists, but the word itself
+    # is the sound): it stays as text instead of a clip.
+    assert clean_emotion_text("ha, ha!") == "ha, ha!"
     es = EmotionSounds(player=None)
-    _, emo = es.extract("ha, ha!")
-    assert [tag for _, tag in emo] == ["haha", "haha"]
+    cleaned, emo = es.extract("ha, ha!")
+    assert emo == []
+    assert "ha" in cleaned

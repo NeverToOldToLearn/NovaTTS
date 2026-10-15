@@ -111,6 +111,11 @@ def _asterisk_replace(m: re.Match[str]) -> str:
         return ""
     words = inner.split()
     if len(words) == 1:
+        # A speakable vocalization (*haha*, *ugh*) stays; a label (*sighs*)
+        # drops. The starred form is tested too: bare "ugh" has no pattern,
+        # only "*ugh*" does.
+        if is_speak_span(inner) or is_speak_span(f"*{inner}*"):
+            return f" {inner} "
         return ""
     return f" {inner} "
 
@@ -131,13 +136,24 @@ def speakify_asterisks(text: str) -> str:
     return _ASTERISK_TOKEN_RE.sub(_repl, text)
 
 
-def sub_preserving_contractions(pat: re.Pattern[str], text: str) -> str:
-    """Like ``pat.sub(" ", text)`` but keeps contraction-glued matches."""
+def sub_preserving_contractions(
+    pat: re.Pattern[str], text: str, *, skip_speak: bool = False
+) -> str:
+    """Like ``pat.sub(" ", text)`` but keeps contraction-glued matches standing.
+
+    Contraction-glued spans ("ain't") are never primal sounds. With
+    ``skip_speak`` (shipped patterns only, never user aliases) speakable
+    vocalizations ("haha", "*mwah*") also stay: the word itself is the sound
+    rather than a label for one. An explicit user alias always wins over the
+    global speak default -- remove the alias to let the word through.
+    """
     out: list[str] = []
     last = 0
     for m in pat.finditer(text):
         start, end = m.span()
         if glued_to_apostrophe(text, start, end):
+            continue
+        if skip_speak and is_speak_span(text[start:end]):
             continue
         out.append(text[last:start])
         out.append(" ")
@@ -248,6 +264,52 @@ def _load_patterns() -> list[re.Pattern[str]]:
     return out
 
 
+_speak_compiled: list[re.Pattern[str]] | None = None
+
+
+def _load_speak_patterns() -> list[re.Pattern[str]]:
+    """Patterns flagged ``"speak": true`` in emotion_patterns.json.
+
+    These match human vocalizations (haha, mwah) rather than emotion labels
+    (laugh, sigh): the word itself is the sound, so it stays as speakable
+    text instead of being stripped or swapped for a .wav clip.
+    """
+    global _speak_compiled
+    if _speak_compiled is not None:
+        return _speak_compiled
+    out: list[re.Pattern[str]] = []
+    cand = Path(__file__).resolve().parent.parent.parent / "data" / "emotion_patterns.json"
+    if cand.exists():
+        try:
+            data = json.loads(cand.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                for item in data:
+                    if not isinstance(item, dict) or not item.get("speak"):
+                        continue
+                    pat = item.get("pattern")
+                    if isinstance(pat, str) and pat:
+                        try:
+                            out.append(re.compile(pat, re.I))
+                        except re.error:
+                            continue
+        except Exception:
+            pass
+    _speak_compiled = out
+    return out
+
+
+def is_speak_span(span: str) -> bool:
+    """True when a matched span is a speakable vocalization.
+
+    Works on bare words and asterisk-wrapped spans alike: the ``\\b`` anchors
+    in the patterns treat ``*`` as a boundary, so ``*haha*`` and ``haha``
+    both match.
+    """
+    if not span:
+        return False
+    return any(pat.search(span) for pat in _load_speak_patterns())
+
+
 def _alias_patterns(aliases: dict[str, str] | None) -> list[re.Pattern[str]]:
     """Bare and starred forms of the user's own aliases.
 
@@ -283,7 +345,8 @@ def clean_emotion_text(
     """
     if not text or not text.strip():
         return ""
-    pats = _alias_patterns(aliases) + _load_patterns()
+    alias_pats = _alias_patterns(aliases)
+    json_pats = _load_patterns()
     t = normalize_asterisk_tokens(text)
     if speak_words:
         # Test mode: single-word sounds stay audible, stage directions drop,
@@ -291,10 +354,15 @@ def clean_emotion_text(
         # apply so "..." keeps working as silence.
         t = speakify_asterisks(t)
     else:
+        # Explicit user aliases first: a hand-mapped word keeps its mapping
+        # even when the global speak default would let it through. Shipped
+        # patterns follow, skipping speakable vocalizations.
+        for pat in alias_pats:
+            t = sub_preserving_contractions(pat, t)
         t = _ASTERISK_TOKEN_RE.sub(_asterisk_replace, t)
         t = t.replace("*", "")
-        for pat in pats:
-            t = sub_preserving_contractions(pat, t)
+        for pat in json_pats:
+            t = sub_preserving_contractions(pat, t, skip_speak=True)
     # "..." is an emotional pause only when it is all the line has left. Between
     # words it is prosody that Qwen3 renders as real silence, and dropping it is
     # what turned "if you want... I... ehm" into one flat run-on sentence.

@@ -178,7 +178,12 @@ class EmotionSounds:
         return base
 
     def extract(self, text: str) -> tuple[str, list[tuple[int, str]]]:
-        from .text_clean import glued_to_apostrophe, normalize_asterisk_tokens, speakify_asterisks
+        from .text_clean import (
+            glued_to_apostrophe,
+            is_speak_span,
+            normalize_asterisk_tokens,
+            speakify_asterisks,
+        )
 
         text = normalize_asterisk_tokens(text)
         if getattr(self, "speak_words", False):
@@ -186,17 +191,26 @@ class EmotionSounds:
             # drop, bare words are never filtered.
             cleaned = re.sub(r"\s+", " ", speakify_asterisks(text)).strip()
             return cleaned, []
-        pats: list[tuple[re.Pattern[str], str | None]] = []
+        alias_pats: list[tuple[re.Pattern[str], str | None]] = []
         for expr, tag in self.aliases.items():
             esc = re.escape(expr)
-            pats.append((re.compile(rf"\*{esc}\*", re.I), tag))
-            pats.append((re.compile(rf"\b{esc}\b", re.I), tag))
-        pats.extend(self.compiled)
+            alias_pats.append((re.compile(rf"\*{esc}\*", re.I), tag))
+            alias_pats.append((re.compile(rf"\b{esc}\b", re.I), tag))
         raw: list[tuple[int, int, str | None]] = []
-        for pat, t in pats:
+        # Explicit user aliases first: a hand-mapped word keeps its mapping
+        # even when the global speak default would let it through.
+        for pat, t in alias_pats:
             for m in pat.finditer(text):
                 start, end = m.span()
                 if glued_to_apostrophe(text, start, end):
+                    continue
+                raw.append((start, end, t))
+        for pat, t in self.compiled:
+            for m in pat.finditer(text):
+                start, end = m.span()
+                if glued_to_apostrophe(text, start, end):
+                    continue
+                if is_speak_span(text[start:end]):
                     continue
                 raw.append((start, end, t))
         raw.sort(key=lambda x: x[0])
