@@ -72,10 +72,6 @@
         "tag": "cough"
     },
     {
-        "pattern": "\\*chuckl(?:ing|e)?s?\\*",
-        "tag": "chuckles"
-    },
-    {
         "pattern": "\\*pant(?:ing|e)?s?\\*",
         "tag": "pants"
     },
@@ -185,7 +181,7 @@
     },
     {
         "pattern": "\\bha\\b",
-        "tag": "ha"
+        "tag": "haha"
     },
     {
         "pattern": "\\*sh+\\*",
@@ -213,10 +209,6 @@
     },
     {
         "pattern": "\\bargh\\b",
-        "tag": "argh"
-    },
-    {
-        "pattern": "\\*argh\\*",
         "tag": "argh"
     },
     {
@@ -268,7 +260,7 @@
         "tag": "moand"
     },
     {
-        "pattern": "\\b[aeiou]{2,}[mngh]{1,3}\\b",
+        "pattern": "\\b(?!(?:een|aan|ion|ian|eon|ain|aim|oom)\\b)[aeiou]{2,}[mngh]{1,3}\\b",
         "tag": null
     },
     {

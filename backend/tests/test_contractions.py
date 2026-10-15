@@ -40,3 +40,23 @@ def test_real_moans_still_stripped():
     cleaned, emo = es.extract("*sighs* Well, yes.")
     assert "*" not in cleaned
     assert [tag for _, tag in emo] == ["sigh"]
+
+
+def test_real_words_survive_moan_pattern():
+    # een/aan (NL), ion/Ian/eon/ain/aim/oom: matched by the generic moan
+    # pattern, now excluded via lookahead. Moans still go.
+    for w in ["een", "aan", "ion", "Ian", "eon", "ain", "aim", "oom"]:
+        assert clean_emotion_text(f"zeg {w} maar") == f"zeg {w} maar", w
+    es = EmotionSounds(player=None)
+    for w in ["een", "ion", "Ian"]:
+        cleaned, emo = es.extract(f"zeg {w} maar")
+        assert w in cleaned, w
+        assert emo == []
+    for moan in ["ooh", "aah", "aaah", "aam", "mmm", "eenn"]:
+        assert moan not in clean_emotion_text(f"zeg {moan} maar").split(), moan
+
+
+def test_lone_ha_maps_to_haha_sound():
+    es = EmotionSounds(player=None)
+    _, emo = es.extract("ha, ha!")
+    assert [tag for _, tag in emo] == ["haha", "haha"]
