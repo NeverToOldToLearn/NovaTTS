@@ -57,6 +57,9 @@ _BUILTIN = [
 _ASTERISK_TOKEN_RE = re.compile(r"\*([^*]{1,80})\*")
 _ASTERISK_PAD_RE = re.compile(r"\*([^*]+?)\s*\*")
 _ELLIPSIS_RE = re.compile(r"\.{2,}|…+")
+
+# Apostrophes joining a contraction: straight and curly, opening and closing.
+_APOSTROPHES = ("'", "\u2019", "\u2018")
 _WS_RE = re.compile(r"\s+")
 
 # A TTS model cannot pronounce punctuation. Once the emotion words are
@@ -87,6 +90,34 @@ def normalize_asterisk_tokens(text: str) -> str:
     if not text or "*" not in text:
         return text
     return _ASTERISK_PAD_RE.sub(lambda m: "*" + m.group(1).strip() + "*", text)
+
+
+def glued_to_apostrophe(text: str, start: int, end: int) -> bool:
+    """True when a pattern match is glued to an apostrophe: "ain't", "ma'am".
+
+    Primal-sound patterns such as ``\\b[aeiou]{2,}[mngh]{1,3}\\b`` see the
+    "ain" in "ain't" as a moan (word boundary before the apostrophe) and
+    would strip it, leaving "'t" for the TTS model. Contractions are never
+    primal sounds.
+    """
+    return (start > 0 and text[start - 1] in _APOSTROPHES) or (
+        end < len(text) and text[end] in _APOSTROPHES
+    )
+
+
+def sub_preserving_contractions(pat: re.Pattern[str], text: str) -> str:
+    """Like ``pat.sub(" ", text)`` but keeps contraction-glued matches."""
+    out: list[str] = []
+    last = 0
+    for m in pat.finditer(text):
+        start, end = m.span()
+        if glued_to_apostrophe(text, start, end):
+            continue
+        out.append(text[last:start])
+        out.append(" ")
+        last = end
+    out.append(text[last:])
+    return "".join(out)
 
 
 def strip_leading_punctuation(text: str) -> str:
@@ -237,7 +268,7 @@ def clean_emotion_text(text: str, aliases: dict[str, str] | None = None) -> str:
     t = _ASTERISK_TOKEN_RE.sub(_asterisk_replace, t)
     t = t.replace("*", "")
     for pat in pats:
-        t = pat.sub(" ", t)
+        t = sub_preserving_contractions(pat, t)
     # "..." is an emotional pause only when it is all the line has left. Between
     # words it is prosody that Qwen3 renders as real silence, and dropping it is
     # what turned "if you want... I... ehm" into one flat run-on sentence.

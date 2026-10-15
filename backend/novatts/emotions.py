@@ -174,7 +174,7 @@ class EmotionSounds:
         return base
 
     def extract(self, text: str) -> tuple[str, list[tuple[int, str]]]:
-        from .text_clean import normalize_asterisk_tokens
+        from .text_clean import glued_to_apostrophe, normalize_asterisk_tokens
 
         text = normalize_asterisk_tokens(text)
         pats: list[tuple[re.Pattern[str], str | None]] = []
@@ -186,7 +186,10 @@ class EmotionSounds:
         raw: list[tuple[int, int, str | None]] = []
         for pat, t in pats:
             for m in pat.finditer(text):
-                raw.append((m.start(), m.end(), t))
+                start, end = m.span()
+                if glued_to_apostrophe(text, start, end):
+                    continue
+                raw.append((start, end, t))
         raw.sort(key=lambda x: x[0])
         parts: list[str] = []
         positions: list[tuple[int, str]] = []
