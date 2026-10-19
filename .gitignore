@@ -54,6 +54,9 @@ data/emotion_aliases.json
 # Installer output
 NovaTTS-Setup-*.exe
 NovaTTS-Portable-*.zip
+# Grote lokale build-/backup-zips. Nooit committen: GitHub weigert bestanden
+# groter dan 100 MB (GH001), en deze Artefacten horen niet in de repo.
+NovaTTS-slim-*.zip
 installer/Output/
 *.log
 backend/dist/
