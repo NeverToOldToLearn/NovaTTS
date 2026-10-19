@@ -24,10 +24,10 @@ if errorlevel 1 goto :need_setup
 goto :pick_py
 
 :need_setup
-echo [NovaTTS] Venv onbruikbaar of verplaatst — setup wordt gedraaid...
+echo [NovaTTS] Venv onbruikbaar of verplaatst - setup wordt gedraaid...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\setup.ps1"
 if errorlevel 1 (
-  echo [NovaTTS] setup.ps1 faalde — installeer handmatig: py -3.11 -m venv backend\.venv
+  echo [NovaTTS] setup.ps1 faalde - installeer handmatig: py -3.11 -m venv backend\.venv
   pause & exit /b 1
 )
 
@@ -40,12 +40,12 @@ if not defined PY set "PY=python"
 
 REM -- ensure node_modules exist for gui build --
 if not exist "%ROOT%\gui\node_modules" (
-  echo [NovaTTS] gui/node_modules ontbreekt — npm install wordt gedraaid...
+  echo [NovaTTS] gui/node_modules ontbreekt - npm install wordt gedraaid...
   pushd "%ROOT%\gui" 2>nul && npm install --no-audit --no-fund 1>nul 2>&1 && popd
 )
 REM -- check vite build exists --
 if not exist "%ROOT%\gui\dist\index.html" (
-  echo [NovaTTS] gui/dist ontbreekt — vite build wordt gedraaid...
+  echo [NovaTTS] gui/dist ontbreekt - vite build wordt gedraaid...
   pushd "%ROOT%\gui" 2>nul && npm run build 1>nul 2>&1 && popd
 )
 
@@ -83,7 +83,7 @@ if exist "%ROOT%\gui\node_modules\.bin\tauri.cmd" set "TAURI_READY=1"
 if exist "%ROOT%\node_modules\.bin\tauri.cmd" set "TAURI_READY=1"
 
 if "%TAURI_READY%"=="0" (
-  echo   @tauri-apps/cli niet gevonden — npm install...
+  echo   @tauri-apps/cli niet gevonden - npm install...
   if exist "%ROOT%\gui" (
     pushd "%ROOT%\gui" 2>nul && npm install --no-audit --no-fund 1>nul 2>&1 && popd
   ) else (
@@ -115,13 +115,13 @@ echo Sluiten: het NovaTTS-venster sluiten stopt backend + Qwen mee.
 echo Alleen bij een crash: stop_all.cmd
 if defined NO_TAURI if not "%MODE%"=="hidden" (
   echo.
-  echo Tauri CLI ontbreekt — de GUI draait nu als browserpagina op http://localhost:1420
+  echo Tauri CLI ontbreekt - de GUI draait nu als browserpagina op http://localhost:1420
   pause
 )
 exit /b 0
 
 :repair
-echo [NovaTTS] Repair — venv + deps opnieuw opbouwen...
+echo [NovaTTS] Repair - venv + deps opnieuw opbouwen...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\setup.ps1" -Force
 pause
 exit /b 0

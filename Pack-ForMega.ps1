@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Pack a slim NovaTTS copy for MegaSync / cloud upload (~few MB, not ~10 GB).

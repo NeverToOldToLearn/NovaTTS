@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # Start-QwenTTS-Multi.ps1
 # Starts tts-server and automatically registers all .spk/.rvq
 # voice pairs found in a folder.
@@ -54,7 +54,7 @@ if ($voicePairs.Count -eq 0) {
 }
 
 Write-Host "Found $($voicePairs.Count) voice(s) to register:" -ForegroundColor White
-$voicePairs | ForEach-Object { Write-Host "  • $($_.Name)" -ForegroundColor Gray }
+$voicePairs | ForEach-Object { Write-Host "  * $($_.Name)" -ForegroundColor Gray }
 Write-Host ""
 
 # --- Start server in separate window ---
@@ -151,7 +151,7 @@ try {
     Write-Host "Currently registered voices:" -ForegroundColor Cyan
     $voices.voices | ForEach-Object {
         $kind = if ($_.kind) { $_.kind } else { "unknown" }
-        Write-Host ("  • {0,-30} [{1}]" -f $_.name, $kind) -ForegroundColor Gray
+        Write-Host ("  * {0,-30} [{1}]" -f $_.name, $kind) -ForegroundColor Gray
     }
 } catch {
     Write-Host "Could not fetch final voice list." -ForegroundColor Yellow
@@ -159,7 +159,7 @@ try {
 
 Write-Host ""
 Write-Host "TTS server is running at http://${HostIp}:${Port}" -ForegroundColor Green
-Write-Host "You can close this window – the server keeps running in its own window."
+Write-Host "You can close this window - the server keeps running in its own window."
 Write-Host ""
 Write-Host "Press any key to exit..."
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

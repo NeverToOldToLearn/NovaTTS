@@ -1,7 +1,7 @@
 @echo off
 REM Stops everything NovaTTS starts: GUI, backend (:8765) and Qwen (:8081).
 REM Closing the main GUI window already does this, but a crash or a forced
-REM kill leaves the backend polling the clipboard — use this then.
+REM kill leaves the backend polling the clipboard - use this then.
 setlocal
 set "BACKEND_PORT=8765"
 
