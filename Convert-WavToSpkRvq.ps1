@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # Convert-WavToSpkRvq.ps1
 # Scans a folder of paired .wav + .txt files and converts them
 # into pre-extracted .spk + .rvq voice references for qwentts.cpp
@@ -19,7 +19,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "=== Convert WAV+TXT → .spk + .rvq ===" -ForegroundColor Cyan
+Write-Host "=== Convert WAV+TXT -> .spk + .rvq ===" -ForegroundColor Cyan
 Write-Host "Source folder : $SourceDir"
 Write-Host ""
 
@@ -57,14 +57,14 @@ foreach ($wav in $wavFiles) {
 
     # Check for matching .txt
     if (-not (Test-Path $txtPath)) {
-        Write-Host "  → SKIPPED (no matching .txt found)" -ForegroundColor Yellow
+        Write-Host "  -> SKIPPED (no matching .txt found)" -ForegroundColor Yellow
         $skipped++
         continue
     }
 
     # Skip if already converted (unless -Force)
     if ((Test-Path $spkPath) -and (Test-Path $rvqPath) -and -not $Force) {
-        Write-Host "  → SKIPPED (already has .spk + .rvq). Use -Force to overwrite." -ForegroundColor DarkGray
+        Write-Host "  -> SKIPPED (already has .spk + .rvq). Use -Force to overwrite." -ForegroundColor DarkGray
         $skipped++
         continue
     }
@@ -77,7 +77,7 @@ foreach ($wav in $wavFiles) {
             "-i",       $wav.FullName
         )
 
-        Write-Host "  → Running qwen-codec..." -NoNewline
+        Write-Host "  -> Running qwen-codec..." -NoNewline
         $proc = Start-Process -FilePath $CodecExe -ArgumentList $args -Wait -PassThru -NoNewWindow
 
         if ($proc.ExitCode -ne 0) {

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 param(
   [switch]$NoTauri,
   [switch]$NoBackend,
@@ -53,12 +53,12 @@ try {
     npm install --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { Fail "npm install faalde (gui)." }
   } else {
-    Info "GUI: node_modules bestaat — skip install (gebruik -Force om te vernieuwen)"
+    Info "GUI: node_modules bestaat - skip install (gebruik -Force om te vernieuwen)"
   }
   Info "GUI: vite build (check)..."
   npm run build | Out-Null
   if ($LASTEXITCODE -ne 0) { Fail "vite build faalde." }
-  Info "GUI klaar — dev: npm run dev  |  tauri: npm run tauri dev"
+  Info "GUI klaar - dev: npm run dev  |  tauri: npm run tauri dev"
 } finally { Pop-Location }
 
 if ($NoTauri) {
@@ -74,12 +74,12 @@ if ($NoTauri) {
                 (Test-Path (Join-Path $ROOT "node_modules\.bin\tauri.cmd"))
   }
   if ($tauriCli) {
-    Info "Tauri CLI (@tauri-apps/cli) gevonden — npx tauri dev / build beschikbaar."
+    Info "Tauri CLI (@tauri-apps/cli) gevonden - npx tauri dev / build beschikbaar."
   } elseif ($hasCargo -and $hasRustc) {
-    Warn "@tauri-apps/cli niet geinstalleerd — run 'npm install' of draai opnieuw."
-    Warn "Rust $(rustc --version) aanwezig, maar Tauri CLI mist. GUI draait wel in browser (npm run dev → http://localhost:1420)."
+    Warn "@tauri-apps/cli niet geinstalleerd - run 'npm install' of draai opnieuw."
+    Warn "Rust $(rustc --version) aanwezig, maar Tauri CLI mist. GUI draait wel in browser (npm run dev -> http://localhost:1420)."
   } else {
-    Warn "Tauri CLI niet gevonden — GUI draait in browser (npm run dev → http://localhost:1420)."
+    Warn "Tauri CLI niet gevonden - GUI draait in browser (npm run dev -> http://localhost:1420)."
     Warn "Voor native window: npm install + Rust https://rustup.rs, dan: npx tauri dev"
   }
 }
@@ -115,14 +115,14 @@ if (-not $NoBackend) {
   }
   if (-not $venvOk) {
     if (Test-Path $venvPy) {
-      Warn "Bestaande venv onbruikbaar (verhuisd/corrupt) — opnieuw aanmaken..."
+      Warn "Bestaande venv onbruikbaar (verhuisd/corrupt) - opnieuw aanmaken..."
       Remove-Item -Recurse -Force (Join-Path $ROOT "backend\.venv") -ErrorAction SilentlyContinue
     }
     Info "Backend venv aanmaken (.venv)..."
     try { Invoke-Expression "& $py -m venv `"$ROOT\backend\.venv`"" } catch { Fail "venv aanmaken faalde: $_" }
     if ($LASTEXITCODE -ne 0) { Fail "venv aanmaken faalde." }
   } else {
-    Info "Backend venv OK — hergebruik"
+    Info "Backend venv OK - hergebruik"
   }
   $venvPy = Join-Path $ROOT "backend\.venv\Scripts\python.exe"
   if (-not (Test-Venv $venvPy)) { Fail "venv python nog steeds onbruikbaar: $venvPy" }
@@ -134,7 +134,7 @@ if (-not $NoBackend) {
   if (Test-Path $devReq) {
     & $venvPy -m pip install -r $devReq --quiet
   }
-  Info "Backend klaar — run: backend\.venv\Scripts\python.exe backend\run.py  (of start_all.cmd)"
+  Info "Backend klaar - run: backend\.venv\Scripts\python.exe backend\run.py  (of start_all.cmd)"
 }
 
 # --- .env -------------------------------------------------------------------
@@ -142,7 +142,7 @@ $envExample = Join-Path $ROOT "backend\.env.example"
 $envFile    = Join-Path $ROOT "backend\.env"
 if ((Test-Path $envExample) -and -not (Test-Path $envFile)) {
   Copy-Item $envExample $envFile
-  Info ".env aangemaakt uit .env.example — pas paden aan indien nodig."
+  Info ".env aangemaakt uit .env.example - pas paden aan indien nodig."
 }
 if (Test-Path $envFile) {
   $missing = @()

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 param(
   [switch]$WithVenv,
   [switch]$ZipOnly,
@@ -26,8 +26,8 @@ function Find-ISCC($hint) {
 # --- exclusions for portable payload (fix verhuizen: nooit .venv/node_modules meenemen tenzij -WithVenv) ---
 $excludeDirs = @(".git",".venv","venv","node_modules","target","__pycache__",".mypy_cache",".ruff_cache",".pytest_cache","cache","Output",".crush")
 $excludeFiles = @("*.log","*.pyc","backend\.env","NovaTTS-Setup-*.exe","NovaTTS-Portable-*.zip")
-if (-not $WithVenv) { Write-Host "[installer] Portable (zonder .venv/node_modules — setup bouwt ze bij eerste run)" -ForegroundColor Cyan }
-else { Write-Host "[installer] Full payload (-WithVenv) — inclusief .venv/node_modules" -ForegroundColor Yellow; $excludeDirs = @(".git","__pycache__",".mypy_cache",".ruff_cache",".pytest_cache","Output") }
+if (-not $WithVenv) { Write-Host "[installer] Portable (zonder .venv/node_modules - setup bouwt ze bij eerste run)" -ForegroundColor Cyan }
+else { Write-Host "[installer] Full payload (-WithVenv) - inclusief .venv/node_modules" -ForegroundColor Yellow; $excludeDirs = @(".git","__pycache__",".mypy_cache",".ruff_cache",".pytest_cache","Output") }
 
 # Build ZIP portable
 if (-not $NoZip) {
@@ -42,7 +42,7 @@ if (-not $NoZip) {
   Push-Location (Join-Path $ROOT "gui")
   try {
     if (-not (Test-Path (Join-Path $ROOT "gui\dist\index.html"))) {
-      Write-Host "[installer] gui/dist ontbreekt — vite build..." -ForegroundColor DarkGray
+      Write-Host "[installer] gui/dist ontbreekt - vite build..." -ForegroundColor DarkGray
       if (Get-Command npm -ErrorAction SilentlyContinue) {
         if (-not (Test-Path (Join-Path $ROOT "gui\node_modules\.bin\vite.cmd"))) { npm install --no-audit --no-fund 2>&1 | Out-Null }
         npm run build 2>&1 | Out-Null
@@ -110,12 +110,12 @@ if (-not $NoZip) {
   }
 }
 
-if ($ZipOnly) { Write-Host "[installer] -ZipOnly — Inno Setup overgeslagen" -ForegroundColor DarkGray; exit 0 }
+if ($ZipOnly) { Write-Host "[installer] -ZipOnly - Inno Setup overgeslagen" -ForegroundColor DarkGray; exit 0 }
 
 # Build Inno Setup installer (.exe)
 $iscc = Find-ISCC $InnoPath
 if (-not $iscc) {
-  Write-Host "[installer] Inno Setup (ISCC.exe) niet gevonden — sla .exe build over." -ForegroundColor Yellow
+  Write-Host "[installer] Inno Setup (ISCC.exe) niet gevonden - sla .exe build over." -ForegroundColor Yellow
   Write-Host "  Installeer https://jrsoftware.org/isdl.php  of draai met -ZipOnly / -NoZip" -ForegroundColor DarkGray
   Write-Host "  Of: installer\Build-Installer.ps1 -InnoPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'" -ForegroundColor DarkGray
   if ($NoZip) { exit 1 }

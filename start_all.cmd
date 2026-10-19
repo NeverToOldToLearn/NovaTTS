@@ -24,10 +24,10 @@ if errorlevel 1 goto :need_setup
 goto :pick_py
 
 :need_setup
-echo [NovaTTS] Venv onbruikbaar of verplaatst — setup wordt gedraaid...
+echo [NovaTTS] Venv onbruikbaar of verplaatst - setup wordt gedraaid...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\setup.ps1"
 if errorlevel 1 (
-  echo [NovaTTS] setup.ps1 faalde — installeer handmatig: py -3.11 -m venv backend\.venv
+  echo [NovaTTS] setup.ps1 faalde - installeer handmatig: py -3.11 -m venv backend\.venv
   pause & exit /b 1
 )
 
@@ -64,10 +64,10 @@ REM dan ter plekke. Zonder call is de onderstaande regel de LAATSTE die van dit
 REM blok draait: de "npm install slaagde niet"-waarschuwing eronder zou nooit
 REM verschijnen, en de hele rest van de batch ook niet.
 if "%NODE_READY%"=="0" (
-  echo [NovaTTS] node_modules ontbreekt — npm install wordt gedraaid...
+  echo [NovaTTS] node_modules ontbreekt - npm install wordt gedraaid...
   pushd "%ROOT%\gui" 2>nul && call npm install --no-audit --no-fund 1>nul 2>&1 && popd
   if not exist "%ROOT%\node_modules\.bin\vite.cmd" if not exist "%ROOT%\gui\node_modules\.bin\vite.cmd" (
-    echo [NovaTTS] LET OP: npm install slaagde niet of is incompleet — de GUI kan niet bouwen.
+    echo [NovaTTS] LET OP: npm install slaagde niet of is incompleet - de GUI kan niet bouwen.
     echo          Controleer node/npm, of draai handmatig: cd gui ^&^& npm install
   )
 )
@@ -75,7 +75,7 @@ REM -- check vite build exists --
 REM Ook hier is `call` nodig, om dezelfde reden: zonder call zou de vite build de
 REM laatste regel van dit blok zijn en alles daaronder overslaan.
 if not exist "%ROOT%\gui\dist\index.html" (
-  echo [NovaTTS] gui/dist ontbreekt — vite build wordt gedraaid...
+  echo [NovaTTS] gui/dist ontbreekt - vite build wordt gedraaid...
   pushd "%ROOT%\gui" 2>nul && call npm run build 1>nul 2>&1 && popd
 )
 
@@ -208,7 +208,7 @@ REM verse machine stopte start_all.cmd dan bij de installatie in plaats van de
 REM GUI te starten. Dit stond al in het script; het is nu pas merkbaar
 REM geworden omdat de browser-fallback hieronder op dezelfde conditie leunt.
 if "%TAURI_READY%"=="0" (
-  echo   @tauri-apps/cli niet gevonden — npm install...
+  echo   @tauri-apps/cli niet gevonden - npm install...
   if exist "%ROOT%\gui" (
     pushd "%ROOT%\gui" 2>nul && call npm install --no-audit --no-fund 1>nul 2>&1 && popd
   ) else (
@@ -220,10 +220,10 @@ if "%TAURI_READY%"=="0" (
 
 set "BACKEND_EXE=%ROOT%\backend\dist\novatts-backend.exe"
 if not exist "%BACKEND_EXE%" (
-  echo   backend\dist\novatts-backend.exe ontbreekt — PyInstaller bouwt hem nu, dit kan enkele minuten duren...
+  echo   backend\dist\novatts-backend.exe ontbreekt - PyInstaller bouwt hem nu, dit kan enkele minuten duren...
   "%PY%" -m PyInstaller --version >nul 2>&1
   if errorlevel 1 (
-    echo   pyinstaller staat niet in de venv — eenmalig installeren, daarna werkt dit automatisch...
+    echo   pyinstaller staat niet in de venv - eenmalig installeren, daarna werkt dit automatisch...
     "%PY%" -m pip install pyinstaller
   )
   if not errorlevel 1 (
@@ -231,13 +231,13 @@ if not exist "%BACKEND_EXE%" (
     "%PY%" -m PyInstaller Novabackend.spec --noconfirm
     popd
   )
-  if not exist "%BACKEND_EXE%" echo   LET OP: de backend-exe kon niet worden gebouwd — de GUI start zonder Tauri-shell.
+  if not exist "%BACKEND_EXE%" echo   LET OP: de backend-exe kon niet worden gebouwd - de GUI start zonder Tauri-shell.
 )
 
 set "EXE_READY=0"
 if exist "%BACKEND_EXE%" set "EXE_READY=1"
 
-REM Eén beslispunt, zodat de route hiervandaan uit te lezen is. De takken hieronder
+REM Een beslispunt, zodat de route hiervandaan uit te lezen is. De takken hieronder
 REM vragen elkaar anders, en dan is "welke route?" een raadsel voor wie dit leest.
 set "USE_TAURI=0"
 if "%TAURI_READY%"=="1" if "%EXE_READY%"=="1" set "USE_TAURI=1"
@@ -280,7 +280,7 @@ if not "%MODE%"=="hidden" pause
 exit /b 0
 
 :repair
-echo [NovaTTS] Repair — venv + deps opnieuw opbouwen...
+echo [NovaTTS] Repair - venv + deps opnieuw opbouwen...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\setup.ps1" -Force
 pause
 exit /b 0
