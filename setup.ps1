@@ -190,7 +190,11 @@ Info "node $(node -v)  npm $(npm -v)"
 # --- GUI --------------------------------------------------------------------
 Push-Location (Join-Path $ROOT "gui")
 try {
-  $needInstall = $Force -or -not (Test-Path (Join-Path $ROOT "gui\node_modules\.bin\vite.cmd")) -or -not (Test-Path (Join-Path $ROOT "gui\node_modules"))
+  # npm workspaces hoist naar de repo-root: gui/node_modules hoeft niet te
+  # bestaan, zolang er maar een werkende vite in gui/ of in de root staat.
+  $viteGui  = Test-Path (Join-Path $ROOT "gui\node_modules\.bin\vite.cmd")
+  $viteRoot = Test-Path (Join-Path $ROOT "node_modules\.bin\vite.cmd")
+  $needInstall = $Force -or -not ($viteGui -or $viteRoot)
   if ($needInstall) {
     Info "GUI: npm install..."
     npm install --no-audit --no-fund
