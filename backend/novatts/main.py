@@ -538,8 +538,18 @@ app = FastAPI(title="NovaTTS", version="0.1.0", lifespan=lifespan)
 app.include_router(cutter_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost", "https://tauri.localhost"],
-    allow_origin_regex=r"https://.*\.tauri\.local.*",
+    # Windows WebView2 (Tauri v2) serves the app from http://tauri.localhost;
+    # macOS/Linux use tauri://localhost. Every scheme must be listed: CORS
+    # blocks ALL fetches from the installed app (GET and POST alike) when its
+    # origin is missing, which shows up as "backend not running" everywhere.
+    allow_origins=[
+        "http://localhost:1420",
+        "http://127.0.0.1:1420",
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ],
+    allow_origin_regex=r"https?://.*\.tauri\.local.*",
     allow_methods=["*"],
     allow_headers=["*"],
 )
