@@ -12,14 +12,20 @@
   // Opt-in: sidebar-item alleen zichtbaar als voice-design aan staat (default uit).
   let voiceDesignEnabled = $state(false);
 
-  onMount(async () => {
+  // The Tauri side spawns the backend on launch and the PyInstaller boot takes
+  // several seconds, so the first settings fetch almost always loses that race.
+  // This gate is one-shot: a single failed fetch would hide the tab for the
+  // whole session. Poll until the backend answers.
+  async function loadVoiceDesignGate(attempt = 0) {
     try {
       const s = await api.settings();
       voiceDesignEnabled = (s.settings as { voice_design_enabled?: boolean }).voice_design_enabled === true;
     } catch {
-      voiceDesignEnabled = false;
+      if (attempt < 15) setTimeout(() => void loadVoiceDesignGate(attempt + 1), 2000);
     }
-  });
+  }
+
+  onMount(() => void loadVoiceDesignGate());
 </script>
 
 <main class="app">
