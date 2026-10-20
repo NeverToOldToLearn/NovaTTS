@@ -45,7 +45,6 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../backend/dist/novatts-backend.exe": "resources/novatts-backend.exe",
       "../../backend/.env.example": "resources/.env.example",
       "../../data": "data"
     },

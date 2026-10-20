@@ -13,8 +13,7 @@ Gebouwd met **Tauri NSIS** (GUI + backend in één `.exe`):
 
 ```powershell
 # Bouwen (vereist Rust + Node, één keer op dev machine):
-cd backend && .\.venv\Scripts\pyinstaller Novabackend.spec --noconfirm
-cd ..\gui && npm run tauri build
+npm run build:tauri      # backend:exe (PyInstaller) + tauri build --config tauri.release.json
 # Output: gui\src-tauri\target\release\bundle\nsis\NovaTTS_2.0.0_x64-setup.exe  (~25 MB)
 
 # Of via npm:

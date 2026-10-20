@@ -128,14 +128,19 @@ fn resource_backend_path(handle: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 fn dev_backend_path() -> Option<PathBuf> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let candidates: Vec<PathBuf> = vec![
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        // Portable/installer-layout: de exe als naastgelegen resource.
+        manifest
             .join("..")
             .join("..")
-            .join("backend")
-            .join("dist")
+            .join("resources")
             .join("novatts-backend.exe"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        // Dev: alleen aanwezig na `npm run backend:exe` (PyInstaller). Ontbreekt
+        // hij, dan is dat geen fout: start_all.cmd draait de backend al uit de
+        // venv en spawn_backend skipt als :8765 al gezond antwoordt.
+        manifest
+            .join("..")
             .join("..")
             .join("backend")
             .join("dist")
