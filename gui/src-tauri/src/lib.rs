@@ -47,7 +47,13 @@ fn ensure_env(handle: &tauri::AppHandle) {
     // that collide with qwentts.cpp (usually 8081), causing backend bind
     // failures and the GUI to get stuck.
     //
-    // So: always (re)write the dev .env.
+    // So: debug builds always (re)write the dev .env. Release builds ship to
+    // end users, whose .env IS their configuration (emotion-sounds dir,
+    // voice-design opt-in, engine paths, ...) - create it on first run and
+    // never overwrite it, or every launch silently wipes their settings.
+    if env_path.exists() && !cfg!(debug_assertions) {
+        return;
+    }
     let _ = std::fs::remove_file(&env_path);
 
     let candidates = [

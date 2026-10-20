@@ -153,6 +153,12 @@ class EmotionSounds:
                 continue
 
     def reload(self) -> None:
+        # POST /settings updates the live settings object, so emotion_sounds_dir
+        # can be repointed without a backend restart. self.dir was captured at
+        # construction time - refresh it before rescanning, or the reload
+        # endpoint keeps reporting (and scanning) the old folder.
+        if getattr(settings, "emotion_sounds_dir", None):
+            self.dir = Path(settings.emotion_sounds_dir)
         self._reload()
 
     def normalize_tag(self, tag: str) -> str:

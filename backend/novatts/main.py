@@ -1261,10 +1261,16 @@ def _settings_path_status() -> dict[str, dict[str, Any]]:
 
 @app.get("/settings")
 async def get_settings() -> dict[str, Any]:
+    from .config import BACKEND_DIR
+
     return {
         "settings": _settings_snapshot(),
         "path_status": _settings_path_status(),
-        "env_file": str(Path(settings.qwen_bin).parent.parent / ".env") if settings.qwen_bin else str(Path(__file__).resolve().parent.parent / ".env"),
+        # The file the backend actually reads AND writes (update_settings
+        # always targets BACKEND_DIR/.env). The old qwen_bin-derived path
+        # pointed into the qwentts.cpp build tree and misled users checking
+        # their saved settings.
+        "env_file": str(BACKEND_DIR / ".env"),
     }
 
 
