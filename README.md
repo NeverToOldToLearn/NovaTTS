@@ -14,7 +14,7 @@ Gebouwd met **Tauri NSIS** (GUI + backend in één `.exe`):
 ```powershell
 # Bouwen (vereist Rust + Node, één keer op dev machine):
 npm run build:tauri      # backend:exe (PyInstaller) + tauri build --config tauri.release.json
-# Output: gui\src-tauri\target\release\bundle\nsis\NovaTTS_2.0.0_x64-setup.exe  (~25 MB)
+# Output: gui\src-tauri\target\release\bundle\nsis\NovaTTS_2.0.0_x64-setup.exe  (~38 MB)
 
 # Of via npm:
 npm run installer        # ZIP + Inno Setup (als Inno geïnstalleerd)
