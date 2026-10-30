@@ -202,13 +202,13 @@ pub fn pick_save_wav(app: AppHandle, suggested: String, start: String) -> Option
 
 #[tauri::command]
 pub fn pick_exe(app: AppHandle, title: String, start: String) -> Option<String> {
-    pick_file(
-        &app,
-        &title,
-        &start,
-        &[("Executables", &["exe"]), ("All files", &["*"])],
-    )
-    .map(|p| p.to_string_lossy().into_owned())
+    let filters: &[(&str, &[&str])] = if cfg!(windows) {
+        &[("Executables", &["exe"]), ("All files", &["*"])]
+    } else {
+        &[("All files", &["*"])]
+    };
+    pick_file(&app, &title, &start, filters)
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

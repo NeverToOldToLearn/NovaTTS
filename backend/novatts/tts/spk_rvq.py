@@ -1,6 +1,6 @@
 """Pre-extracted .spk/.rvq voice references for the qwentts.cpp engine.
 
-``qwen-codec.exe`` can extract a speaker embedding (``.spk``) and the
+``qwen-codec`` can extract a speaker embedding (``.spk``) and the
 packed speech tokens (``.rvq``) once, ahead of time, from a sample WAV.
 The tts-server then accepts these latents verbatim via
 ``{name, spk_b64, rvq_b64}`` — no GPU work at registration time, so
@@ -36,10 +36,17 @@ QUICK_TEST_STEM = "output_quick_test"
 
 
 def codec_bin_path() -> Path:
-    """Resolve qwen-codec.exe (explicit setting, else sibling of tts-server.exe)."""
+    """Resolve qwen-codec (explicit setting, else sibling of tts-server)."""
     if settings.qwen_codec_bin.strip():
         return Path(settings.qwen_codec_bin)
-    return Path(settings.qwen_bin).with_name("qwen-codec.exe")
+    base = Path(settings.qwen_bin)
+    # Windows ships qwen-codec.exe; Linux builds the same tool without a
+    # suffix. Try both so a copied .env from either platform still works.
+    for name in ("qwen-codec", "qwen-codec.exe"):
+        cand = base.with_name(name)
+        if cand.is_file():
+            return cand
+    return base.with_name("qwen-codec.exe" if base.suffix.lower() == ".exe" else "qwen-codec")
 
 
 @dataclass(frozen=True)
@@ -111,7 +118,7 @@ def unpaired_wavs(src: Path, wavs: list[Path] | None = None) -> list[Path]:
 
 
 def convert_pair(wav: Path) -> None:
-    """Run qwen-codec.exe to extract .spk/.rvq next to ``wav``.
+    """Run qwen-codec to extract .spk/.rvq next to ``wav``.
 
     Requires the codec + talker GGUF files — the same models tts-server
     loads, so the latents match what the server would extract itself.
@@ -119,7 +126,7 @@ def convert_pair(wav: Path) -> None:
     """
     bin_path = codec_bin_path()
     if not bin_path.exists():
-        raise FileNotFoundError(f"qwen-codec.exe not found: {bin_path}")
+        raise FileNotFoundError(f"qwen-codec not found: {bin_path}")
     codec_model = settings.qwen_codec
     talker_model = settings.qwen_model
     if not codec_model or not Path(codec_model).exists():

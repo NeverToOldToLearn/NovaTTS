@@ -4,7 +4,7 @@ The voice-design checkpoint (``qwen-talker-1.7b-voicedesign-*.gguf``, 1.7B
 only) creates a voice from a free-text attribute instruction (``--instruct``)
 instead of a reference sample. This deliberately bypasses the running
 ``tts-server`` (which serves the base model): each design job spawns
-``qwen-tts.exe`` once, writes one WAV, and exits — so the base engine keeps
+``qwen-tts`` once, writes one WAV, and exits — so the base engine keeps
 running untouched.
 
 Output lands in ``settings.voice_design_dir`` and can be auditioned from the
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -55,10 +56,13 @@ def resolve_tts_bin() -> Path:
     for cand in (
         qwen_bin.parent / "qwen-tts",
         qwen_bin.parent / "qwen-tts.exe",
-        Path(r"D:\Projects\qwentts.cpp\build\Release\qwen-tts.exe"),
     ):
         if cand.is_file():
             return cand
+    # Linux installs may put the CLI on PATH instead of next to tts-server.
+    found = shutil.which("qwen-tts") or shutil.which("qwen-tts.exe")
+    if found:
+        return Path(found)
     return sibling
 
 
@@ -72,7 +76,6 @@ def resolve_design_model() -> Path:
     base = Path(settings.qwen_model) if settings.qwen_model else Path()
     for cand in (
         base.parent / "qwen-talker-1.7b-voicedesign-Q8_0.gguf",
-        Path(r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-voicedesign-Q8_0.gguf"),
     ):
         if cand.is_file():
             return cand

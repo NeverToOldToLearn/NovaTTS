@@ -15,6 +15,7 @@ from __future__ import annotations
 import array
 import json
 import logging
+import os
 import shutil
 import subprocess
 import wave
@@ -32,23 +33,32 @@ log = logging.getLogger(__name__)
 # locations, then PATH.
 
 FFMPEG_CANDIDATES = [
+    "/usr/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/snap/bin/ffmpeg",
     r"C:\Users\BoBo\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe",
     r"C:\ffmpeg\bin\ffmpeg.exe",
     r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
 ]
 
 WHISPER_EXE_CANDIDATES = [
+    "/usr/local/bin/whisper-cli",
+    "/usr/bin/whisper-cli",
     r"C:\whisper.cpp\build\bin\Release\whisper-cli.exe",
     r"C:\whisper.cpp\build\bin\Release\main.exe",
     r"C:\whisper.cpp\main.exe",
 ]
 
 WHISPER_MODEL_CANDIDATES = [
+    str(Path.home() / ".local/share/whisper.cpp/models/ggml-large-v3-turbo.bin"),
+    "/usr/share/whisper.cpp/models/ggml-large-v3-turbo.bin",
     r"C:\whisper.cpp\models\ggml-large-v3-turbo.bin",
     r"C:\whisper.cpp\models\ggml-large-v3.bin",
 ]
 
-WHISPER_MODEL_DEFAULT = WHISPER_MODEL_CANDIDATES[0]
+WHISPER_MODEL_DEFAULT = (
+    WHISPER_MODEL_CANDIDATES[2] if os.name == "nt" else WHISPER_MODEL_CANDIDATES[0]
+)
 
 # Qwen3TTS reference format: 24 kHz mono PCM16, loudness-normalised.
 QWEN_SAMPLE_RATE = 24000
