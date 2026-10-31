@@ -75,27 +75,17 @@ Since you develop on Windows: the easiest Linux release is a **source
 bundle** (tarball or zip of the repo + `install.sh`). Linux users are used
 to building from source; the script handles all dependencies.
 
-Alternatively, set up a **GitHub Actions workflow** with an `ubuntu-latest`
-runner that runs `install.sh` and uploads the `.AppImage` and `.deb` as
-release artifacts. That way you never touch a Linux machine yourself:
+For pre-built binaries, a **GitHub Actions workflow** is included at
+`.github/workflows/build.yml`. It builds both Windows (NSIS) and Linux
+(AppImage + deb) in parallel on GitHub runners — no Linux machine needed.
 
-```yaml
-# .github/workflows/linux-release.yml (sketch)
-jobs:
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: ./installer/install.sh --no-frontend   # backend only
-      - run: ./installer/install.sh --no-backend     # GUI only (uses cached venv)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-bundle
-          path: gui/src-tauri/target/release/bundle/
-```
+Trigger options:
+- **Manual**: Actions tab → "Build & Release" → Run workflow
+- **Automatic**: push a version tag (`git tag v2.1.0 && git push --tags`)
+  — builds both platforms and creates a GitHub Release with all artifacts
 
-The PyInstaller step (`Novabackend.spec`) must run on a real Linux runner —
-it cannot be cross-compiled from Windows.
+The PyInstaller step and Tauri build both run natively on their respective
+runners. Cross-compilation is not needed.
 
 ## Auto-forward
 
