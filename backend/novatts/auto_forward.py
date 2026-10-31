@@ -13,9 +13,10 @@ Windows
 
 Linux (X11)
   ``xdotool`` is used for both window search and keystroke injection. Works
-  on X11 out of the box; Wayland compositors block synthetic input by design,
-  so auto-forward is unavailable under Wayland (logged once at start).
-  Global hotkey toggle is not available on Linux — use the GUI toggle or the
+  on X11 out of the box. In a Wayland session only X11/Xwayland windows are
+  reachable, so an explicit target window is required; native Wayland clients
+  have no stable way to receive synthetic input. Global hotkey toggle is not
+  available on Linux — use the GUI toggle or the
   ``/auto-forward/toggle`` endpoint instead.
 """
 
@@ -43,6 +44,7 @@ _IS_WINDOWS = sys.platform == "win32"
 _IS_LINUX = sys.platform.startswith("linux")
 _HAS_XDOTOOL = bool(shutil.which("xdotool")) if _IS_LINUX else False
 _IS_WAYLAND = bool(os.environ.get("WAYLAND_DISPLAY")) if _IS_LINUX else False
+_HAS_DISPLAY = bool(os.environ.get("DISPLAY")) if _IS_LINUX else False
 
 
 # --- Win32 helpers -----------------------------------------------------------
@@ -102,12 +104,16 @@ class AutoForward:
         if _IS_WINDOWS:
             pass  # hotkey loop below
         elif _IS_LINUX:
-            if _IS_WAYLAND:
-                log.info("auto-forward: Wayland detected — synthetic input is blocked by the compositor; auto-forward disabled")
-                return
             if not _HAS_XDOTOOL:
                 log.info("auto-forward: xdotool not found — install it (apt install xdotool) for auto-forward on X11")
                 return
+            if not _HAS_DISPLAY:
+                log.info("auto-forward: no DISPLAY — synthetic input needs an X11/Xwayland server; auto-forward disabled")
+                return
+            if _IS_WAYLAND:
+                # The session is Wayland, but most games (SDL/Ren'Py) still run
+                # as X11 clients under Xwayland. xdotool can reach those.
+                log.info("auto-forward: Wayland session — only X11/Xwayland windows are reachable; set a target window")
         else:
             log.info("auto-forward: not supported on this platform")
             return
@@ -274,21 +280,143 @@ class AutoForward:
         if wid is None:
             log.info("auto-forward: no game window found (target=%r)", self.target)
             return
-        log.info("auto-forward: xdotool key space → window %s", wid)
+        log.info("auto-forward: xdotool space → window %s", wid)
         try:
-            subprocess.run(
-                ["xdotool", "key", "--window", wid, "space"],
-                capture_output=True, timeout=5,
-            )
+            proc = self._send_space_xdotool(wid)
+            if proc.returncode != 0:
+                log.warning(
+                    "auto-forward: xdotool failed (exit %s): %s",
+                    proc.returncode,
+                    (proc.stderr or "").strip()[:200],
+                )
         except Exception:
             log.exception("auto-forward: xdotool key failed")
+
+    @staticmethod
+    def _send_space_xdotool(wid: str) -> subprocess.CompletedProcess[str]:
+        """Send Space to ``wid``.
+
+        ``xdotool key --window`` uses XSendEvent, which SDL/Ren'Py windows
+        routinely ignore. XTEST input (plain ``xdotool key``) does reach them,
+        but only when the window has focus — and the game should have focus
+        while auto-forwarding anyway.
+
+        On Wayland the compositor's focus-stealing prevention makes
+        ``windowactivate`` unreliable, and a "successful" activation can
+        still leave keyboard focus elsewhere (so XTEST goes nowhere).
+        There we never activate: XTEST when the target is already active,
+        XSendEvent as a best-effort otherwise. On X11, activate first and
+        fall back to XSendEvent when the window manager refuses.
+        """
+
+        def active() -> str:
+            try:
+                return subprocess.run(
+                    ["xdotool", "getactivewindow"],
+                    capture_output=True, text=True, timeout=2,
+                ).stdout.strip()
+            except Exception:
+                return ""
+
+        if active() == wid:
+            return subprocess.run(
+                ["xdotool", "key", "--clearmodifiers", "space"],
+                capture_output=True, text=True, timeout=5,
+            )
+        if not _IS_WAYLAND:
+            try:
+                activated = subprocess.run(
+                    ["xdotool", "windowactivate", "--sync", wid],
+                    capture_output=True, text=True, timeout=2,
+                )
+                if activated.returncode == 0 and active() == wid:
+                    return subprocess.run(
+                        ["xdotool", "key", "--clearmodifiers", "space"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+            except Exception:
+                log.debug("auto-forward: windowactivate failed, using XSendEvent")
+        return subprocess.run(
+            ["xdotool", "key", "--window", wid, "space"],
+            capture_output=True, text=True, timeout=5,
+        )
 
     def test_advance(self) -> dict[str, object]:
         if _IS_WINDOWS:
             return self._test_advance_win32()
-        if _IS_LINUX and _HAS_XDOTOOL and not _IS_WAYLAND:
+        if _IS_LINUX and _HAS_XDOTOOL and _HAS_DISPLAY:
             return self._test_advance_xdotool()
         return {"ok": False, "reason": "auto-forward is not supported on this platform"}
+
+    # -- GUI / API helpers -------------------------------------------
+
+    def status(self) -> dict[str, object]:
+        """Everything the settings panel needs to render the toggle."""
+        if _IS_WINDOWS:
+            available = True
+            reason = ""
+        elif _IS_LINUX and not _HAS_XDOTOOL:
+            available = False
+            reason = "xdotool not installed (apt install xdotool)"
+        elif _IS_LINUX and not _HAS_DISPLAY:
+            available = False
+            reason = "no X11/Xwayland display; synthetic input is unavailable"
+        elif _IS_LINUX:
+            available = True
+            reason = (
+                "Wayland session: only X11/Xwayland windows are visible — "
+                "set a target window title"
+                if _IS_WAYLAND
+                else ""
+            )
+        else:
+            available = False
+            reason = "auto-forward is not supported on this platform"
+        return {
+            "enabled": self.enabled,
+            "target": self.target,
+            "delay": self.delay,
+            "hotkey": self._hotkey_name,
+            "platform": "windows" if _IS_WINDOWS else "linux" if _IS_LINUX else sys.platform,
+            "wayland": _IS_WAYLAND,
+            "xdotool": _HAS_XDOTOOL,
+            "available": available,
+            "reason": reason,
+            "can_capture": _IS_WINDOWS or (_IS_LINUX and _HAS_XDOTOOL and _HAS_DISPLAY),
+            "can_test": available,
+        }
+
+    def list_windows(self) -> list[str]:
+        """Visible window titles xdotool can reach (X11/Xwayland only)."""
+        if not (_IS_LINUX and _HAS_XDOTOOL and _HAS_DISPLAY):
+            return []
+        try:
+            proc = subprocess.run(
+                ["xdotool", "search", "--onlyvisible", "--name", ".*"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            log.exception("auto-forward: xdotool window list failed")
+            return []
+        if proc.returncode != 0:
+            return []
+        titles: list[str] = []
+        for wid in proc.stdout.split():
+            try:
+                name = subprocess.run(
+                    ["xdotool", "getwindowname", wid],
+                    capture_output=True, text=True, timeout=2,
+                ).stdout.strip()
+            except Exception:
+                continue
+            # Mutter's guard window is an implementation detail, and empty
+            # titles cannot be matched by the user anyway.
+            if not name or name == "mutter guard window":
+                continue
+            if name not in titles:
+                titles.append(name)
+        return sorted(titles)
+
 
     def _test_advance_win32(self) -> dict[str, object]:
         hwnd = self._find_window()
@@ -313,10 +441,7 @@ class AutoForward:
         if wid is None:
             return {"ok": False, "reason": f"no window matched target {self.target!r}"}
         try:
-            proc = subprocess.run(
-                ["xdotool", "key", "--window", wid, "space"],
-                capture_output=True, text=True, timeout=5,
-            )
+            proc = self._send_space_xdotool(wid)
             if proc.returncode == 0:
                 return {"ok": True, "method": "xdotool", "wid": wid, "target": self.target}
             return {"ok": False, "reason": f"xdotool exit {proc.returncode}: {proc.stderr[:200]}"}
@@ -371,16 +496,51 @@ class AutoForward:
             log.info("auto-forward: matched %d windows for target %r", len(results), target)
         return results[0] if results else None
 
+    @staticmethod
+    def _is_x11_frame(wid: str) -> bool:
+        """True for mutter's Xwayland frame windows.
+
+        Every Xwayland client has a sibling frame window owned by
+        ``mutter-x11-frames``. It carries the same title, but keyboard events
+        sent to it disappear. ``xprop`` may be absent; then we keep the
+        candidate rather than dropping every match.
+        """
+        try:
+            proc = subprocess.run(
+                ["xprop", "-id", wid, "WM_CLASS"],
+                capture_output=True, text=True, timeout=2,
+            )
+        except Exception:
+            return False
+        return "mutter-x11-frames" in proc.stdout
+
     def _find_window_xdotool(self) -> str | None:
         """Find a game window using xdotool on X11."""
         target = self.target
         try:
             if target:
                 proc = subprocess.run(
-                    ["xdotool", "search", "--name", target],
+                    ["xdotool", "search", "--onlyvisible", "--name", target],
                     capture_output=True, text=True, timeout=5,
                 )
+                wids = proc.stdout.split()
+                if wids:
+                    # Xwayland wraps each client in a separate mutter frame
+                    # window that shares the title but never receives input.
+                    # Sending there is a silent no-op, so prefer the client.
+                    for candidate in wids:
+                        if not self._is_x11_frame(candidate):
+                            log.info("auto-forward: xdotool found window %s for target %r", candidate, target)
+                            return candidate
+                    log.info("auto-forward: only mutter frame windows matched %r", target)
+                    return None
             else:
+                # Under Wayland only X11/Xwayland windows are visible to
+                # xdotool; guessing the "active" window could hit an unrelated
+                # X11 app. Require an explicit target there.
+                if _IS_WAYLAND:
+                    log.info("auto-forward: Wayland session — capture/set a target window first")
+                    return None
                 # Try renpy first, then fall back to the active window.
                 proc = subprocess.run(
                     ["xdotool", "search", "--name", "renpy"],

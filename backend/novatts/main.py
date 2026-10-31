@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -13,8 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .adapters import ClipboardAdapter
+from .auto_forward import AutoForward
 from .blacklist import Blacklist, is_renpy_exception
-from .config import settings
+from .config import BACKEND_DIR, settings
 from .cutter_api import router as cutter_router
 from .emotions import EmotionSounds
 from .games import GameManager
@@ -96,6 +98,10 @@ class SettingsBody(BaseModel):
     qwen_timeout: float | None = None
     qwen_extra_args: str | None = None
     poll_interval: float | None = None
+    auto_forward_enabled: bool | None = None
+    auto_forward_target: str | None = None
+    auto_forward_delay: float | None = None
+    auto_forward_hotkey: str | None = None
 
 
 class OpenAISpeechBody(BaseModel):
@@ -150,13 +156,21 @@ class NovaApp:
         self.player = AudioPlayer()
         self.emotions = EmotionSounds(player=self.player, speak_words=settings.emotion_speak_words)
         self.blacklist = Blacklist()
+        self.auto_forward = AutoForward(
+            hotkey=settings.auto_forward_hotkey,
+            delay=settings.auto_forward_delay,
+            target=settings.auto_forward_target,
+        )
         # With the cache off, every line is a throwaway file that outlives its
         # own playback by exactly nothing: drop it here, once the player is
-        # done. release() ignores emotion sounds and cached takes.
-        self.player.on_finished = self.voices.release
+        # done. release() ignores emotion sounds and cached takes. The same
+        # callback doubles as the line-end signal for auto-forward: the last
+        # file of a line finishing means the line itself is over.
+        self._line_end: tuple[int, Path] | None = None
+        self._line_end_lock = threading.Lock()
+        self.player.on_finished = self._on_playback_finished
         self.clipboard: ClipboardAdapter | None = None
         self._event_history: list[Event] = []
-        import threading
 
         self._pending_lock = threading.Lock()
         self._pending_dialogue: Dialogue | None = None
@@ -174,7 +188,8 @@ class NovaApp:
         except Exception as exc:
             log.warning("Qwen autostart failed (non-fatal): %s", exc)
         self.player.start()
-        import threading
+        self.auto_forward.start()
+        self.auto_forward.set_enabled(settings.auto_forward_enabled)
 
         self._running = True
         self._worker = threading.Thread(target=self._dialogue_worker, name="dialogue-worker", daemon=True)
@@ -198,6 +213,7 @@ class NovaApp:
             with suppress(Exception):
                 self._worker.join(timeout=2.0)
             self._worker = None
+        self.auto_forward.stop()
         self.player.stop()
         import contextlib
 
@@ -212,6 +228,25 @@ class NovaApp:
             if self.clipboard:
                 self.clipboard.raw_log.clear()
         self.registry.maybe_autosave()
+
+    def _on_playback_finished(self, path: Path) -> None:
+        """Player callback: release the clip and detect "line finished".
+
+        Every file (emotion sound or TTS chunk) fires this. The last file of
+        a line is registered in ``_line_end`` before playback starts, so this
+        is the one signal that the whole line is over. A newer clipboard line
+        bumps the sequence and interrupts playback, which makes the stale
+        check suppress the keystroke instead of advancing the game mid-line.
+        """
+        self.voices.release(path)
+        with self._line_end_lock:
+            end = self._line_end
+            if end is None or end[1] != path:
+                return
+            self._line_end = None
+            seq = end[0]
+        if not self._is_stale(seq):
+            self.auto_forward.notify_spoken()
 
     def _synth_emotion_aware(self, dialogue: Dialogue) -> list[Path]:
         cleaned, emotions = self.emotions.extract(dialogue.text)
@@ -289,6 +324,8 @@ class NovaApp:
                 log.info("Skipped stale after synth seq=%d latest=%d", seq, latest2)
                 self._emit(Event("skipped", {"speaker": dialogue.speaker, "text": dialogue.text[:60]}))
                 continue
+            with self._line_end_lock:
+                self._line_end = (seq, paths[-1])
             self.player.enqueue_interrupt(paths[0])
             for p in paths[1:]:
                 self.player.enqueue(p)
@@ -373,6 +410,7 @@ class NovaApp:
                 self.player.abort_stream(session)
                 return
             self.player.finish_stream(session)
+            self.auto_forward.notify_after_stream(session)
             self._emit(Event("queued", {"speaker": dialogue.speaker, "voice": voice or "(default)", "stream": True}))
         except BaseException:
             self.player.abort_stream(session)
@@ -1208,11 +1246,23 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "qwen_timeout": "NOVATTS_QWEN_TIMEOUT",
     "qwen_extra_args": "NOVATTS_QWEN_EXTRA_ARGS",
     "poll_interval": "NOVATTS_POLL_INTERVAL",
+    "auto_forward_enabled": "NOVATTS_AUTO_FORWARD_ENABLED",
+    "auto_forward_target": "NOVATTS_AUTO_FORWARD_TARGET",
+    "auto_forward_delay": "NOVATTS_AUTO_FORWARD_DELAY",
+    "auto_forward_hotkey": "NOVATTS_AUTO_FORWARD_HOTKEY",
 }
+
+
+def _as_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 
 _SETTINGS_FIELD_TYPES: dict[str, type[Any]] = {
     "qwen_timeout": float,
     "poll_interval": float,
+    "auto_forward_delay": float,
+    "auto_forward_enabled": _as_bool,
+    "voice_design_enabled": _as_bool,
 }
 
 
@@ -1236,6 +1286,10 @@ def _settings_snapshot() -> dict[str, Any]:
         "poll_interval": settings.poll_interval,
         "qwen_autostart": settings.qwen_autostart,
         "qwen_auto_import_samples": settings.qwen_auto_import_samples,
+        "auto_forward_enabled": settings.auto_forward_enabled,
+        "auto_forward_target": settings.auto_forward_target,
+        "auto_forward_delay": settings.auto_forward_delay,
+        "auto_forward_hotkey": settings.auto_forward_hotkey,
     }
 
 
@@ -1264,19 +1318,35 @@ async def get_settings() -> dict[str, Any]:
     return {
         "settings": _settings_snapshot(),
         "path_status": _settings_path_status(),
-        "env_file": str(Path(settings.qwen_bin).parent.parent / ".env") if settings.qwen_bin else str(Path(__file__).resolve().parent.parent / ".env"),
+        "env_file": str(BACKEND_DIR / ".env"),
     }
 
 
 @app.post("/settings")
 async def update_settings(body: SettingsBody) -> dict[str, Any]:
-    from .config import BACKEND_DIR
-
-    env_path = BACKEND_DIR / ".env"
     updates = body.model_dump(exclude_none=True)
     if not updates:
         return {"status": "noop", "settings": _settings_snapshot(), "path_status": _settings_path_status()}
+    _persist_settings(updates)
+    if any(k.startswith("auto_forward_") for k in updates):
+        _apply_auto_forward_settings()
+    return {"status": "saved", "settings": _settings_snapshot(), "path_status": _settings_path_status()}
 
+
+def _apply_auto_forward_settings() -> None:
+    """Push persisted auto-forward settings into the live runner."""
+    if _runtime is None:
+        return
+    af = _runtime.auto_forward
+    af.target = (settings.auto_forward_target or "").strip().lower()
+    af.delay = max(0.1, float(settings.auto_forward_delay))
+    af.set_hotkey(settings.auto_forward_hotkey)
+    af.set_enabled(bool(settings.auto_forward_enabled))
+
+
+def _persist_settings(updates: dict[str, Any]) -> None:
+    """Apply settings to the live object and write them to backend/.env."""
+    env_path = BACKEND_DIR / ".env"
     lines: list[str] = []
     if env_path.exists():
         try:
@@ -1314,7 +1384,67 @@ async def update_settings(body: SettingsBody) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to write .env: {exc}") from exc
 
-    return {"status": "saved", "settings": _settings_snapshot(), "path_status": _settings_path_status()}
+
+# ----------------------------------------------------------------------
+# Auto-forward (RenPy Space)
+# ----------------------------------------------------------------------
+
+
+class AutoForwardBody(BaseModel):
+    enabled: bool | None = None
+    target: str | None = None
+    delay: float | None = Field(default=None, ge=0.1, le=30.0)
+
+
+@app.get("/auto-forward")
+async def auto_forward_status() -> dict[str, Any]:
+    return get_runtime().auto_forward.status()
+
+
+@app.post("/auto-forward")
+async def set_auto_forward(body: AutoForwardBody) -> dict[str, Any]:
+    rt = get_runtime()
+    af = rt.auto_forward
+    updates: dict[str, Any] = {}
+    if body.target is not None:
+        af.target = body.target.strip().lower()
+        updates["auto_forward_target"] = af.target
+    if body.delay is not None:
+        af.delay = max(0.1, float(body.delay))
+        updates["auto_forward_delay"] = af.delay
+    if body.enabled is not None:
+        af.set_enabled(body.enabled)
+        updates["auto_forward_enabled"] = af.enabled
+    if updates:
+        _persist_settings(updates)
+    return af.status()
+
+
+@app.post("/auto-forward/toggle")
+async def toggle_auto_forward() -> dict[str, Any]:
+    rt = get_runtime()
+    enabled = rt.auto_forward.toggle()
+    _persist_settings({"auto_forward_enabled": enabled})
+    return rt.auto_forward.status()
+
+
+@app.post("/auto-forward/capture")
+async def capture_auto_forward_target() -> dict[str, Any]:
+    rt = get_runtime()
+    title = rt.auto_forward.capture_foreground()
+    if title:
+        _persist_settings({"auto_forward_target": rt.auto_forward.target})
+    return {"title": title, **rt.auto_forward.status()}
+
+
+@app.get("/auto-forward/windows")
+async def list_auto_forward_windows() -> dict[str, Any]:
+    return {"windows": get_runtime().auto_forward.list_windows()}
+
+
+@app.post("/auto-forward/test")
+async def test_auto_forward() -> dict[str, Any]:
+    return get_runtime().auto_forward.test_advance()
 
 
 if __name__ == "__main__":

@@ -32,6 +32,20 @@ export type QwenStatus = {
   last_error: string | null;
 };
 
+export type AutoForwardStatus = {
+  enabled: boolean;
+  target: string;
+  delay: number;
+  hotkey: string;
+  platform: string;
+  wayland: boolean;
+  xdotool: boolean;
+  available: boolean;
+  reason: string;
+  can_capture: boolean;
+  can_test: boolean;
+};
+
 export const api = {
   health: () => req<Health>("/health"),
   status: () => req<ServerStatus>("/status"),
@@ -122,6 +136,18 @@ export const api = {
     req<{ status: string; settings: SettingsResponse["settings"]; path_status: SettingsResponse["path_status"] }>("/settings", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  autoForwardStatus: () => req<AutoForwardStatus>("/auto-forward"),
+  setAutoForward: (body: { enabled?: boolean; target?: string; delay?: number }) =>
+    req<AutoForwardStatus>("/auto-forward", { method: "POST", body: JSON.stringify(body) }),
+  toggleAutoForward: () => req<AutoForwardStatus>("/auto-forward/toggle", { method: "POST" }),
+  captureAutoForwardTarget: () =>
+    req<AutoForwardStatus & { title: string }>("/auto-forward/capture", { method: "POST" }),
+  autoForwardWindows: () => req<{ windows: string[] }>("/auto-forward/windows"),
+  testAutoForward: () =>
+    req<{ ok: boolean; reason?: string; method?: string; wid?: string; target?: string }>("/auto-forward/test", {
+      method: "POST",
     }),
 
   voiceDesignStatus: () =>

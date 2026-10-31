@@ -46,8 +46,8 @@ install_system_deps() {
   # Python, Node.js, and Rust toolchains
   sudo apt-get install -y -qq python3 python3-pip python3-venv nodejs npm cargo rustc build-essential
   # Runtime libraries: PortAudio for sounddevice, ffmpeg for audio conversion,
-  # clipboard tools for pyperclip (X11 and Wayland)
-  sudo apt-get install -y -qq libportaudio2 ffmpeg xclip wl-clipboard
+  # clipboard tools for pyperclip (X11 and Wayland), xdotool for auto-forward.
+  sudo apt-get install -y -qq libportaudio2 ffmpeg xclip wl-clipboard xdotool
   # Tauri (WebKitGTK) build dependencies for the Linux GUI
   sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf
   echo -e "${GREEN}System dependencies installed.${NC}"
@@ -56,6 +56,16 @@ install_system_deps() {
 # Install Python dependencies
 install_python_deps() {
   echo -e "${YELLOW}Installing Python dependencies...${NC}"
+  # Venvs are not relocatable: pyvenv.cfg and the console-script shebangs keep
+  # the creation path. A checkout moved to another directory (or drive) then
+  # fails with "invalid interpreter". Recreate it instead.
+  if [ -d "$VENV" ]; then
+    old_venv="$(sed -n 's/^command = .* -m venv //p' "$VENV/pyvenv.cfg" 2>/dev/null | tail -n1)"
+    if [ -n "$old_venv" ] && [ "$old_venv" != "$VENV" ]; then
+      echo -e "${YELLOW}venv was created at $old_venv; recreating at $VENV${NC}"
+      rm -rf "$VENV"
+    fi
+  fi
   if [ ! -d "$VENV" ]; then
     python3 -m venv "$VENV"
   fi
@@ -98,11 +108,12 @@ build_app() {
   if [ "$NO_BACKEND" = false ]; then
     (
       cd backend
-      "$VENV/bin/pyinstaller" --noconfirm Novabackend.spec
+      "$VENV/bin/python" -m PyInstaller --noconfirm --clean Novabackend.spec
     )
     # Verify the binary exists (PyInstaller produces it without extension on Linux).
     if [ ! -f backend/dist/novatts-backend ]; then
       echo -e "${RED}PyInstaller build did not produce backend/dist/novatts-backend${NC}" >&2
+      exit 1
     fi
   fi
   # Build Tauri app (Linux binary). tauri.linux.conf.json overrides the

@@ -14,6 +14,7 @@
       {
         "label": "main",
         "title": "NovaTTS",
+        "theme": "Dark",
         "width": 1200,
         "height": 800,
         "minWidth": 880,
@@ -23,6 +24,7 @@
         "label": "cutter",
         "title": "Perfect Cut — NovaTTS Sample Cutter",
         "url": "index.html#/cutter",
+        "theme": "Dark",
         "width": 1180,
         "height": 820,
         "minWidth": 900,

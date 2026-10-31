@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api } from "../api";
+  import { api, type AutoForwardStatus } from "../api";
   import { openCutter } from "../cutter/tauri";
   import type { PathStatus, SettingsData, SettingsResponse } from "../types";
 
@@ -13,6 +13,89 @@
   let testing = $state(false);
   let converting = $state(false);
   let convertForce = $state(false);
+
+  let af: AutoForwardStatus | null = $state(null);
+  let afWindows: string[] = $state([]);
+  let afBusy = $state(false);
+  let afMsg = $state("");
+
+  const loadAutoForward = async () => {
+    try {
+      af = await api.autoForwardStatus();
+    } catch (e) {
+      afMsg = `Auto-forward status unavailable: ${(e as Error).message}`;
+    }
+  };
+
+  const saveAutoForward = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      af = await api.setAutoForward({
+        target: (form.auto_forward_target ?? "").toString(),
+        delay: Number(form.auto_forward_delay ?? 1),
+        enabled: form.auto_forward_enabled === true,
+      });
+      afMsg = af.enabled ? "Auto-forward enabled." : "Auto-forward saved (off).";
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const toggleAutoForward = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      af = await api.toggleAutoForward();
+      form.auto_forward_enabled = af.enabled;
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const captureAutoForwardTarget = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      const r = await api.captureAutoForwardTarget();
+      af = r;
+      if (r.title) {
+        form.auto_forward_target = r.title;
+        afMsg = `Target captured: ${r.title}`;
+      } else {
+        afMsg = "No foreground X11 window could be captured. Click the game first, or pick a window below.";
+      }
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const listAutoForwardWindows = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      const r = await api.autoForwardWindows();
+      afWindows = r.windows;
+      afMsg = r.windows.length
+        ? `${r.windows.length} X11/Xwayland window(s) visible.`
+        : "No X11/Xwayland windows visible. Native Wayland windows cannot be targeted.";
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const testAutoForward = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      const r = await api.testAutoForward();
+      afMsg = r.ok
+        ? `Test keystroke sent (${r.method}${r.wid ? `, window ${r.wid}` : ""}).`
+        : `Test failed: ${r.reason ?? "unknown error"}`;
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
 
   const load = async () => {
     try {
@@ -109,7 +192,10 @@
 
   const exists = (key: string) => pathStatus[key]?.exists ?? false;
 
-  onMount(load);
+  onMount(() => {
+    load();
+    loadAutoForward();
+  });
 </script>
 
 <section class="panel">
@@ -239,6 +325,61 @@
         <input class="field sm" type="number" bind:value={form.poll_interval} min="0.05" max="2" step="0.05" />
       </label>
     </div>
+  </div>
+
+  <div class="section">
+    <h3>Auto-forward (RenPy)</h3>
+    <p class="muted small">
+      Sends Space to the game window after each clipboard line finishes, so RenPy advances to the next line.
+      Linux uses <code>xdotool</code> and can only reach X11/Xwayland windows — native Wayland games cannot receive synthetic input.
+      Set a target window title; the toggle is applied immediately.
+    </p>
+    {#if af}
+      <p class="muted small">
+        Platform: {af.platform}{af.wayland ? " (Wayland session)" : ""} · xdotool: {af.xdotool ? "found" : "missing"}
+        {#if !af.available} · <strong>{af.reason}</strong>{/if}
+        {#if af.available && af.reason} · {af.reason}{/if}
+      </p>
+    {/if}
+    <label class="chk">
+      <input
+        type="checkbox"
+        bind:checked={form.auto_forward_enabled}
+        onchange={saveAutoForward}
+        disabled={afBusy || !af?.available}
+      />
+      Enable auto-forward
+    </label>
+    <div class="form-grid">
+      <label class="field-row">
+        <span class="fk">Target window title</span>
+        <div class="fv">
+          <input class="field" bind:value={form.auto_forward_target} placeholder="e.g. MyGame — case-insensitive substring" />
+          <button class="ghost" onclick={captureAutoForwardTarget} disabled={afBusy || !af?.can_capture}>Capture</button>
+        </div>
+      </label>
+      {#if afWindows.length}
+        <label class="field-row">
+          <span class="fk">Visible X11/Xwayland windows</span>
+          <select class="field" bind:value={form.auto_forward_target}>
+            <option value="">— pick a window —</option>
+            {#each afWindows as w}
+              <option value={w}>{w}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
+      <label class="field-row">
+        <span class="fk">Delay after line (s)</span>
+        <input class="field sm" type="number" bind:value={form.auto_forward_delay} min="0.1" max="30" step="0.1" />
+      </label>
+    </div>
+    <div class="actions">
+      <button onclick={saveAutoForward} disabled={afBusy}>Apply target &amp; delay</button>
+      <button class="ghost" onclick={listAutoForwardWindows} disabled={afBusy}>List windows</button>
+      <button class="ghost" onclick={testAutoForward} disabled={afBusy || !af?.can_test}>Send test Space</button>
+    </div>
+    {#if afMsg}<p class="muted small">{afMsg}</p>{/if}
   </div>
 
   <div class="actions">

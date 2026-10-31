@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
@@ -38,8 +38,80 @@ fn app_base_dir(handle: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Where user-writable state (`.env`, `data/`) lives.
+///
+/// Portable builds and dev checkouts keep everything next to the app, like on
+/// Windows. A Linux package installs under `/usr/lib` (and an AppImage mounts
+/// a read-only squashfs), so writing there fails. In that case use the XDG
+/// data dir: `$XDG_DATA_HOME/novatts` or `~/.local/share/novatts`.
+#[cfg(target_os = "linux")]
+fn linux_state_dir(handle: &tauri::AppHandle) -> Option<PathBuf> {
+    let bundled = app_base_dir(handle);
+    if dir_is_writable(&bundled) {
+        return None;
+    }
+    let data_home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".local").join("share"))
+        })
+        .unwrap_or_else(|| PathBuf::from("."));
+    Some(data_home.join("novatts"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_state_dir(_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    None
+}
+
+fn state_base_dir(handle: &tauri::AppHandle) -> PathBuf {
+    linux_state_dir(handle).unwrap_or_else(|| app_base_dir(handle))
+}
+
+fn dir_is_writable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".novatts-write-test");
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
+/// First run of an installed Linux build: copy the bundled default `data/`
+/// into the user data dir. Existing files are never overwritten.
+fn seed_data_dir(handle: &tauri::AppHandle, target: &Path) {
+    let source = app_base_dir(handle).join("data");
+    let dest = target.join("data");
+    if dest.exists() || !source.is_dir() {
+        return;
+    }
+    match copy_dir_all(&source, &dest) {
+        Ok(()) => eprintln!("[NovaTTS] seeded {} from {}", dest.display(), source.display()),
+        Err(e) => eprintln!("[NovaTTS] could not seed {}: {e}", dest.display()),
+    }
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let to = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &to)?;
+        } else if !to.exists() {
+            std::fs::copy(entry.path(), &to)?;
+        }
+    }
+    Ok(())
+}
+
 fn ensure_env(handle: &tauri::AppHandle) {
-    let base = app_base_dir(handle);
+    let base = state_base_dir(handle);
+    let _ = std::fs::create_dir_all(&base);
     let env_path = base.join(".env");
 
     // Never overwrite an existing .env. The installer and the Settings panel
@@ -350,6 +422,15 @@ fn spawn_backend(handle: &tauri::AppHandle, state: BackendHandle) {
             .and_then(|p| p.parent())
             .unwrap_or(bin.parent().unwrap()),
     );
+    // Installed Linux builds keep user state outside the read-only bundle.
+    // Tell the bundled backend where that is, so it does not fall back to
+    // `/usr/lib/NovaTTS/data` (deb) or the AppImage mount.
+    #[cfg(target_os = "linux")]
+    if let Some(base) = linux_state_dir(handle) {
+        seed_data_dir(handle, &base);
+        let _ = std::fs::create_dir_all(&base);
+        cmd.env("NOVATTS_BASE_DIR", &base);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -566,6 +647,21 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Linux: the native <select> popup is a GTK menu, so it ignores
+            // the dark page CSS and follows the GTK theme. Prefer the theme's
+            // dark variant for this process only (no system-wide change).
+            #[cfg(target_os = "linux")]
+            {
+                use gtk::prelude::*;
+                if let Some(settings) = gtk::Settings::default() {
+                    settings.set_gtk_application_prefer_dark_theme(true);
+                    eprintln!(
+                        "[NovaTTS] GTK dark variant: {}",
+                        settings.is_gtk_application_prefer_dark_theme()
+                    );
+                }
+            }
+
             // Perfect Cut hides on X instead of being destroyed (see
             // perfect_cut::arm_hide_on_close): reopening is then always
             // show()+focus() on the same live webview, never a rebuilt
@@ -578,7 +674,12 @@ pub fn run() {
             let backend_handle = handle.clone();
             let state = backend_state_setup.clone();
             std::thread::spawn(move || spawn_backend(&backend_handle, state));
-            ensure_frontend(&handle, frontend_state_setup);
+            // Only dev builds load from the Vite server. In a release bundle
+            // the frontend is embedded; probing/starting `npm run dev` there
+            // just delays startup and can spawn node on a dev machine.
+            if cfg!(debug_assertions) {
+                ensure_frontend(&handle, frontend_state_setup);
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

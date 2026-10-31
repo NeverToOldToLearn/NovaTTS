@@ -72,6 +72,9 @@
 
 <style>
   :global(:root) {
+    /* Tell WebKit the page is dark so built-in widgets (scrollbars, select
+       popup chrome, form controls) render dark instead of default white. */
+    color-scheme: dark;
     --background: #14151a;
     --foreground: #e8e8ec;
     --muted-foreground: #8b8e9a;
@@ -138,5 +141,11 @@
     min-width:0;
     overflow-y: auto;
     padding: 1.4rem 1.5rem 1.5rem;
+  }
+  /* The option list is painted by WebKitGTK outside the component scope and
+     otherwise falls back to white with the light text colour from the select. */
+  :global(select option) {
+    background-color: #14151a;
+    color: #e8e8ec;
   }
 </style>

@@ -1,5 +1,6 @@
 """Tests for pre-extracted .spk/.rvq voice reference handling."""
 
+import os
 from pathlib import Path
 
 from novatts.tts import spk_rvq
@@ -150,10 +151,15 @@ def test_unpaired_wavs(tmp_path):
     assert [p.stem for p in unpaired] == ["b"]
 
 
-def test_codec_bin_path_defaults_to_tts_server_sibling(monkeypatch):
+def test_codec_bin_path_defaults_to_tts_server_sibling(monkeypatch, tmp_path):
+    # Platform-neutral: a Linux engine is called `tts-server` + `qwen-codec`,
+    # the Windows build appends `.exe`. Use a POSIX tmp_path so the sibling
+    # lookup works on both platforms (POSIX Path does not split `\`).
+    server_name = "tts-server.exe" if os.name == "nt" else "tts-server"
+    codec_name = "qwen-codec.exe" if os.name == "nt" else "qwen-codec"
     monkeypatch.setattr(spk_rvq.settings, "qwen_codec_bin", "")
-    monkeypatch.setattr(spk_rvq.settings, "qwen_bin", r"D:\qwentts\build\Release\tts-server.exe")
-    assert spk_rvq.codec_bin_path() == Path(r"D:\qwentts\build\Release\qwen-codec.exe")
+    monkeypatch.setattr(spk_rvq.settings, "qwen_bin", str(tmp_path / server_name))
+    assert spk_rvq.codec_bin_path() == tmp_path / codec_name
 
 
 def test_codec_bin_path_explicit_wins(monkeypatch):

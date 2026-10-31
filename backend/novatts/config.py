@@ -9,6 +9,25 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _dir_is_writable(path: Path) -> bool:
+    """True when we can create files in ``path`` (creates it if needed)."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".novatts-write-test"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _user_data_dir() -> Path:
+    """XDG data dir used by installed Linux builds."""
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    root = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return root / "novatts"
+
+
 def _base_dir() -> Path:
     # Explicit override (launcher/diagnostics).
     if env_base := os.environ.get("NOVATTS_BASE_DIR"):
@@ -31,14 +50,21 @@ def _base_dir() -> Path:
                 break
             cur = parent
         # Installed-layout fallbacks (no repo root around).
+        installed: list[Path] = []
         if exe_dir.name.lower() == "resources":
-            return exe_dir.parent
+            installed.append(exe_dir.parent)
         if (exe_dir / "data").exists() or (exe_dir / "backend").exists():
-            return exe_dir
-        parent = exe_dir.parent
-        if (parent / "data").exists():
-            return parent
-        return exe_dir
+            installed.append(exe_dir)
+        if (exe_dir.parent / "data").exists():
+            installed.append(exe_dir.parent)
+        for cand in installed:
+            if _dir_is_writable(cand):
+                return cand
+        # A deb installs to /usr/lib and an AppImage is a read-only squashfs.
+        # Writing speakers/cache there fails, so keep user state in XDG_DATA_HOME.
+        if sys.platform.startswith("linux"):
+            return _user_data_dir()
+        return installed[0] if installed else exe_dir
     # Source layout (python run.py in backend/): repo root.
     return Path(__file__).resolve().parent.parent.parent
 
@@ -131,7 +157,7 @@ class Settings(BaseSettings):
     # byte-identical). It only fixes the RNG stream, nothing more.
     qwen_seed: int = 1234
     qwen_temperature: float = 0.9
-    qwen_top_p: float = 0.9
+    qwen_top_p: float = 1.0
     qwen_top_k: int = 50
     qwen_repetition_penalty: float = 1.05
     # Hard bound on one request, 1024 tokens = 82s at the codec's 12.5Hz.
@@ -164,6 +190,16 @@ class Settings(BaseSettings):
     # regex/filter tuning can copy the exact source texts.
     log_raw_clipboard: bool = True
     clipboard_raw_log: Path = DATA_DIR / "logs" / "clipboard_raw.log"
+
+    # --- Auto-forward (RenPy) ---
+    # When a clipboard line finishes playing, send Space to the game window
+    # after this delay so the visual novel advances. On Linux this needs
+    # xdotool and only reaches X11/Xwayland windows; the target is a window
+    # title substring (capture it from the GUI). No global hotkey on Linux.
+    auto_forward_enabled: bool = False
+    auto_forward_target: str = ""
+    auto_forward_delay: float = 1.0
+    auto_forward_hotkey: str = "F12"
 
     # --- Audio ---
     audio_sample_rate: int = 22050
