@@ -8,6 +8,12 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The Windows install-location defaults below (qwen_bin, models, samples dir)
+# are the developer's local paths and must not ship in a Linux build. Keep them
+# only on Windows; on Linux the backend resolves its own data dir and these
+# stay empty, which the rest of the code already treats as "not set / auto".
+_WIN = sys.platform.startswith("win32")
+
 
 def _dir_is_writable(path: Path) -> bool:
     """True when we can create files in ``path`` (creates it if needed)."""
@@ -107,13 +113,13 @@ class Settings(BaseSettings):
     # to force every unassigned speaker onto one registered clone.
     qwen_default_voice: str = ""
     # Local tts-server binary + models for one-click / auto-start.
-    qwen_bin: str = r"D:\Projects\qwentts.cpp\build\Release\tts-server.exe"
-    qwen_model: str = r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf"
-    qwen_codec: str = r"E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf"
+    qwen_bin: str = (r"D:\Projects\qwentts.cpp\build\Release\tts-server.exe" if _WIN else "")
+    qwen_model: str = (r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf" if _WIN else "")
+    qwen_codec: str = (r"E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf" if _WIN else "")
     qwen_autostart: bool = True
     qwen_extra_args: str = "--alias qwen3-tts"
     qwen_auto_import_samples: bool = True
-    qwen_samples_dir: str = r"D:\!!Scripts!!\Samples_Clone"
+    qwen_samples_dir: str = (r"D:\!!Scripts!!\Samples_Clone" if _WIN else "")
     qwen_samples_dirs_extra: str = r""
     # --- Streaming (pcm direct van tts-server, zonder WAV-omweg) ---
     # Clipboard-regels gaan per chunk naar de luidspreker zodra de engine ze
@@ -175,7 +181,7 @@ class Settings(BaseSettings):
     qwen_codec_bin: str = ""
     # Voice-design (experimenteel): apart 1.7B voicedesign-model + qwen-tts CLI.
     # qwen_tts_bin leeg = auto-detect als sibling van NOVATTS_QWEN_BIN (qwen-tts.exe).
-    qwen_voicedesign_model: str = r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-voicedesign-Q8_0.gguf"
+    qwen_voicedesign_model: str = (r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-voicedesign-Q8_0.gguf" if _WIN else "")
     qwen_tts_bin: str = ""
     voice_design_dir: Path = DATA_DIR / "voice_design"
     # Opt-in voor eindgebruik: uit = geen Voice Design-tab, generate/promote
@@ -232,7 +238,7 @@ class Settings(BaseSettings):
     speakers_file: Path = DATA_DIR / "speakers.json"
     games_dir: Path = DATA_DIR / "games"
     emotion_patterns_file: Path = DATA_DIR / "emotion_patterns.json"
-    emotion_sounds_dir: str = r"C:\Piper\emotion_sounds"
+    emotion_sounds_dir: str = (r"C:\Piper\emotion_sounds" if _WIN else str(DATA_DIR / "emotion_sounds"))
     emotion_sound_map_file: Path = DATA_DIR / "emotion_sound_map.json"
     emotion_aliases_file: Path = DATA_DIR / "emotion_aliases.json"
     # Perfect Cut tool (separate window) — batch dirs + external binaries.
