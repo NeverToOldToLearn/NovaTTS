@@ -413,7 +413,11 @@ function Build-Whisper {
                 $prev = $ErrorActionPreference
                 $ErrorActionPreference = "Continue"
                 try {
-                    $output = & cmd.exe /c "`"$dlCmd`" $whisperModel" 2>&1
+                    # Pass the models dir explicitly: the helper derives its
+                    # default from %CD% inside a parenthesised block, which
+                    # expands before `pushd` and drops the model in the app
+                    # root instead of models\.
+                    $output = & cmd.exe /c "`"$dlCmd`" $whisperModel `"$modelsDir`"" 2>&1
                     $ec = $LASTEXITCODE
                     foreach ($line in @($output)) {
                         if ($null -eq $line) { continue }
@@ -517,7 +521,7 @@ function Write-NovaTTSEnv {
         }
         $lines = @()
         if (Test-Path -LiteralPath $envPath) {
-            try { $lines = Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue } catch { $lines = @() }
+            try { $lines = Get-Content -LiteralPath $envPath -Encoding UTF8 -ErrorAction SilentlyContinue } catch { $lines = @() }
         }
         if ($null -eq $lines) { $lines = @() }
         $list = [System.Collections.Generic.List[string]]::new()

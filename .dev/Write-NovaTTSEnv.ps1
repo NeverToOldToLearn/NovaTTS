@@ -73,11 +73,19 @@ foreach ($envPath in $targets) {
         $found = $false
         for ($i = 0; $i -lt $list.Count; $i++) {
             if ($list[$i] -match ('^\s*' + [regex]::Escape($key) + '\s*=')) {
-                $current = ($list[$i] -replace '^\s*[^=]+\s*=\s*', '').Trim()
+                $current = ($list[$i] -replace '^\s*[^=]+\s*=\s*', '').Trim().Trim('"')
                 $repair = $false
                 if ($Force) {
                     $repair = $true
                 } elseif ([string]::IsNullOrWhiteSpace($current)) {
+                    $repair = $true
+                } elseif ($key -in @('NOVATTS_QWEN_BIN', 'NOVATTS_QWEN_CODEC_BIN') -and (Test-Path -LiteralPath $value)) {
+                    # Engine binaries are version-locked to the AI-Tools build,
+                    # so always use the installed copy when it exists.
+                    $repair = $true
+                } elseif ($key -in @('NOVATTS_QWEN_BIN', 'NOVATTS_QWEN_MODEL', 'NOVATTS_QWEN_CODEC', 'NOVATTS_QWEN_CODEC_BIN', 'NOVATTS_QWEN_SAMPLES_DIR') -and -not (Test-Path -LiteralPath $current)) {
+                    # Stale path from another machine/drive (e.g. an old E:\
+                    # model location) - replace it with the install path.
                     $repair = $true
                 } elseif ($key -eq 'NOVATTS_QWEN_CODEC' -and $current -match '(?i)\.exe$') {
                     $repair = $true

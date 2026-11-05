@@ -32,11 +32,20 @@ log = logging.getLogger(__name__)
 # qwen_manager: an explicit setting always wins, then well-known install
 # locations, then PATH.
 
+def _localappdata(*parts: str) -> str:
+    """Path under %LOCALAPPDATA% (empty when not on Windows)."""
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    return str(Path(local).joinpath(*parts)) if local else ""
+
+
+# The Windows installer builds whisper.cpp under the per-user AI-Tools dir.
+_AI_WHISPER = _localappdata("NovaTTS", "AI-Tools", "whisper.cpp")
+
 FFMPEG_CANDIDATES = [
     "/usr/bin/ffmpeg",
     "/usr/local/bin/ffmpeg",
     "/snap/bin/ffmpeg",
-    r"C:\Users\BoBo\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe",
+    _localappdata("Microsoft", "WinGet", "Links", "ffmpeg.exe"),
     r"C:\ffmpeg\bin\ffmpeg.exe",
     r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
 ]
@@ -44,6 +53,8 @@ FFMPEG_CANDIDATES = [
 WHISPER_EXE_CANDIDATES = [
     "/usr/local/bin/whisper-cli",
     "/usr/bin/whisper-cli",
+    str(Path(_AI_WHISPER) / "build" / "bin" / "Release" / "whisper-cli.exe") if _AI_WHISPER else "",
+    str(Path(_AI_WHISPER) / "build" / "bin" / "whisper-cli.exe") if _AI_WHISPER else "",
     r"C:\whisper.cpp\build\bin\Release\whisper-cli.exe",
     r"C:\whisper.cpp\build\bin\Release\main.exe",
     r"C:\whisper.cpp\main.exe",
@@ -52,12 +63,17 @@ WHISPER_EXE_CANDIDATES = [
 WHISPER_MODEL_CANDIDATES = [
     str(Path.home() / ".local/share/whisper.cpp/models/ggml-large-v3-turbo.bin"),
     "/usr/share/whisper.cpp/models/ggml-large-v3-turbo.bin",
+    str(Path(_AI_WHISPER) / "models" / "ggml-tiny.bin") if _AI_WHISPER else "",
+    str(Path(_AI_WHISPER) / "models" / "ggml-base.bin") if _AI_WHISPER else "",
+    str(Path(_AI_WHISPER) / "models" / "ggml-large-v3-turbo.bin") if _AI_WHISPER else "",
     r"C:\whisper.cpp\models\ggml-large-v3-turbo.bin",
     r"C:\whisper.cpp\models\ggml-large-v3.bin",
 ]
 
 WHISPER_MODEL_DEFAULT = (
-    WHISPER_MODEL_CANDIDATES[2] if os.name == "nt" else WHISPER_MODEL_CANDIDATES[0]
+    str(Path(_AI_WHISPER) / "models" / "ggml-tiny.bin")
+    if _AI_WHISPER
+    else WHISPER_MODEL_CANDIDATES[0]
 )
 
 # Qwen3TTS reference format: 24 kHz mono PCM16, loudness-normalised.
