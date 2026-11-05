@@ -8,7 +8,7 @@ venv/
 .mypy_cache/
 .pytest_cache/
 
-# Env — alleen backend\.env is lokaal, voorbeeld wel mee
+# Env â€” alleen backend\.env is lokaal, voorbeeld wel mee
 # (backend\.env wordt niet mee-gecloned; kopieert automatisch uit .env.example)
 backend/.env
 
@@ -35,7 +35,7 @@ Thumbs.db
 .crush.json
 .crush/
 
-# Persoonlijke runtime-data — niet pushen
+# Persoonlijke runtime-data â€” niet pushen
 # Per-game stem-casting en Perfect Cut instellingen zijn lokaal
 data/games/*/speakers.json
 data/perfect_cut.json
@@ -62,3 +62,7 @@ installer/Output/
 backend/dist/
 backend/build/
 data/game_links.json
+
+# Installer build staging + output (generated)
+.build/
+dist-installer/
