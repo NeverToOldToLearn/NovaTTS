@@ -115,3 +115,10 @@ export interface SettingsResponse {
   path_status: Record<string, PathStatus>;
   env_file: string;
 }
+
+/** Compiled defaults suggested by the backend's first-run setup screen. */
+export interface SetupDefaults {
+  platform: string;
+  env_file: string;
+  paths: Record<string, { suggested: string; exists: boolean }>;
+}

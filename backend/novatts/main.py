@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -14,9 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .adapters import ClipboardAdapter
-from .auto_forward import AutoForward
+from .auto_forward import HOTKEY_OPTIONS, AutoForward
 from .blacklist import Blacklist, is_renpy_exception
-from .config import BACKEND_DIR, settings
+from .config import BACKEND_DIR, Settings, settings
 from .cutter_api import router as cutter_router
 from .emotions import EmotionSounds
 from .games import GameManager
@@ -97,6 +98,8 @@ class SettingsBody(BaseModel):
     emotion_sounds_dir: str | None = None
     qwen_timeout: float | None = None
     qwen_extra_args: str | None = None
+    qwen_autostart: bool | None = None
+    qwen_auto_import_samples: bool | None = None
     poll_interval: float | None = None
     auto_forward_enabled: bool | None = None
     auto_forward_target: str | None = None
@@ -576,8 +579,16 @@ app = FastAPI(title="NovaTTS", version="0.1.0", lifespan=lifespan)
 app.include_router(cutter_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost", "https://tauri.localhost"],
-    allow_origin_regex=r"https://.*\.tauri\.local.*",
+    # Windows WebView2 serves the bundled frontend from http://tauri.localhost,
+    # Linux uses tauri://localhost and bundled https://*.tauri.local builds.
+    allow_origins=[
+        "http://localhost:1420",
+        "http://127.0.0.1:1420",
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ],
+    allow_origin_regex=r"https?://(?:[\w-]+\.)*tauri\.local(?:host)?(?::\d+)?",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1245,6 +1256,8 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "emotion_sounds_dir": "NOVATTS_EMOTION_SOUNDS_DIR",
     "qwen_timeout": "NOVATTS_QWEN_TIMEOUT",
     "qwen_extra_args": "NOVATTS_QWEN_EXTRA_ARGS",
+    "qwen_autostart": "NOVATTS_QWEN_AUTOSTART",
+    "qwen_auto_import_samples": "NOVATTS_QWEN_AUTO_IMPORT_SAMPLES",
     "poll_interval": "NOVATTS_POLL_INTERVAL",
     "auto_forward_enabled": "NOVATTS_AUTO_FORWARD_ENABLED",
     "auto_forward_target": "NOVATTS_AUTO_FORWARD_TARGET",
@@ -1263,6 +1276,8 @@ _SETTINGS_FIELD_TYPES: dict[str, type[Any]] = {
     "auto_forward_delay": float,
     "auto_forward_enabled": _as_bool,
     "voice_design_enabled": _as_bool,
+    "qwen_autostart": _as_bool,
+    "qwen_auto_import_samples": _as_bool,
 }
 
 
@@ -1319,6 +1334,35 @@ async def get_settings() -> dict[str, Any]:
         "settings": _settings_snapshot(),
         "path_status": _settings_path_status(),
         "env_file": str(BACKEND_DIR / ".env"),
+    }
+
+
+_SETUP_PATH_FIELDS = ("qwen_bin", "qwen_model", "qwen_codec", "qwen_codec_bin", "qwen_samples_dir")
+
+
+@app.get("/setup/defaults")
+async def setup_defaults() -> dict[str, Any]:
+    """Suggested paths for the first-run setup screen.
+
+    These come from the *compiled* defaults, never from the current .env, so a
+    stale or machine-specific .env can never be proposed to a new user.
+    """
+    fields = Settings.model_fields
+    paths: dict[str, dict[str, Any]] = {}
+    for name in _SETUP_PATH_FIELDS:
+        field = fields.get(name)
+        suggested = "" if field is None or field.default is None else str(field.default)
+        exists = False
+        if suggested:
+            try:
+                exists = Path(suggested).exists()
+            except OSError:
+                exists = False
+        paths[name] = {"suggested": suggested, "exists": exists}
+    return {
+        "platform": sys.platform,
+        "env_file": str(BACKEND_DIR / ".env"),
+        "paths": paths,
     }
 
 
@@ -1394,14 +1438,30 @@ class AutoForwardBody(BaseModel):
     enabled: bool | None = None
     target: str | None = None
     delay: float | None = Field(default=None, ge=0.1, le=30.0)
+    hotkey: str | None = None
 
 
+def _auto_forward_status() -> dict[str, Any]:
+    """Status payload shared by every auto-forward endpoint.
+
+    ``hotkey_options`` is kept for older GUI builds that rendered a hotkey
+    picker from this response.
+    """
+    data = get_runtime().auto_forward.status()
+    data["hotkey_options"] = list(HOTKEY_OPTIONS)
+    return data
+
+
+# Both paths are registered: newer GUIs use ``/auto-forward`` while older
+# builds still call ``/auto-forward/status``.
 @app.get("/auto-forward")
+@app.get("/auto-forward/status")
 async def auto_forward_status() -> dict[str, Any]:
-    return get_runtime().auto_forward.status()
+    return _auto_forward_status()
 
 
 @app.post("/auto-forward")
+@app.post("/auto-forward/config")
 async def set_auto_forward(body: AutoForwardBody) -> dict[str, Any]:
     rt = get_runtime()
     af = rt.auto_forward
@@ -1415,9 +1475,13 @@ async def set_auto_forward(body: AutoForwardBody) -> dict[str, Any]:
     if body.enabled is not None:
         af.set_enabled(body.enabled)
         updates["auto_forward_enabled"] = af.enabled
+    if body.hotkey is not None:
+        hotkey = body.hotkey.upper().strip()
+        if af.set_hotkey(hotkey):
+            updates["auto_forward_hotkey"] = hotkey
     if updates:
         _persist_settings(updates)
-    return af.status()
+    return _auto_forward_status()
 
 
 @app.post("/auto-forward/toggle")
@@ -1425,7 +1489,7 @@ async def toggle_auto_forward() -> dict[str, Any]:
     rt = get_runtime()
     enabled = rt.auto_forward.toggle()
     _persist_settings({"auto_forward_enabled": enabled})
-    return rt.auto_forward.status()
+    return _auto_forward_status()
 
 
 @app.post("/auto-forward/capture")
@@ -1434,7 +1498,7 @@ async def capture_auto_forward_target() -> dict[str, Any]:
     title = rt.auto_forward.capture_foreground()
     if title:
         _persist_settings({"auto_forward_target": rt.auto_forward.target})
-    return {"title": title, **rt.auto_forward.status()}
+    return {"title": title, **_auto_forward_status()}
 
 
 @app.get("/auto-forward/windows")

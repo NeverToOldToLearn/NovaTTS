@@ -194,9 +194,9 @@ $exe = "gui/src-tauri/target/release/novatts-gui.exe"
 ### Qwen3-TTS Server (optioneel)
 Als je lokale TTS wilt:
 ```bash
-cd D:\Projects\qwentts.cpp\build\Release
-.\tts-server.exe --model "E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf" \
-                  --codec "E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf" \
+cd "%LOCALAPPDATA%\NovaTTS\AI-Tools\qwentts.cpp\build\Release"
+.\tts-server.exe --model "%LOCALAPPDATA%\NovaTTS\AI-Tools\qwentts.cpp\models\qwen-talker-1.7b-base-Q8_0.gguf" ^
+                  --codec "%LOCALAPPDATA%\NovaTTS\AI-Tools\qwentts.cpp\models\qwen-tokenizer-12hz-Q8_0.gguf" ^
                   --port 8080
 ```
 

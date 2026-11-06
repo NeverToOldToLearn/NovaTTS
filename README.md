@@ -52,12 +52,14 @@ Default `http://127.0.0.1:8080` (qwentts.cpp). Modellen worden **niet** meegebun
 (GBs) — extern via `backend\.env`:
 
 ```ini
-NOVATTS_QWEN_BIN=D:\Projects\qwentts.cpp\build\Release\tts-server.exe
-NOVATTS_QWEN_MODEL=E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf
-NOVATTS_QWEN_CODEC=E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf
-NOVATTS_QWEN_SAMPLES_DIR=D:\!!Scripts!!\Samples_Clone
+# Kies deze paden bij de eerste start in de setup-wizard (of later in Settings).
+# Leeg/weggelaten = de ingebouwde AI-Tools-locatie onder %LOCALAPPDATA%\NovaTTS.
+NOVATTS_QWEN_BIN=C:\pad\naar\qwentts.cpp\build\Release\tts-server.exe
+NOVATTS_QWEN_MODEL=C:\pad\naar\models\qwen-talker-1.7b-base-Q8_0.gguf
+NOVATTS_QWEN_CODEC=C:\pad\naar\models\qwen-tokenizer-12hz-Q8_0.gguf
+NOVATTS_QWEN_SAMPLES_DIR=C:\pad\naar\je\voices
 # qwen-codec.exe voor pre-extractie van .spk/.rvq stemrefs (leeg = naast tts-server.exe)
-NOVATTS_QWEN_CODEC_BIN=D:\Projects\qwentts.cpp\build\Release\qwen-codec.exe
+NOVATTS_QWEN_CODEC_BIN=C:\pad\naar\qwentts.cpp\build\Release\qwen-codec.exe
 ```
 
 Zonder Qwen draait de server gewoon; `/health` geeft `"qwen": false`.

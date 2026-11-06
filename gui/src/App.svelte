@@ -6,16 +6,24 @@
   import EmotionsPanel from "./lib/components/EmotionsPanel.svelte";
   import SettingsPanel from "./lib/components/SettingsPanel.svelte";
   import VoiceDesignPanel from "./lib/components/VoiceDesignPanel.svelte";
+  import SetupWizard from "./lib/components/SetupWizard.svelte";
   import { api } from "./lib/api";
+  import type { SettingsResponse } from "./lib/types";
 
   let tab: "dashboard" | "speakers" | "blacklist" | "emotions" | "voicedesign" | "settings" = $state("dashboard");
   // Opt-in: sidebar-item alleen zichtbaar als voice-design aan staat (default uit).
   let voiceDesignEnabled = $state(false);
+  // First-run setup: only when the engine paths do not resolve on this machine.
+  let showSetup = $state(false);
+
+  const pathsMissing = (s: SettingsResponse) =>
+    (["qwen_bin", "qwen_model", "qwen_codec"] as const).some((k) => !s.path_status?.[k]?.exists);
 
   onMount(async () => {
     try {
       const s = await api.settings();
       voiceDesignEnabled = (s.settings as { voice_design_enabled?: boolean }).voice_design_enabled === true;
+      showSetup = pathsMissing(s);
     } catch {
       voiceDesignEnabled = false;
     }
@@ -65,10 +73,14 @@
     {:else if tab === "voicedesign"}
       <VoiceDesignPanel />
     {:else}
-      <SettingsPanel />
+      <SettingsPanel onrunsetup={() => (showSetup = true)} />
     {/if}
   </section>
 </main>
+
+{#if showSetup}
+  <SetupWizard onclose={() => (showSetup = false)} />
+{/if}
 
 <style>
   :global(:root) {

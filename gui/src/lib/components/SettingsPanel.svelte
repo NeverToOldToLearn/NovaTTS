@@ -3,6 +3,9 @@
   import { api, type AutoForwardStatus } from "../api";
   import { openCutter } from "../cutter/tauri";
   import type { PathStatus, SettingsData, SettingsResponse } from "../types";
+  import PathField from "./PathField.svelte";
+
+  let { onrunsetup = () => {} }: { onrunsetup?: () => void } = $props();
 
   let data: SettingsResponse | null = $state(null);
   let form: Partial<SettingsData> = $state({});
@@ -213,34 +216,34 @@
   <div class="section">
     <h3>Qwen Engine</h3>
     <div class="form-grid">
-      <label class="field-row">
-        <span class="fk">tts-server binary</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_bin} placeholder="path to tts-server.exe" />
-          <span class="dot" class:ok={exists("qwen_bin")}>{exists("qwen_bin") ? "✓" : "✗"}</span>
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">Model (.gguf)</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_model} placeholder="path to model" />
-          <span class="dot" class:ok={exists("qwen_model")}>{exists("qwen_model") ? "✓" : "✗"}</span>
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">Codec (.gguf)</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_codec} placeholder="path to codec" />
-          <span class="dot" class:ok={exists("qwen_codec")}>{exists("qwen_codec") ? "✓" : "✗"}</span>
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">qwen-codec binary</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_codec_bin} placeholder="auto = next to tts-server.exe" />
-          <span class="dot" class:ok={exists("qwen_codec_bin")}>{exists("qwen_codec_bin") ? "✓" : "✗"}</span>
-        </div>
-      </label>
+      <PathField
+        label="tts-server binary"
+        kind="exe"
+        bind:value={form.qwen_bin}
+        placeholder="path to tts-server.exe"
+        status={pathStatus.qwen_bin}
+      />
+      <PathField
+        label="Model (.gguf)"
+        kind="model"
+        bind:value={form.qwen_model}
+        placeholder="path to model"
+        status={pathStatus.qwen_model}
+      />
+      <PathField
+        label="Codec (.gguf)"
+        kind="model"
+        bind:value={form.qwen_codec}
+        placeholder="path to codec"
+        status={pathStatus.qwen_codec}
+      />
+      <PathField
+        label="qwen-codec binary"
+        kind="exe"
+        bind:value={form.qwen_codec_bin}
+        placeholder="auto = next to tts-server.exe"
+        status={pathStatus.qwen_codec_bin}
+      />
       <label class="field-row">
         <span class="fk">Server URL</span>
         <input class="field" bind:value={form.qwen_url} placeholder="http://127.0.0.1:8080" />
@@ -258,30 +261,36 @@
         <input class="field sm" type="number" bind:value={form.qwen_timeout} min="10" max="600" step="10" />
       </label>
     </div>
+    <div class="actions">
+      <button class="ghost" onclick={onrunsetup}>Run setup wizard…</button>
+    </div>
   </div>
 
   <div class="section">
     <h3>Voice Design (experimenteel)</h3>
     <label class="chk"><input type="checkbox" bind:checked={form.voice_design_enabled} /> Inschakelen (opt-in — standaard uit)</label>
     <div class="form-grid">
-      <label class="field-row">
-        <span class="fk">Voicedesign model (.gguf)</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_voicedesign_model} placeholder="qwen-talker-1.7b-voicedesign-Q8_0.gguf" />
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">qwen-tts binary</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_tts_bin} placeholder="auto = naast tts-server.exe" />
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">Output map</span>
-        <div class="fv">
-          <input class="field" bind:value={form.voice_design_dir} placeholder="data/voice_design" />
-        </div>
-      </label>
+      <PathField
+        label="Voicedesign model (.gguf)"
+        kind="model"
+        bind:value={form.qwen_voicedesign_model}
+        placeholder="qwen-talker-1.7b-voicedesign-Q8_0.gguf"
+        status={pathStatus.qwen_voicedesign_model}
+      />
+      <PathField
+        label="qwen-tts binary"
+        kind="exe"
+        bind:value={form.qwen_tts_bin}
+        placeholder="auto = next to tts-server.exe"
+        status={pathStatus.qwen_tts_bin}
+      />
+      <PathField
+        label="Output folder"
+        kind="dir"
+        bind:value={form.voice_design_dir}
+        placeholder="data/voice_design"
+        status={pathStatus.voice_design_dir}
+      />
     </div>
     <p class="muted small">Genereert los van de draaiende engine via <code>qwen-tts.exe --instruct …</code>; de base server blijft ongemoeid.</p>
   </div>
@@ -289,13 +298,13 @@
   <div class="section">
     <h3>Voice Samples</h3>
     <div class="form-grid">
-      <label class="field-row">
-        <span class="fk">Samples directory</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_samples_dir} placeholder="D:\!!Scripts!!\Samples_Clone" />
-          <span class="dot" class:ok={exists("qwen_samples_dir")}>{exists("qwen_samples_dir") ? "✓" : "✗"}</span>
-        </div>
-      </label>
+      <PathField
+        label="Samples directory"
+        kind="dir"
+        bind:value={form.qwen_samples_dir}
+        placeholder="folder with .wav voices"
+        status={pathStatus.qwen_samples_dir}
+      />
       <label class="field-row">
         <span class="fk">Extra dirs (comma-sep)</span>
         <input class="field" bind:value={form.qwen_samples_dirs_extra} placeholder="optional, comma separated" />

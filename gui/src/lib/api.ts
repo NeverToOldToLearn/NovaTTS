@@ -1,4 +1,4 @@
-import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, Speaker, SpeakBody } from "./types";
+import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, SetupDefaults, Speaker, SpeakBody } from "./types";
 
 const BASE = "http://127.0.0.1:8765";
 
@@ -132,6 +132,7 @@ export const api = {
   deleteEmotionAlias: (expr: string) => req<unknown>(`/emotions/alias/${encodeURIComponent(expr)}`, { method: "DELETE" }),
 
   settings: () => req<SettingsResponse>("/settings"),
+  setupDefaults: () => req<SetupDefaults>("/setup/defaults"),
   updateSettings: (body: Record<string, unknown>) =>
     req<{ status: string; settings: SettingsResponse["settings"]; path_status: SettingsResponse["path_status"] }>("/settings", {
       method: "POST",

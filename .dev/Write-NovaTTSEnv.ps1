@@ -13,6 +13,13 @@
 
 param(
     [string]$Root = (Join-Path $env:LOCALAPPDATA 'NovaTTS'),
+    # Optional explicit choices (e.g. from an installer page or the GUI setup
+    # wizard). Empty = use the AI-Tools default below.
+    [string]$QwenBin = "",
+    [string]$QwenModel = "",
+    [string]$QwenCodec = "",
+    [string]$QwenCodecBin = "",
+    [string]$SamplesDir = "",
     [switch]$Force
 )
 
@@ -29,6 +36,14 @@ $codecBin = Join-Path $qwen 'build\Release\qwen-codec.exe'
 $model    = Join-Path $qwen 'models\qwen-talker-1.7b-base-Q8_0.gguf'
 $tok      = Join-Path $qwen 'models\qwen-tokenizer-12hz-Q8_0.gguf'
 $samples  = Join-Path $root 'data\samples'
+
+# Explicit choices win over the AI-Tools defaults.
+if ($QwenBin)      { $bin      = $QwenBin }
+if ($QwenModel)    { $model    = $QwenModel }
+if ($QwenCodec)    { $tok      = $QwenCodec }
+if ($QwenCodecBin) { $codecBin = $QwenCodecBin }
+if (-not $QwenCodecBin -and $QwenBin) { $codecBin = Join-Path (Split-Path $bin) 'qwen-codec.exe' }
+if ($SamplesDir)   { $samples  = $SamplesDir }
 
 try { New-Item -ItemType Directory -Path $samples -Force | Out-Null } catch {}
 
@@ -52,6 +67,16 @@ $targets = @(
     (Join-Path $root '.env'),
     (Join-Path $root 'backend\.env')
 )
+
+# A path the caller supplied explicitly may always replace an existing value;
+# everything else is only filled in when empty or known-broken.
+$explicit = @{
+    'NOVATTS_QWEN_BIN'         = [bool]$QwenBin
+    'NOVATTS_QWEN_MODEL'       = [bool]$QwenModel
+    'NOVATTS_QWEN_CODEC'       = [bool]$QwenCodec
+    'NOVATTS_QWEN_CODEC_BIN'   = [bool]$QwenCodecBin
+    'NOVATTS_QWEN_SAMPLES_DIR' = [bool]$SamplesDir
+}
 
 foreach ($envPath in $targets) {
     $dir = Split-Path -Parent $envPath
@@ -77,15 +102,10 @@ foreach ($envPath in $targets) {
                 $repair = $false
                 if ($Force) {
                     $repair = $true
+                } elseif ($explicit[$key]) {
+                    # Caller chose this path (installer / setup wizard): it wins.
+                    $repair = $true
                 } elseif ([string]::IsNullOrWhiteSpace($current)) {
-                    $repair = $true
-                } elseif ($key -in @('NOVATTS_QWEN_BIN', 'NOVATTS_QWEN_CODEC_BIN') -and (Test-Path -LiteralPath $value)) {
-                    # Engine binaries are version-locked to the AI-Tools build,
-                    # so always use the installed copy when it exists.
-                    $repair = $true
-                } elseif ($key -in @('NOVATTS_QWEN_BIN', 'NOVATTS_QWEN_MODEL', 'NOVATTS_QWEN_CODEC', 'NOVATTS_QWEN_CODEC_BIN', 'NOVATTS_QWEN_SAMPLES_DIR') -and -not (Test-Path -LiteralPath $current)) {
-                    # Stale path from another machine/drive (e.g. an old E:\
-                    # model location) - replace it with the install path.
                     $repair = $true
                 } elseif ($key -eq 'NOVATTS_QWEN_CODEC' -and $current -match '(?i)\.exe$') {
                     $repair = $true

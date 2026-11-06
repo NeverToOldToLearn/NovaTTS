@@ -8,6 +8,7 @@
   let stale: { speaker: string; voice: string }[] = $state([]);
   let voiceUsed: Record<string, string[]> = $state({});
   let qwenOnline = $state(false);
+  let samplesDir = $state("");
   let fallback: string = $state("Narrator");
   let newName = $state("");
   let err = $state("");
@@ -31,6 +32,12 @@
     voiceUsed = (st as unknown as { voice_used_by?: Record<string, string[]> }).voice_used_by ?? {};
     qwenOnline = vs.qwen_online ?? st.qwen ?? false;
     fallback = (sp as unknown as SpeakersResponse).fallback ?? "Narrator";
+    try {
+      const cfg = await api.settings();
+      samplesDir = cfg.settings.qwen_samples_dir ?? "";
+    } catch {
+      samplesDir = "";
+    }
   };
   const isStale = (name: string, voice: string) => stale.some((s) => s.speaker === name && s.voice === voice);
 
@@ -141,7 +148,7 @@
     <summary>Advanced — import voices</summary>
     {#if showAdvanced}
       <div class="adv-body">
-        <p class="muted small">Voices are cloned samples. Auto-imported from <code>D:\!!Scripts!!\Samples_Clone</code> on Qwen start; use below for extras.</p>
+        <p class="muted small">Voices are cloned samples. Auto-imported from <code>{samplesDir || "the samples folder"}</code> on Qwen start; use below for extras.</p>
         <input class="field" bind:value={refTextFallback} placeholder="Fallback ref_text if no .txt sibling" />
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -1,4 +1,4 @@
-"""Batch-import WAV voices from Samples_Clone into the qwentts.cpp engine.
+"""Batch-import WAV voices from a samples folder into the qwentts.cpp engine.
 
 Uses the NovaTTS backend HTTP API in-process: pairs each .wav with its
 optional sibling .txt (ref_text). Ignores subdirectories and non-file
@@ -6,7 +6,7 @@ entries. Skips files > 60s at 24kHz mono 16-bit (~3MB).
 
 Run:
   .\\.venv\\Scripts\\python.exe import_voices.py
-  .\\.venv\\Scripts\\python.exe import_voices.py --dir "D:\\!!Scripts!!\\Samples_Clone" --limit 20
+  .\\.venv\\Scripts\\python.exe import_voices.py --dir "D:\\voices\\my-clones" --limit 20
   .\\.venv\\Scripts\\python.exe import_voices.py --dry-run
 """
 
@@ -19,7 +19,20 @@ from pathlib import Path
 
 import requests
 
-DEFAULT_SRC = r"D:\!!Scripts!!\Samples_Clone"
+
+def _default_src() -> str:
+    """Configured samples folder, else <repo>/data/samples."""
+    try:
+        from novatts.config import settings
+
+        if settings.qwen_samples_dir:
+            return str(settings.qwen_samples_dir)
+    except Exception:
+        pass
+    return str(Path(__file__).resolve().parent.parent / "data" / "samples")
+
+
+DEFAULT_SRC = _default_src()
 DEFAULT_QWEN = "http://127.0.0.1:8080"
 SKIP_DIRS = {"2ndBatch", "Clean", "Rework", "Temp", "Temp2", "Bleh", "Alone", "Brooke"}
 
@@ -28,7 +41,7 @@ EXCLUDE_WAV = {"output_quick_test.wav"}
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Import cloned voices into qwentts engine")
-    p.add_argument("--dir", default=DEFAULT_SRC, help="Samples_Clone directory")
+    p.add_argument("--dir", default=DEFAULT_SRC, help="Folder with .wav voices")
     p.add_argument("--qwen-url", default=DEFAULT_QWEN)
     p.add_argument("--limit", type=int, default=0, help="Max voices to import (0=all)")
     p.add_argument("--force", action="store_true", help="Re-register even if voice exists")
