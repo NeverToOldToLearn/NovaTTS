@@ -111,7 +111,31 @@ npm run dev-tauri
 
 ## Compilatie & Installer
 
-### Build GUI + Installer (NSIS)
+### Snelste manier: één commando
+Dubbelklik `Build-Setup.cmd` in de repo-root, of draai:
+
+```powershell
+.\Build-Setup.cmd
+# of:
+npm run setup:installer
+```
+
+Dit doet automatisch alle drie de stappen:
+
+1. Backend-exe bouwen (PyInstaller uit `backend/Novabackend.spec`)
+2. GUI/Tauri release-build (inclusief `vite build`)
+3. Inno Setup installer compileren
+
+**Resultaat:** `dist-installer\NovaTTS-Setup-2.5.0d.exe`
+
+De build is hervatbaar: bij een fout staat de details in `.build\2.5.0d\log.txt`.
+Opnieuw draaien met `-Rebuild` (het standaardgedrag van `Build-Setup.cmd`) bouwt
+backend, GUI en installer altijd vers; zonder die switch slaat het script
+stages over die al klaar zijn.
+
+### Handmatig (alternatief)
+
+#### Build GUI + Installer (NSIS)
 ```bash
 npm run build-tauri
 ```

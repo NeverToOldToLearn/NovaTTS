@@ -136,7 +136,7 @@
       <label class="toggle"><input type="checkbox" bind:checked={logging}/> auto</label>
     </div>
     <ul class="log-list">
-      {#each events as e (e.type+JSON.stringify(e.payload))}<li class={levelOf(e.type)}><code>{e.type}</code><span class="payload">{JSON.stringify(e.payload)}</span></li>{:else}<li class="muted">No events yet — clipboard or TTS activity appears here.</li>{/each}
+      {#each events as e}<li class={levelOf(e.type)}><code>{e.type}</code><span class="payload">{JSON.stringify(e.payload)}</span></li>{:else}<li class="muted">No events yet — clipboard or TTS activity appears here.</li>{/each}
     </ul>
   </div>
 </section>

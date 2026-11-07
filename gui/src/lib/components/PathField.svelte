@@ -16,7 +16,11 @@
     placeholder = "",
     status = undefined,
     disabled = false,
-    value = $bindable(""),
+    // No fallback on purpose: callers bind this to optional settings fields
+    // that are still `undefined` while the settings request is in flight.
+    // A `$bindable("")` fallback makes Svelte throw props_invalid_value when
+    // those bindings are undefined, which aborts the whole panel render.
+    value = $bindable(),
   }: {
     label: string;
     kind?: Kind;
@@ -40,10 +44,10 @@
     try {
       const picked =
         kind === "exe"
-          ? await pickExe(label, value)
+          ? await pickExe(label, value ?? "")
           : kind === "model"
-            ? await pickModel(label, value)
-            : await pickDir(label, value);
+            ? await pickModel(label, value ?? "")
+            : await pickDir(label, value ?? "");
       if (picked) value = picked;
     } catch (e) {
       error = (e as Error).message;

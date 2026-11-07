@@ -1,13 +1,15 @@
-﻿; NovaTTS 2.5.0c - Inno Setup installer
+﻿; NovaTTS 2.5.0d - Inno Setup installer
 ;
 ; Per-user install to %LOCALAPPDATA%\NovaTTS (same AppId as 2.5.0b, so it
 ; upgrades in place). The heavy AI-tools build (Vulkan SDK, whisper.cpp,
 ; qwentts.cpp, Qwen3-TTS models) runs once after install via
-; Run-Install-AITools.cmd; the base payload stays small (~47 MB).
+; Run-Install-AITools.cmd; the base payload stays small (~38 MB).
 ;
-; Build:
-;   & "C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\NovaTTS-2.5.0c.iss
-; Output: dist-installer\NovaTTS-Setup-2.5.0c.exe
+; Build (normaal via de ene opdracht in de repo-root):
+;   .\Build-Setup.cmd
+; of handmatig:
+;   & "C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\NovaTTS-2.5.0d.iss
+; Output: dist-installer\NovaTTS-Setup-2.5.0d.exe
 
 #define MyAppName "NovaTTS"
 #define MyAppVersion "2.5.0d"
