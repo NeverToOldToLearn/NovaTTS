@@ -15,13 +15,12 @@ backend/.env
 # Audio output / cache
 # Emotion fragments, TTS output and caches are normally local. The one
 # exception is the built-in emotion set: it ships with the app (small, openly
-# licensed) and is whitelisted below.
+# licensed). Its single canonical location is data/emotion_sounds (read by the
+# backend and bundled by the installer), whitelisted below.
 *.wav
 *.ogg
 *.opus
 *.mp3
-!emotion_sounds/*.wav
-!emotion_sounds/*.ogg
 !data/emotion_sounds/*.wav
 !data/emotion_sounds/*.ogg
 data/cache/
