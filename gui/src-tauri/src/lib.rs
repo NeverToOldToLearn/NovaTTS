@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+use std::path::Path;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
@@ -70,6 +72,7 @@ fn state_base_dir(handle: &tauri::AppHandle) -> PathBuf {
     linux_state_dir(handle).unwrap_or_else(|| app_base_dir(handle))
 }
 
+#[cfg(target_os = "linux")]
 fn dir_is_writable(dir: &Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
         return false;
@@ -82,6 +85,7 @@ fn dir_is_writable(dir: &Path) -> bool {
 
 /// First run of an installed Linux build: copy the bundled default `data/`
 /// into the user data dir. Existing files are never overwritten.
+#[cfg(target_os = "linux")]
 fn seed_data_dir(handle: &tauri::AppHandle, target: &Path) {
     let source = app_base_dir(handle).join("data");
     let dest = target.join("data");
@@ -94,6 +98,7 @@ fn seed_data_dir(handle: &tauri::AppHandle, target: &Path) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
