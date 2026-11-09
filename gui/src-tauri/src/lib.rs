@@ -406,7 +406,15 @@ fn spawn_backend(handle: &tauri::AppHandle, state: BackendHandle) {
         eprintln!("[NovaTTS] backend already running on :8765 — skip spawn");
         return;
     }
-    let bin = resource_backend_path(handle).or_else(dev_backend_path);
+    // In dev, `target/debug/resources` can hold a sidecar copied by an older
+    // build. Prefer the freshly built backend/dist binary there, so
+    // `npm run dev:tauri` never silently serves an ancient backend. Release
+    // builds always use the bundled resource.
+    let bin = if cfg!(debug_assertions) {
+        dev_backend_path().or_else(|| resource_backend_path(handle))
+    } else {
+        resource_backend_path(handle).or_else(dev_backend_path)
+    };
     let Some(bin) = bin else {
         eprintln!("[NovaTTS] {BACKEND_BIN} not found (resources/ + dev fallback) — run dev via start_all or build backend");
         return;
