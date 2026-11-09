@@ -1,4 +1,5 @@
 import { mount } from "svelte";
+import "./styles.css";
 import App from "./App.svelte";
 import CutterApp from "./lib/cutter/CutterApp.svelte";
 

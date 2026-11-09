@@ -138,8 +138,6 @@
 </div>
 
 <style>
-  :global(:root){ --bg:#14151a; --fg:#e8e8ec; --muted:#8b8e9a; --card:#1e2027; --border:#2a2d36; --accent:#3b4b8f; }
-  :global(body){ margin:0; background:#14151a; }
   .app{ display:flex; flex-direction:column; height:100vh; background:#14151a; color:#e8e8ec; font-family:ui-sans-serif,system-ui,-apple-system,sans-serif; }
   .bar{ display:flex; align-items:center; gap:1rem; padding:0.6rem 1rem; background:#1b1d24; border-bottom:1px solid #2a2d36; flex-wrap:wrap; }
   .brand{ display:flex; align-items:center; gap:0.55rem; }

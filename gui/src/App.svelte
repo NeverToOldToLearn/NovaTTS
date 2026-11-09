@@ -77,23 +77,9 @@
 {/if}
 
 <style>
-  :global(:root) {
-    /* Tell WebKit the page is dark so built-in widgets (scrollbars, select
-       popup chrome, form controls) render dark instead of default white. */
-    color-scheme: dark;
-    --background: #14151a;
-    --foreground: #e8e8ec;
-    --muted-foreground: #8b8e9a;
-    --card: #1e2027;
-    --border: #2a2d36;
-    --accent: #3b4b8f;
-  }
   .app {
     display: flex;
     height: 100vh;
-    background: #14151a;
-    color: #e8e8ec;
-    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
   .sidebar {
     width: 230px;
@@ -102,8 +88,8 @@
     display: flex;
     flex-direction: column;
     gap: 1.1rem;
-    background: #1b1d24;
-    border-right: 1px solid #2a2d36;
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
   }
   .brand h1 {
     font-size: 1.2rem;
@@ -147,11 +133,5 @@
     min-width:0;
     overflow-y: auto;
     padding: 1.4rem 1.5rem 1.5rem;
-  }
-  /* The option list is painted by WebKitGTK outside the component scope and
-     otherwise falls back to white with the light text colour from the select. */
-  :global(select option) {
-    background-color: #14151a;
-    color: #e8e8ec;
   }
 </style>

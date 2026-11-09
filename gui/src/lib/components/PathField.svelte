@@ -78,7 +78,6 @@
 </div>
 
 <style>
-  .field-row { display: flex; flex-direction: column; gap: 0.2rem; }
   .fk {
     font-size: 0.78rem;
     color: #8b8e9a;
@@ -88,37 +87,11 @@
   }
   .fv { display: flex; gap: 0.5rem; align-items: center; }
   .field {
-    background: #14151a;
-    border: 1px solid #343842;
-    color: #e8e8ec;
-    border-radius: 9px;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.88rem;
-    line-height: 1.2;
     width: 100%;
     flex: 1;
     font-family: ui-monospace, monospace;
   }
-  .field:focus {
-    outline: none;
-    border-color: #4a5aa8;
-    box-shadow: 0 0 0 3px rgba(59, 75, 143, 0.25);
-  }
   .browse { flex: 0 0 auto; white-space: nowrap; }
-  button {
-    background: #3b4b8f;
-    color: #fff;
-    border: none;
-    border-radius: 9px;
-    padding: 0.52rem 1rem;
-    cursor: pointer;
-    font-size: 0.88rem;
-    font-weight: 550;
-    line-height: 1;
-  }
-  button.ghost { background: #232634; color: #e8e8ec; }
-  button.ghost:hover:not(:disabled) { background: #2a2e40; }
-  button:disabled { opacity: 0.5; cursor: default; }
   .dot {
     font-size: 0.8rem;
     font-weight: 700;

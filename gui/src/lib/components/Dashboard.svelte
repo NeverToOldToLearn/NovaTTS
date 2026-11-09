@@ -240,7 +240,7 @@
   {/if}
 
   {#if sections.engine}
-    <div class="panel">
+    <div class="section">
       <div class="panel-head">
         <h3>Qwen engine</h3>
         <span class="pill" class:ok={qwen?.online || status?.qwen}>{qwen?.online || status?.qwen ? "online" : "offline"}</span>
@@ -256,7 +256,7 @@
   {/if}
 
   {#if sections.autoForward}
-    <div class="panel">
+    <div class="section">
       <div class="panel-head">
         <h3>Auto-forward</h3>
         {#if af}<span class="pill" class:ok={af.enabled}>{af.enabled ? "on" : "off"}</span>{/if}
@@ -296,7 +296,7 @@
   {/if}
 
   {#if sections.import}
-    <div class="panel">
+    <div class="section">
       <div class="panel-head"><h3>Voices import</h3></div>
       {#if imp}
         <div class="mono small wrap">{imp.dir}</div>
@@ -315,7 +315,7 @@
   {/if}
 
   {#if sections.tools}
-    <div class="panel">
+    <div class="section">
       <div class="panel-head"><h3>Perfect Cut</h3></div>
       <p class="hint">Trim samples and prepare a voice dataset in its own window, then import the result here.</p>
       <div class="row">
@@ -326,7 +326,7 @@
   {/if}
 
   {#if sections.luna}
-    <div class="panel">
+    <div class="section">
       <div class="panel-head">
         <h3>Luna Hook</h3>
         <span class="pill" class:ok={lunaStatus?.available}>{lunaStatus?.available ? "connected" : "not available"}</span>
@@ -346,7 +346,7 @@
   {/if}
 
   {#if sections.log}
-    <div class="panel log-panel">
+    <div class="section log-panel">
       <div class="log-head">
         <h3>Live log</h3>
         <label class="toggle"><input type="checkbox" bind:checked={logging} /> auto</label>
@@ -360,9 +360,7 @@
 
 <style>
   .dashboard{ display:flex; flex-direction:column; gap:1rem; max-width:860px; }
-  .page-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; }
-  .page-head h2{ margin:0; font-size:1.35rem; letter-spacing:-0.02em; }
-  .subtitle{ margin:0.15rem 0 0; color:#8b8e9a; font-size:0.82rem; }
+  .page-head h2{ font-size:1.35rem; }
   .health-dot{ align-self:center; background:#1e2027; border:1px solid #2a2d36; border-radius:999px; padding:0.3rem 0.7rem; font-size:0.78rem; font-weight:600; color:#8b8e9a; display:inline-flex; align-items:center; gap:0.4rem; }
   .health-dot::before{ content:""; width:8px; height:8px; border-radius:50%; background:#e5484d; }
   .health-dot.ok{ color:#e8e8ec; border-color:#2a3a2e; } .health-dot.ok::before{ background:#30a46c; }
@@ -384,9 +382,8 @@
   .value.dot::before{ content:""; width:8px; height:8px; border-radius:50%; background:#e5484d; }
   .value.dot.ok::before{ background:#30a46c; }
   .banner{ background:#2a2430; border:1px solid #3a2a2e; color:#ffb4b4; border-radius:10px; padding:0.6rem 0.8rem; font-size:0.85rem; }
-  .panel{ background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:1rem 1.1rem; display:flex; flex-direction:column; gap:0.75rem; }
   .panel-head{ display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
-  .panel-head h3,.panel h3{ margin:0; font-size:0.98rem; letter-spacing:-0.01em; }
+  .section h3{ font-size:0.98rem; }
   .pill{ font-size:0.72rem; font-weight:650; padding:0.2rem 0.55rem; border-radius:999px; background:#2a1f24; border:1px solid #3a2a2e; color:#ffb4b4; }
   .pill.ok{ background:#1f2a22; border-color:#2a3a2e; color:#8fe0ac; }
   .af-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0.75rem; align-items:end; }
@@ -397,12 +394,6 @@
   .err{ color:#e5484d; font-size:0.82rem; margin:0; word-break:break-all; background:#2a1f24; border:1px solid #3a2a2e; border-radius:8px; padding:0.5rem 0.65rem; }
   .hint{ color:#8b8e9a; font-size:0.82rem; }
   .row{ display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
-  input,select{ background:#14151a; border:1px solid #343842; color:#e8e8ec; border-radius:9px; padding:0.5rem 0.7rem; font-size:0.88rem; line-height:1.2; }
-  input:focus,select:focus{ outline:none; border-color:#4a5aa8; box-shadow:0 0 0 3px rgba(59,75,143,0.25); }
-  button{ background:#3b4b8f; color:#fff; border:none; border-radius:9px; padding:0.52rem 1rem; cursor:pointer; font-size:0.88rem; font-weight:550; line-height:1; }
-  button:hover:not(:disabled){ background:#4458aa; } button:active:not(:disabled){ background:#35468a; }
-  button.ghost{ background:#232634; color:#e8e8ec; } button.ghost:hover:not(:disabled){ background:#2a2e40; }
-  button:disabled{ opacity:0.5; cursor:default; }
   .bar{ height:8px; background:#14151a; border:1px solid #2a2d36; border-radius:999px; overflow:hidden; }
   .bar .fill{ height:100%; background:#3b4b8f; transition:width 0.4s ease; }
   .log-panel{ padding:0; overflow:hidden; }

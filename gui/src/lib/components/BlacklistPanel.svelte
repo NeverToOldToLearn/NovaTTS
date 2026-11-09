@@ -80,7 +80,7 @@
 
 <style>
   .panel{ display:flex; flex-direction:column; gap:0.9rem; max-width:720px; }
-  header h2{ margin:0; font-size:1.25rem; letter-spacing:-0.02em; } .subtitle{ margin:0.25rem 0 0; color:#8b8e9a; font-size:0.82rem; line-height:1.4; max-width:640px; }
+  header h2{ margin:0; font-size:1.25rem; letter-spacing:-0.02em; } .subtitle{ margin:0.25rem 0 0; line-height:1.4; max-width:640px; }
   .card{ background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:1rem 1.1rem; display:flex; flex-direction:column; gap:0.75rem; }
   .card-head{ display:flex; justify-content:space-between; align-items:center; gap:1rem; }
   .card-head h3{ margin:0; font-size:0.95rem; letter-spacing:-0.01em; }
@@ -90,11 +90,7 @@
   .check:hover{ border-color:#3a3e4d; background:#1b1d24; } .check.on{ border-color:#3b4b8f; background:#1c2330; color:#e8e8ec; }
   .check input{ accent-color:#3b4b8f; width:16px; height:16px; }
   .row{ display:flex; gap:0.5rem; align-items:center; }
-  .field{ flex:1; min-width:160px; background:#14151a; border:1px solid #343842; color:#e8e8ec; border-radius:9px; padding:0.5rem 0.7rem; font-size:0.88rem; }
-  .field:focus{ outline:none; border-color:#4a5aa8; box-shadow:0 0 0 3px rgba(59,75,143,0.25); }
-  button{ background:#3b4b8f; color:#fff; border:none; border-radius:9px; padding:0.52rem 1rem; cursor:pointer; font-size:0.88rem; font-weight:550; }
-  button:hover:not(:disabled){ background:#4458aa; } button:disabled{ opacity:0.5; cursor:default; }
-  button.ghost{ background:#232634; color:#e8e8ec; } button.ghost:hover:not(:disabled){ background:#2a2e40; }
+  .field{ flex:1; min-width:160px; }
   button.x{ background:transparent; color:#8b8e9a; padding:0.15rem 0.35rem; border-radius:6px; font-size:1rem; line-height:1; } button.x:hover{ background:#2a1f24; color:#e5484d; }
   .chips{ display:flex; flex-wrap:wrap; gap:0.4rem; }
   .chip{ background:#232634; border:1px solid #2a2d36; border-radius:999px; padding:0.25rem 0.35rem 0.25rem 0.7rem; font-size:0.82rem; display:inline-flex; gap:0.3rem; align-items:center; color:#e8e8ec; }

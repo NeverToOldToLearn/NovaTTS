@@ -204,7 +204,7 @@
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
   }
   h2 { margin: 0; font-size: 1.2rem; letter-spacing: -0.02em; }
-  .subtitle { margin: 0.35rem 0 0; color: #8b8e9a; font-size: 0.85rem; line-height: 1.5; }
+  .subtitle { margin: 0.35rem 0 0; font-size: 0.85rem; line-height: 1.5; }
   code {
     background: #232634;
     border-radius: 5px;
@@ -215,24 +215,6 @@
   .grid { display: flex; flex-direction: column; gap: 0.75rem; }
   .muted { color: #8b8e9a; }
   .small { font-size: 0.8rem; margin: 0; }
-  .callout { margin: 0; border-radius: 10px; padding: 0.6rem 0.8rem; font-size: 0.85rem; word-break: break-word; }
-  .callout.error { background: #2a1f24; border: 1px solid #3a2a2e; color: #ffb4b4; }
-  .callout.info { background: #1c2330; border: 1px solid #2a3550; color: #a8b8e6; }
   footer { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   .spacer { flex: 1; }
-  button {
-    background: #3b4b8f;
-    color: #fff;
-    border: none;
-    border-radius: 9px;
-    padding: 0.55rem 1.05rem;
-    cursor: pointer;
-    font-size: 0.88rem;
-    font-weight: 550;
-    line-height: 1;
-  }
-  button:hover:not(:disabled) { background: #4458aa; }
-  button.ghost { background: #232634; color: #e8e8ec; }
-  button.ghost:hover:not(:disabled) { background: #2a2e40; }
-  button:disabled { opacity: 0.5; cursor: default; }
 </style>
