@@ -13,13 +13,17 @@ venv/
 backend/.env
 
 # Audio output / cache
-# Let op: NovaTTS levert zelf GEEN audio mee. Alle emotion fragments, TTS
-# output en caches zijn lokaal. Zet je eigen bestanden in de map die je bij
-# Instellingen > Emotion sounds instelt.
+# Emotion fragments, TTS output and caches are normally local. The one
+# exception is the built-in emotion set: it ships with the app (small, openly
+# licensed) and is whitelisted below.
 *.wav
 *.ogg
 *.opus
 *.mp3
+!emotion_sounds/*.wav
+!emotion_sounds/*.ogg
+!data/emotion_sounds/*.wav
+!data/emotion_sounds/*.ogg
 data/cache/
 
 # Node / Tauri

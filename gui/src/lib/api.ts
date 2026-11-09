@@ -37,6 +37,8 @@ export type AutoForwardStatus = {
   target: string;
   delay: number;
   hotkey: string;
+  /** Selectable toggle hotkeys reported by the backend. */
+  hotkey_options?: string[];
   platform: string;
   wayland: boolean;
   xdotool: boolean;
@@ -140,7 +142,7 @@ export const api = {
     }),
 
   autoForwardStatus: () => req<AutoForwardStatus>("/auto-forward"),
-  setAutoForward: (body: { enabled?: boolean; target?: string; delay?: number }) =>
+  setAutoForward: (body: { enabled?: boolean; target?: string; delay?: number; hotkey?: string }) =>
     req<AutoForwardStatus>("/auto-forward", { method: "POST", body: JSON.stringify(body) }),
   toggleAutoForward: () => req<AutoForwardStatus>("/auto-forward/toggle", { method: "POST" }),
   captureAutoForwardTarget: () =>

@@ -3,14 +3,13 @@
   import Dashboard from "./lib/components/Dashboard.svelte";
   import SpeakersPanel from "./lib/components/SpeakersPanel.svelte";
   import BlacklistPanel from "./lib/components/BlacklistPanel.svelte";
-  import EmotionsPanel from "./lib/components/EmotionsPanel.svelte";
   import SettingsPanel from "./lib/components/SettingsPanel.svelte";
   import VoiceDesignPanel from "./lib/components/VoiceDesignPanel.svelte";
   import SetupWizard from "./lib/components/SetupWizard.svelte";
   import { api } from "./lib/api";
   import type { SettingsResponse } from "./lib/types";
 
-  let tab: "dashboard" | "speakers" | "blacklist" | "emotions" | "voicedesign" | "settings" = $state("dashboard");
+  let tab: "dashboard" | "speakers" | "blacklist" | "voicedesign" | "settings" = $state("dashboard");
   // Opt-in: sidebar-item alleen zichtbaar als voice-design aan staat (default uit).
   let voiceDesignEnabled = $state(false);
   // First-run setup: only when the engine paths do not resolve on this machine.
@@ -46,9 +45,6 @@
       <button class:active={tab === "blacklist"} onclick={() => (tab = "blacklist")}>
         <span class="ico">⊘</span> Blacklist
       </button>
-      <button class:active={tab === "emotions"} onclick={() => (tab = "emotions")}>
-        <span class="ico">♪</span> Emotions
-      </button>
       {#if voiceDesignEnabled}
       <button class:active={tab === "voicedesign"} onclick={() => (tab = "voicedesign")}>
         <span class="ico">✦</span> Voice Design
@@ -68,8 +64,6 @@
       <SpeakersPanel />
     {:else if tab === "blacklist"}
       <BlacklistPanel />
-    {:else if tab === "emotions"}
-      <EmotionsPanel />
     {:else if tab === "voicedesign"}
       <VoiceDesignPanel />
     {:else}
