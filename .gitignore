@@ -69,3 +69,8 @@ data/game_links.json
 # Installer build staging + output (generated)
 .build/
 dist-installer/
+
+# PyInstaller output at the repo root and one-off debug dumps. These are
+# generated (run.exe alone is ~10 MB) and never belong in the repo.
+/build/
+novatts-auto-forward-404-error.json
