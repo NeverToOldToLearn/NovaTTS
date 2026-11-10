@@ -14,6 +14,10 @@ PRESETS: dict[str, list[str]] = {
     "Hours (24h)": [f"{h:02d}:00" for h in range(24)],
     "Date Formats": [r"\bDay\s+\d+\b", r"\bChapter\s+\d+\b", r"\bLevel\s+\d+\b", r"\b(Save|Load)\s+(slot|\d+)", r"\b(Save|Load)#\d+", r"\bDay\s+#\s*\d+\b", r"\d{1,2}/\d{1,2}/\d{2,4}", r"\d{1,2}-\d{1,2}-\d{2,4}", r"\d{4}-\d{2}-\d{2}"],
     "Common UI": ["Inventory", "Menu", "Settings", "Options", "Save", "Load", "Quit", "Exit", "Back", "Continue", "Next", "Previous", "Close", "Open", "Auto Forward", "Auto Forward selected"],
+    # Every digit, not a fixed list of numbers. Grouped with their separators
+    # so "1,000", "3.14", "10:30" and "100/100" disappear as one token instead
+    # of leaving the punctuation behind.
+    "Digits (0-9)": [r"\d+(?:[.,:/]\d+)*"],
 }
 
 _RENPY_STRONG = [re.compile(p, re.I) for p in [r"An exception has occurred", r"Full traceback\s*:", r"Ignores the exception, allowing you to continue", r"Traceback \(most recent call last\)"]]
