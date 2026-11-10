@@ -18,7 +18,6 @@
     engine: true,
     autoForward: true,
     import: true,
-    tools: true,
     log: true,
     // Luna-Hook is on hold. The connection points exist; set this to true to
     // preview the card once the backend integration lands.
@@ -55,7 +54,7 @@
   let afForm = $state({ enabled: false, target: "", delay: 0.3, hotkey: "INSERT" });
   // Last values the backend reported; used to avoid overwriting a field while
   // the user is typing (hotkeys can change the state outside the GUI).
-  const afSeen = { enabled: false, target: "", hotkey: "INSERT" };
+  const afSeen = { enabled: false, target: "", delay: 0.3, hotkey: "INSERT" };
 
   const hotkeyOptions = () =>
     af?.hotkey_options?.length ? af.hotkey_options : FALLBACK_HOTKEYS;
@@ -64,6 +63,7 @@
     af = s;
     if (s.target !== afSeen.target) { afForm.target = s.target; afSeen.target = s.target; }
     if (s.enabled !== afSeen.enabled) { afForm.enabled = s.enabled; afSeen.enabled = s.enabled; }
+    if (s.delay !== afSeen.delay) { afForm.delay = s.delay; afSeen.delay = s.delay; }
     if (s.hotkey !== afSeen.hotkey) { afForm.hotkey = s.hotkey; afSeen.hotkey = s.hotkey; }
   };
 
@@ -92,18 +92,6 @@
       afMsg = `Toggle hotkey set to ${s.hotkey}.`;
     } catch (e) {
       afMsg = `Hotkey failed: ${(e as Error).message}`;
-    }
-    afBusy = false;
-  };
-
-  const toggleAutoForward = async () => {
-    afBusy = true; afMsg = "";
-    try {
-      const s = await api.toggleAutoForward();
-      syncAutoForward(s);
-      afMsg = s.enabled ? "Auto-forward enabled." : "Auto-forward disabled.";
-    } catch (e) {
-      afMsg = `Toggle failed: ${(e as Error).message}`;
     }
     afBusy = false;
   };
@@ -195,7 +183,7 @@
   <header class="page-head">
     <div>
       <h2>Dashboard</h2>
-      <p class="subtitle">Live engine status · voices & queue</p>
+      <p class="subtitle">Engine, auto-forward and playback at a glance</p>
     </div>
     <span class="health-dot" class:ok={health?.status === "ok"}>{health ? health.status : "offline"}</span>
   </header>
@@ -229,142 +217,125 @@
     </div>
   {/if}
 
-  {#if sections.status}
-    <div class="cards">
-      <div class="card"><span class="label">Qwen</span><span class="value dot" class:ok={qwen?.online || status?.qwen}>{qwen?.online || status?.qwen ? "online" : "offline"}</span></div>
-      <div class="card"><span class="label">Clipboard</span><span class="value">{status?.clipboard ? "polling" : "stopped"}</span></div>
-      <div class="card"><span class="label">Speakers</span><span class="value">{status?.speaker_count ?? "…"}</span></div>
-      <div class="card"><span class="label">Queue</span><span class="value">{status?.queue_size ?? "…"}</span></div>
-    </div>
-    {#if status?.stale_mappings?.length}<div class="banner">⚠ {status.stale_mappings.length} speaker(s) point to missing voices — fix in Characters.</div>{/if}
+  {#if sections.status && status?.stale_mappings?.length}
+    <div class="banner">⚠ {status.stale_mappings.length} speaker(s) point to missing voices — fix in Characters.</div>
   {/if}
 
-  {#if sections.engine}
-    <div class="section">
-      <div class="panel-head">
-        <h3>Qwen engine</h3>
-        <span class="pill" class:ok={qwen?.online || status?.qwen}>{qwen?.online || status?.qwen ? "online" : "offline"}</span>
-      </div>
-      {#if qwen?.last_error}<p class="err">{qwen.last_error}</p>{/if}
-      <div class="row">
-        <button onclick={qwenStart} disabled={qwenBusy || !!qwen?.online}>{qwenBusy ? "…" : "Start Qwen"}</button>
-        <button class="ghost" onclick={qwenStop} disabled={qwenBusy || !qwen?.managed_running}>Stop</button>
-        <button class="ghost" onclick={poll} disabled={qwenBusy}>Refresh</button>
-        {#if qwenMsg}<span class="hint">{qwenMsg}</span>{/if}
-      </div>
-    </div>
-  {/if}
-
-  {#if sections.autoForward}
-    <div class="section">
-      <div class="panel-head">
-        <h3>Auto-forward</h3>
-        {#if af}<span class="pill" class:ok={af.enabled}>{af.enabled ? "on" : "off"}</span>{/if}
-      </div>
-      <p class="hint">Sends Space to the game window after each clipboard line finishes, so RenPy advances to the next line.</p>
-      {#if af && !af.available}<p class="err">{af.reason || "Auto-forward is not available on this platform."}</p>{/if}
-      <label class="toggle">
-        <input type="checkbox" bind:checked={afForm.enabled} onchange={saveAutoForward} disabled={afBusy || !af?.available} />
-        Enable auto-forward
-      </label>
-      <div class="af-grid">
-        <label class="field-row">
-          <span class="k">Target window</span>
-          <div class="row">
-            <input class="field grow" bind:value={afForm.target} placeholder="Game window title (case-insensitive)" />
-            <button class="ghost" onclick={captureAutoForwardTarget} disabled={afBusy || !af?.can_capture}>{afBusy ? "…" : "Capture (5 s)"}</button>
+  <div class="dash-grid">
+    <div class="dash-col">
+      {#if sections.engine}
+        <div class="section">
+          <div class="panel-head">
+            <h3>Qwen engine</h3>
+            <span class="pill" class:ok={qwen?.online || status?.qwen}>{qwen?.online || status?.qwen ? "online" : "offline"}</span>
           </div>
-        </label>
-        <label class="field-row">
-          <span class="k">Delay after line (s)</span>
-          <input class="field sm" type="number" bind:value={afForm.delay} min="0.1" max="30" step="0.1" />
-        </label>
-        <label class="field-row">
-          <span class="k">Toggle hotkey</span>
-          <select class="field sm" bind:value={afForm.hotkey} onchange={saveHotkey} disabled={afBusy}>
-            {#each hotkeyOptions() as h}<option value={h}>{h}</option>{/each}
-          </select>
-        </label>
-      </div>
-      <div class="row">
-        <button onclick={saveAutoForward} disabled={afBusy || !af?.available}>Apply</button>
-        <button class="ghost" onclick={toggleAutoForward} disabled={afBusy || !af?.available}>{afForm.enabled ? "Disable" : "Enable"}</button>
-        <button class="ghost" onclick={testAutoForward} disabled={afBusy || !af?.can_test}>Send test Space</button>
-        {#if afMsg}<span class="hint">{afMsg}</span>{/if}
-      </div>
-    </div>
-  {/if}
-
-  {#if sections.import}
-    <div class="section">
-      <div class="panel-head"><h3>Voices import</h3></div>
-      {#if imp}
-        <div class="mono small wrap">{imp.dir}</div>
-        <div class="mono small wrap">{imp.found} stem(men) gevonden — {imp.pairs} pairs, {imp.unpaired} wavs zonder pair · {imp.loaded}/{imp.total || imp.found} geladen {imp.active ? "… aan het importeren" : "✓ klaar"}</div>
-        {#if imp.active}<div class="bar"><div class="fill" style="width:{imp.total ? Math.round(imp.loaded / imp.total * 100) : 0}%"></div></div>{/if}
-        {#if imp.error}<p class="err">{imp.error}</p>{/if}
-      {:else}
-        <p class="hint">No import status yet — the backend reports it once the samples folder is scanned.</p>
+          {#if qwen?.last_error}<p class="err">{qwen.last_error}</p>{/if}
+          <div class="row">
+            <button onclick={qwenStart} disabled={qwenBusy || !!qwen?.online}>{qwenBusy ? "…" : "Start Qwen"}</button>
+            <button class="ghost" onclick={qwenStop} disabled={qwenBusy || !qwen?.managed_running}>Stop</button>
+            <button class="ghost" onclick={poll} disabled={qwenBusy}>Refresh</button>
+            {#if qwenMsg}<span class="hint">{qwenMsg}</span>{/if}
+          </div>
+        </div>
       {/if}
-      <div class="row">
-        <button class="ghost" onclick={importNow} disabled={importing || !qwen?.online}>{importing ? "Importing…" : "Import now"}</button>
-        <button class="ghost" onclick={openPerfectCut}>Perfect Cut…</button>
-        <span class="hint">Registers .spk/.rvq pairs verbatim — even when the .wav is gone.</span>
-      </div>
-    </div>
-  {/if}
 
-  {#if sections.tools}
-    <div class="section">
-      <div class="panel-head"><h3>Perfect Cut</h3></div>
-      <p class="hint">Trim samples and prepare a voice dataset in its own window, then import the result here.</p>
-      <div class="row">
-        <button onclick={openPerfectCut}>Open Perfect Cut</button>
-        {#if cutterMsg}<span class="hint">{cutterMsg}</span>{/if}
-      </div>
-    </div>
-  {/if}
+      {#if sections.autoForward}
+        <div class="section">
+          <div class="panel-head">
+            <h3>Auto-forward</h3>
+            {#if af}<span class="pill" class:ok={af.enabled}>{af.enabled ? "on" : "off"}</span>{/if}
+          </div>
+          {#if af && !af.available}<p class="err">{af.reason || "Auto-forward is not available on this platform."}</p>{/if}
+          <div class="af-row">
+            <input class="field grow" bind:value={afForm.target} placeholder="Game window title (case-insensitive)" />
+            <button class="ghost" title="Capture the foreground window after 5 seconds" onclick={captureAutoForwardTarget} disabled={afBusy || !af?.can_capture}>{afBusy ? "…" : "Capture"}</button>
+            <label class="af-inline">
+              <span class="k">Delay</span>
+              <input class="field xs" type="number" bind:value={afForm.delay} min="0.1" max="30" step="0.1" />
+            </label>
+            <label class="af-inline">
+              <span class="k">Hotkey</span>
+              <select class="field sm" bind:value={afForm.hotkey} onchange={saveHotkey} disabled={afBusy}>
+                {#each hotkeyOptions() as h}<option value={h}>{h}</option>{/each}
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label class="toggle" title="Send Space to the game window after each clipboard line finishes">
+              <input type="checkbox" bind:checked={afForm.enabled} onchange={saveAutoForward} disabled={afBusy || !af?.available} />
+              Enable
+            </label>
+            <button onclick={saveAutoForward} disabled={afBusy || !af?.available}>Apply</button>
+            <button class="ghost" onclick={testAutoForward} disabled={afBusy || !af?.can_test}>Send test Space</button>
+            {#if afMsg}<span class="hint">{afMsg}</span>{/if}
+          </div>
+        </div>
+      {/if}
 
-  {#if sections.luna}
-    <div class="section">
-      <div class="panel-head">
-        <h3>Luna Hook</h3>
-        <span class="pill" class:ok={lunaStatus?.available}>{lunaStatus?.available ? "connected" : "not available"}</span>
-      </div>
-      {#if lunaStatus?.available}
-        <div class="row"><span class="k">Mode</span><span>{lunaStatus.mode}</span></div>
-        <div class="row"><span class="k">Endpoint</span><span class="mono small">{lunaStatus.host}:{lunaStatus.port}</span></div>
-        <div class="row"><span class="k">Clients</span><span>{lunaStatus.clients}</span><span class="k">Dropped</span><span>{lunaStatus.dropped}</span></div>
-        {#if lunaStatus.lastRaw}<div class="mono small wrap">last: {lunaStatus.lastRaw}</div>{/if}
-        {#if lunaNames.length}
-          <div class="mono small wrap">{lunaNames.length} unregistered name(s): {lunaNames.map((n) => n.name).join(", ")}</div>
-        {/if}
-      {:else}
-        <p class="hint">Luna-Hook is not active in this build. The connection points are ready and will light up when the backend integration lands.</p>
+      {#if sections.import}
+        <div class="section">
+          <div class="panel-head"><h3>Voices &amp; samples</h3></div>
+          {#if imp}
+            <div class="mono small wrap">{imp.dir}</div>
+            <div class="mono small wrap">{imp.found} stem(men) gevonden — {imp.pairs} pairs, {imp.unpaired} wavs zonder pair · {imp.loaded}/{imp.total || imp.found} geladen {imp.active ? "… aan het importeren" : "✓ klaar"}</div>
+            {#if imp.active}<div class="bar"><div class="fill" style="width:{imp.total ? Math.round(imp.loaded / imp.total * 100) : 0}%"></div></div>{/if}
+            {#if imp.error}<p class="err">{imp.error}</p>{/if}
+          {:else}
+            <p class="hint">No import status yet — the backend reports it once the samples folder is scanned.</p>
+          {/if}
+          <div class="row">
+            <button class="ghost" onclick={importNow} disabled={importing || !qwen?.online}>{importing ? "Importing…" : "Import now"}</button>
+            <button class="ghost" onclick={openPerfectCut}>Perfect Cut…</button>
+            <span class="hint">Registers .spk/.rvq pairs verbatim — even when the .wav is gone.</span>
+            {#if cutterMsg}<span class="hint">{cutterMsg}</span>{/if}
+          </div>
+        </div>
+      {/if}
+
+      {#if sections.luna}
+        <div class="section">
+          <div class="panel-head">
+            <h3>Luna Hook</h3>
+            <span class="pill" class:ok={lunaStatus?.available}>{lunaStatus?.available ? "connected" : "not available"}</span>
+          </div>
+          {#if lunaStatus?.available}
+            <div class="row"><span class="k">Mode</span><span>{lunaStatus.mode}</span></div>
+            <div class="row"><span class="k">Endpoint</span><span class="mono small">{lunaStatus.host}:{lunaStatus.port}</span></div>
+            <div class="row"><span class="k">Clients</span><span>{lunaStatus.clients}</span><span class="k">Dropped</span><span>{lunaStatus.dropped}</span></div>
+            {#if lunaStatus.lastRaw}<div class="mono small wrap">last: {lunaStatus.lastRaw}</div>{/if}
+            {#if lunaNames.length}
+              <div class="mono small wrap">{lunaNames.length} unregistered name(s): {lunaNames.map((n) => n.name).join(", ")}</div>
+            {/if}
+          {:else}
+            <p class="hint">Luna-Hook is not active in this build. The connection points are ready and will light up when the backend integration lands.</p>
+          {/if}
+        </div>
       {/if}
     </div>
-  {/if}
 
-  {#if sections.log}
-    <div class="section log-panel">
-      <div class="log-head">
-        <h3>Live log</h3>
-        <label class="toggle"><input type="checkbox" bind:checked={logging} /> auto</label>
-      </div>
-      <ul class="log-list">
-        {#each events as e}<li class={levelOf(e.type)}><code>{e.type}</code><span class="payload">{JSON.stringify(e.payload)}</span></li>{:else}<li class="muted">No events yet — clipboard or TTS activity appears here.</li>{/each}
-      </ul>
+    <div class="dash-col">
+      {#if sections.log}
+        <div class="section log-panel">
+          <div class="log-head">
+            <h3>Live log</h3>
+            <label class="toggle"><input type="checkbox" bind:checked={logging} /> auto</label>
+          </div>
+          <ul class="log-list">
+            {#each events as e}<li class={levelOf(e.type)}><code>{e.type}</code><span class="payload">{JSON.stringify(e.payload)}</span></li>{:else}<li class="muted">No events yet — clipboard or TTS activity appears here.</li>{/each}
+          </ul>
+        </div>
+      {/if}
     </div>
-  {/if}
+  </div>
 </section>
 
 <style>
-  .dashboard{ display:flex; flex-direction:column; gap:1rem; max-width:860px; }
+  .dashboard{ display:flex; flex-direction:column; gap:0.85rem; max-width:1100px; }
   .page-head h2{ font-size:1.35rem; }
   .health-dot{ align-self:center; background:#1e2027; border:1px solid #2a2d36; border-radius:999px; padding:0.3rem 0.7rem; font-size:0.78rem; font-weight:600; color:#8b8e9a; display:inline-flex; align-items:center; gap:0.4rem; }
   .health-dot::before{ content:""; width:8px; height:8px; border-radius:50%; background:#e5484d; }
   .health-dot.ok{ color:#e8e8ec; border-color:#2a3a2e; } .health-dot.ok::before{ background:#30a46c; }
-  .game-bar{ display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:center; background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:0.85rem 1rem; }
+  .game-bar{ display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:center; background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:0.75rem 1rem; }
   .game-label{ display:flex; flex-direction:column; gap:0.15rem; min-width:160px; }
   .eyebrow{ font-size:0.68rem; text-transform:uppercase; letter-spacing:0.07em; color:#8b8e9a; }
   .game-name{ font-size:0.95rem; }
@@ -373,22 +344,20 @@
   .link-row{ display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; flex-basis:100%; }
   .link-row .field{ flex:1 1 220px; max-width:340px; }
   .field{ flex:1 1 180px; max-width:240px; min-width:160px; }
-  .field.grow{ flex:1 1 240px; max-width:none; }
-  .field.sm{ flex:0 1 150px; max-width:150px; }
-  .cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0.7rem; }
-  .card{ background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:0.85rem 1rem; display:flex; flex-direction:column; gap:0.35rem; }
-  .label{ font-size:0.68rem; text-transform:uppercase; letter-spacing:0.06em; color:#8b8e9a; }
-  .value{ font-size:1rem; font-weight:650; display:flex; align-items:center; gap:0.4rem; }
-  .value.dot::before{ content:""; width:8px; height:8px; border-radius:50%; background:#e5484d; }
-  .value.dot.ok::before{ background:#30a46c; }
+  .field.grow{ flex:1 1 240px; max-width:none; min-width:180px; }
+  .field.sm{ flex:0 1 130px; max-width:130px; min-width:110px; }
+  .field.xs{ flex:0 1 76px; max-width:76px; min-width:64px; }
   .banner{ background:#2a2430; border:1px solid #3a2a2e; color:#ffb4b4; border-radius:10px; padding:0.6rem 0.8rem; font-size:0.85rem; }
+  .dash-grid{ display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,0.9fr); gap:0.85rem; }
+  .dash-col{ display:flex; flex-direction:column; gap:0.85rem; min-width:0; }
+  .dashboard .section{ padding:0.85rem 1rem; gap:0.6rem; }
   .panel-head{ display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
   .section h3{ font-size:0.98rem; }
   .pill{ font-size:0.72rem; font-weight:650; padding:0.2rem 0.55rem; border-radius:999px; background:#2a1f24; border:1px solid #3a2a2e; color:#ffb4b4; }
   .pill.ok{ background:#1f2a22; border-color:#2a3a2e; color:#8fe0ac; }
-  .af-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0.75rem; align-items:end; }
-  .field-row{ display:flex; flex-direction:column; gap:0.3rem; min-width:0; }
-  .k{ color:#8b8e9a; font-size:0.82rem; }
+  .af-row{ display:flex; flex-wrap:wrap; align-items:center; gap:0.5rem; }
+  .af-inline{ display:flex; align-items:center; gap:0.35rem; }
+  .k{ color:#8b8e9a; font-size:0.82rem; white-space:nowrap; }
   .mono.small{ font-family:ui-monospace,monospace; font-size:0.76rem; color:#8b8e9a; }
   .mono.small.wrap{ word-break:break-all; line-height:1.4; }
   .err{ color:#e5484d; font-size:0.82rem; margin:0; word-break:break-all; background:#2a1f24; border:1px solid #3a2a2e; border-radius:8px; padding:0.5rem 0.65rem; }
@@ -396,14 +365,17 @@
   .row{ display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
   .bar{ height:8px; background:#14151a; border:1px solid #2a2d36; border-radius:999px; overflow:hidden; }
   .bar .fill{ height:100%; background:#3b4b8f; transition:width 0.4s ease; }
-  .log-panel{ padding:0; overflow:hidden; }
-  .log-head{ display:flex; justify-content:space-between; align-items:center; padding:1rem 1.1rem 0; }
+  .log-panel{ padding:0; overflow:hidden; flex:1; min-height:0; }
+  .log-head{ display:flex; justify-content:space-between; align-items:center; padding:0.85rem 1rem 0.6rem; }
   .toggle{ display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; color:#8b8e9a; cursor:pointer; }
   .toggle input{ accent-color:#3b4b8f; }
-  .log-list{ list-style:none; margin:0; padding:0; background:#14151a; border-top:1px solid #2a2d36; max-height:320px; overflow-y:auto; font-size:0.78rem; }
+  .log-list{ list-style:none; margin:0; padding:0; background:#14151a; border-top:1px solid #2a2d36; flex:1; min-height:0; overflow-y:auto; font-size:0.78rem; }
   .log-list li{ display:flex; gap:0.6rem; padding:0.4rem 0.75rem; border-bottom:1px solid #1b1d24; align-items:baseline; }
   .log-list li:last-child{ border-bottom:none; }
   .log-list code{ color:#6c8fc7; font-family:ui-monospace,monospace; font-size:0.74rem; white-space:nowrap; }
   .log-list li.error code{ color:#e5484d; } .log-list li.warn code{ color:#e5c76b; } .log-list li.muted{ color:#6b6e79; }
   .payload{ color:#b6b8c0; word-break:break-all; font-family:ui-monospace,monospace; font-size:0.74rem; }
+  /* The app window is 1200px wide with a 230px sidebar, so the content column
+     is ~920px. Keep two columns until the window itself gets narrow. */
+  @media (max-width:900px){ .dash-grid{ grid-template-columns:1fr; } .log-panel{ min-height:240px; } }
 </style>
