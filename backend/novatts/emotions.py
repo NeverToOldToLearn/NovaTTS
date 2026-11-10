@@ -18,6 +18,39 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
 
 
+# Tags whose clip has a different filename on disk. The pattern file stays
+# readable ("sniffle", "sob", "hiccup") while every variant lands on the one
+# shared clip. Resolving here (not only in emotion_sound_map.json) keeps a
+# fresh install working: the map file is a cache of the folder and may not
+# exist yet, while these files ship with the app.
+_TAG_SYNONYMS: dict[str, str] = {
+    "sniff": "sniff_sob",
+    "sniffs": "sniff_sob",
+    "sniffed": "sniff_sob",
+    "sniffing": "sniff_sob",
+    "sniffle": "sniff_sob",
+    "sniffles": "sniff_sob",
+    "sniffling": "sniff_sob",
+    "snifflings": "sniff_sob",
+    "sob": "sniff_sob",
+    "sobs": "sniff_sob",
+    "sobbed": "sniff_sob",
+    "sobbing": "sniff_sob",
+    "hiccup": "hic",
+    "hiccups": "hic",
+    "hiccuped": "hic",
+    "hiccuping": "hic",
+    "hiccupped": "hic",
+    "hiccupping": "hic",
+    "pant": "panting",
+    "pants": "panting",
+    "panted": "panting",
+    "shh": "shhh",
+    "sh": "shhh",
+    "whistle": "wistle",
+}
+
+
 class EmotionSounds:
     def __init__(self, player: object | None = None, speak_words: bool = False) -> None:
         """``speak_words`` (see ``settings.emotion_speak_words``) keeps emotion
@@ -161,11 +194,17 @@ class EmotionSounds:
             return ""
         if raw in self.sound_map:
             return raw
+        synonym = _TAG_SYNONYMS.get(raw)
+        if synonym and synonym in self.sound_map:
+            return synonym
         base = _slug(raw)
         if not base:
             return ""
         if base in self.sound_map:
             return base
+        synonym = _TAG_SYNONYMS.get(base)
+        if synonym and synonym in self.sound_map:
+            return synonym
         if base in self._slug_index:
             return self._slug_index[base]
         for cand in [re.sub(r"(.)\1{2,}", r"\1\1", base), base.rstrip("m"), base.rstrip("s"), base.rstrip("ms")]:

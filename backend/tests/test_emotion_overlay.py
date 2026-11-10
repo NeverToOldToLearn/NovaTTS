@@ -243,6 +243,49 @@ def test_sobs_still_reaches_the_sniffle_sound() -> None:
     assert [t for _, t in es.extract("sobs")[1]] == ["sniffle"]
 
 
+def test_cough_family_is_starred_and_bare() -> None:
+    es = _real()
+    for word in ("cough", "coughs", "coughed", "coughing",
+                 "*cough*", "*coughs*", "*coughing*"):
+        cleaned, positions = es.extract(word)
+        assert [t for _, t in positions] == ["cough"], f"{word!r} -> {positions}"
+        assert not cleaned.strip(), f"{word!r} bereikte ook nog Qwen: {cleaned!r}"
+
+
+def test_sniff_and_sob_share_one_clip() -> None:
+    es = EmotionSounds(player=None)
+    words = ("sniff", "sniffs", "sniffed", "sniffing",
+             "sniffle", "sniffles", "sniffling",
+             "sob", "sobs", "sobbed", "sobbing")
+    for word in words:
+        cleaned, positions = es.extract(word)
+        assert [t for _, t in positions] == ["sniffle"], f"{word!r} -> {positions}"
+        assert not cleaned.strip(), f"{word!r} bereikte ook nog Qwen: {cleaned!r}"
+        assert es.resolve_path(positions[0][1]) == es.dir / "sniff_sob.wav", word
+
+
+def test_hic_family_reaches_the_hic_clip() -> None:
+    es = EmotionSounds(player=None)
+    words = ("hic", "hics", "hiccup", "hiccups", "hiccuped",
+             "hiccuping", "hiccupped", "hiccupping")
+    for word in words:
+        cleaned, positions = es.extract(word)
+        assert [t for _, t in positions] == ["hic"], f"{word!r} -> {positions}"
+        assert not cleaned.strip(), f"{word!r} bereikte ook nog Qwen: {cleaned!r}"
+        assert es.resolve_path(positions[0][1]) == es.dir / "hic.wav", word
+
+
+def test_shh_and_whistle_families_reach_their_clips() -> None:
+    es = EmotionSounds(player=None)
+    for word in ("shh", "shhh", "*shh*", "*shhh*", "whistle", "whistles",
+                 "whistled", "whistling", "*whistle*"):
+        cleaned, positions = es.extract(word)
+        assert positions, f"{word!r} speelde geen emotie"
+        assert not cleaned.strip(), f"{word!r} bereikte ook nog Qwen: {cleaned!r}"
+    assert es.resolve_path("shhh") == es.dir / "shhh.ogg"
+    assert es.resolve_path("whistle") == es.dir / "wistle.ogg"
+
+
 ALIASES = {"slurp": "slurp", "hiccup": "hic", "splurt": "moanb"}
 
 
@@ -253,10 +296,11 @@ def test_speak_route_honours_the_users_aliases() -> None:
         assert clean_emotion_text(line, ALIASES) == "Zij zei en lachte.", expr
 
 
-def test_speak_route_without_aliases_is_unchanged() -> None:
+def test_speak_route_without_aliases_still_strips_sound_words() -> None:
     """The default must keep working for callers that pass no mapping."""
     assert clean_emotion_text("*sighs* Come here.") == "Come here."
-    assert clean_emotion_text("Zij zei slurp.") == "Zij zei slurp."
+    # Bare sound words are filtered too, not only their starred form.
+    assert clean_emotion_text("Zij zei slurp.") == "Zij zei."
 
 
 def test_speak_route_never_hands_qwen_stranded_punctuation() -> None:

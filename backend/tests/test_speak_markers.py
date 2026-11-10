@@ -11,15 +11,26 @@ from novatts.text_clean import clean_emotion_text, is_speak_span
 
 def test_speak_spans_recognized():
     for span in ["haha", "*haha*", "hehe", "*hehe*", "mwah", "*mwah*",
-                 "ha", "argh", "*ugh*", "*ooh*", "*hic*",
-                 "hmm", "shh", "phew"]:
+                 "ha", "argh", "*ugh*", "*ooh*",
+                 "hmm", "phew"]:
         assert is_speak_span(span), span
 
 
+def test_hic_is_a_clip_not_a_speak_span():
+    # hic.wav ships with the app, so "hic" and its hiccup forms are sounds,
+    # not words Qwen should pronounce.
+    for span in ["hic", "*hic*", "hiccup", "*hiccup*", "hiccups", "hiccupping"]:
+        assert not is_speak_span(span), span
+    es = EmotionSounds(player=None)
+    for line in ["*hic* Oops.", "He hiccups.", "hiccup", "*hiccup*"]:
+        _, emo = es.extract(line)
+        assert [tag for _, tag in emo] == ["hic"], line
+
+
 def test_starred_only_vocalizations_flow():
-    # ooh/hic/ugh have starred patterns only; bare they never matched
-    # anything, starred the _asterisk_replace keeps them. Both routes:
-    for word in ["ooh", "hic", "ugh"]:
+    # ooh/ugh have starred patterns only; bare they never matched anything,
+    # starred the _asterisk_replace keeps them. Both routes:
+    for word in ["ooh", "ugh"]:
         assert clean_emotion_text(word) == word
         assert clean_emotion_text(f"*{word}*") == word
     es = EmotionSounds(player=None)
