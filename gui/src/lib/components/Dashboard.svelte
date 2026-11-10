@@ -330,7 +330,11 @@
 </section>
 
 <style>
-  .dashboard{ display:flex; flex-direction:column; gap:0.85rem; max-width:1100px; }
+  /* The Dashboard fills the content area instead of growing past it: the page
+     itself should not scroll, only the live log (and, if the window gets very
+     short, the left column). height:100% resolves against .content, which is a
+     stretched flex item with a definite height. */
+  .dashboard{ display:flex; flex-direction:column; gap:0.85rem; max-width:1100px; height:100%; min-height:0; box-sizing:border-box; }
   .page-head h2{ font-size:1.35rem; }
   .health-dot{ align-self:center; background:#1e2027; border:1px solid #2a2d36; border-radius:999px; padding:0.3rem 0.7rem; font-size:0.78rem; font-weight:600; color:#8b8e9a; display:inline-flex; align-items:center; gap:0.4rem; }
   .health-dot::before{ content:""; width:8px; height:8px; border-radius:50%; background:#e5484d; }
@@ -348,8 +352,8 @@
   .field.sm{ flex:0 1 130px; max-width:130px; min-width:110px; }
   .field.xs{ flex:0 1 76px; max-width:76px; min-width:64px; }
   .banner{ background:#2a2430; border:1px solid #3a2a2e; color:#ffb4b4; border-radius:10px; padding:0.6rem 0.8rem; font-size:0.85rem; }
-  .dash-grid{ display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,0.9fr); gap:0.85rem; }
-  .dash-col{ display:flex; flex-direction:column; gap:0.85rem; min-width:0; }
+  .dash-grid{ display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,0.9fr); gap:0.85rem; flex:1; min-height:0; }
+  .dash-col{ display:flex; flex-direction:column; gap:0.85rem; min-width:0; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
   .dashboard .section{ padding:0.85rem 1rem; gap:0.6rem; }
   .panel-head{ display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
   .section h3{ font-size:0.98rem; }
@@ -369,13 +373,20 @@
   .log-head{ display:flex; justify-content:space-between; align-items:center; padding:0.85rem 1rem 0.6rem; }
   .toggle{ display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; color:#8b8e9a; cursor:pointer; }
   .toggle input{ accent-color:#3b4b8f; }
-  .log-list{ list-style:none; margin:0; padding:0; background:#14151a; border-top:1px solid #2a2d36; flex:1; min-height:0; overflow-y:auto; font-size:0.78rem; }
+  .log-list{ list-style:none; margin:0; padding:0; background:#14151a; border-top:1px solid #2a2d36; flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; font-size:0.78rem; }
   .log-list li{ display:flex; gap:0.6rem; padding:0.4rem 0.75rem; border-bottom:1px solid #1b1d24; align-items:baseline; }
   .log-list li:last-child{ border-bottom:none; }
   .log-list code{ color:#6c8fc7; font-family:ui-monospace,monospace; font-size:0.74rem; white-space:nowrap; }
   .log-list li.error code{ color:#e5484d; } .log-list li.warn code{ color:#e5c76b; } .log-list li.muted{ color:#6b6e79; }
   .payload{ color:#b6b8c0; word-break:break-all; font-family:ui-monospace,monospace; font-size:0.74rem; }
   /* The app window is 1200px wide with a 230px sidebar, so the content column
-     is ~920px. Keep two columns until the window itself gets narrow. */
-  @media (max-width:900px){ .dash-grid{ grid-template-columns:1fr; } .log-panel{ min-height:240px; } }
+     is ~920px. Keep two columns until the window itself gets narrow. Below
+     that the grid stacks, so give the page its height back and cap the log
+     instead of squeezing both columns into one viewport. */
+  @media (max-width:900px){
+    .dashboard{ height:auto; }
+    .dash-grid{ grid-template-columns:1fr; flex:none; }
+    .dash-col{ overflow:visible; }
+    .log-panel{ min-height:240px; max-height:60vh; }
+  }
 </style>
