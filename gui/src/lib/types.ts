@@ -104,10 +104,21 @@ export interface SettingsData {
   poll_interval: number;
   qwen_autostart: boolean;
   qwen_auto_import_samples: boolean;
+  auto_forward_enabled: boolean;
+  auto_forward_target: string;
+  auto_forward_delay: number;
+  auto_forward_hotkey: string;
 }
 
 export interface SettingsResponse {
   settings: SettingsData;
   path_status: Record<string, PathStatus>;
   env_file: string;
+}
+
+/** Compiled defaults suggested by the backend's first-run setup screen. */
+export interface SetupDefaults {
+  platform: string;
+  env_file: string;
+  paths: Record<string, { suggested: string; exists: boolean }>;
 }

@@ -1,4 +1,4 @@
-import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, Speaker, SpeakBody } from "./types";
+import type { EventEntry, Health, ImportStatus, ServerStatus, SettingsResponse, SetupDefaults, Speaker, SpeakBody } from "./types";
 
 const BASE = "http://127.0.0.1:8765";
 
@@ -30,6 +30,22 @@ export type QwenStatus = {
   model_exists: boolean;
   codec_exists: boolean;
   last_error: string | null;
+};
+
+export type AutoForwardStatus = {
+  enabled: boolean;
+  target: string;
+  delay: number;
+  hotkey: string;
+  /** Selectable toggle hotkeys reported by the backend. */
+  hotkey_options?: string[];
+  platform: string;
+  wayland: boolean;
+  xdotool: boolean;
+  available: boolean;
+  reason: string;
+  can_capture: boolean;
+  can_test: boolean;
 };
 
 export const api = {
@@ -118,10 +134,23 @@ export const api = {
   deleteEmotionAlias: (expr: string) => req<unknown>(`/emotions/alias/${encodeURIComponent(expr)}`, { method: "DELETE" }),
 
   settings: () => req<SettingsResponse>("/settings"),
+  setupDefaults: () => req<SetupDefaults>("/setup/defaults"),
   updateSettings: (body: Record<string, unknown>) =>
     req<{ status: string; settings: SettingsResponse["settings"]; path_status: SettingsResponse["path_status"] }>("/settings", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  autoForwardStatus: () => req<AutoForwardStatus>("/auto-forward"),
+  setAutoForward: (body: { enabled?: boolean; target?: string; delay?: number; hotkey?: string }) =>
+    req<AutoForwardStatus>("/auto-forward", { method: "POST", body: JSON.stringify(body) }),
+  toggleAutoForward: () => req<AutoForwardStatus>("/auto-forward/toggle", { method: "POST" }),
+  captureAutoForwardTarget: () =>
+    req<AutoForwardStatus & { title: string }>("/auto-forward/capture", { method: "POST" }),
+  autoForwardWindows: () => req<{ windows: string[] }>("/auto-forward/windows"),
+  testAutoForward: () =>
+    req<{ ok: boolean; reason?: string; method?: string; wid?: string; target?: string }>("/auto-forward/test", {
+      method: "POST",
     }),
 
   voiceDesignStatus: () =>

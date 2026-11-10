@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+use std::path::Path;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
@@ -22,7 +24,7 @@ static SHUTDOWN_ONCE: Once = Once::new();
 
 fn app_base_dir(handle: &tauri::AppHandle) -> PathBuf {
     if let Ok(d) = handle.path().resource_dir() {
-        if d.join("data").exists() || d.join("resources").join("novatts-backend.exe").exists() {
+        if d.join("data").exists() || d.join("resources").join(BACKEND_BIN).exists() {
             return d;
         }
         if let Some(parent) = d.parent() {
@@ -38,57 +40,170 @@ fn app_base_dir(handle: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn ensure_env(handle: &tauri::AppHandle) {
-    let base = app_base_dir(handle);
-    let env_path = base.join(".env");
+/// Where user-writable state (`.env`, `data/`) lives.
+///
+/// Portable builds and dev checkouts keep everything next to the app, like on
+/// Windows. A Linux package installs under `/usr/lib` (and an AppImage mounts
+/// a read-only squashfs), so writing there fails. In that case use the XDG
+/// data dir: `$XDG_DATA_HOME/novatts` or `~/.local/share/novatts`.
+#[cfg(target_os = "linux")]
+fn linux_state_dir(handle: &tauri::AppHandle) -> Option<PathBuf> {
+    let bundled = app_base_dir(handle);
+    if dir_is_writable(&bundled) {
+        return None;
+    }
+    let data_home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".local").join("share"))
+        })
+        .unwrap_or_else(|| PathBuf::from("."));
+    Some(data_home.join("novatts"))
+}
 
-    // Dev runs must be deterministic.
-    // If a stale .env exists from a previous run, it may point to ports
-    // that collide with qwentts.cpp (usually 8081), causing backend bind
-    // failures and the GUI to get stuck.
-    //
-    // So: debug builds always (re)write the dev .env. Release builds ship to
-    // end users, whose .env IS their configuration (emotion-sounds dir,
-    // voice-design opt-in, engine paths, ...) - create it on first run and
-    // never overwrite it, or every launch silently wipes their settings.
-    if env_path.exists() && !cfg!(debug_assertions) {
+#[cfg(not(target_os = "linux"))]
+fn linux_state_dir(_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    None
+}
+
+fn state_base_dir(handle: &tauri::AppHandle) -> PathBuf {
+    linux_state_dir(handle).unwrap_or_else(|| app_base_dir(handle))
+}
+
+#[cfg(target_os = "linux")]
+fn dir_is_writable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".novatts-write-test");
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
+/// First run of an installed Linux build: copy the bundled default `data/`
+/// into the user data dir. Existing files are never overwritten.
+#[cfg(target_os = "linux")]
+fn seed_data_dir(handle: &tauri::AppHandle, target: &Path) {
+    let source = app_base_dir(handle).join("data");
+    let dest = target.join("data");
+    if dest.exists() || !source.is_dir() {
         return;
     }
-    let _ = std::fs::remove_file(&env_path);
+    match copy_dir_all(&source, &dest) {
+        Ok(()) => eprintln!("[NovaTTS] seeded {} from {}", dest.display(), source.display()),
+        Err(e) => eprintln!("[NovaTTS] could not seed {}: {e}", dest.display()),
+    }
+}
 
-    let candidates = [
-        base.join("resources").join(".env.example"),
-        base.join(".env.example"),
-        handle
-            .path()
-            .resource_dir()
-            .ok()
-            .map(|d| d.join(".env.example"))
-            .unwrap_or_default(),
-        handle
-            .path()
-            .resource_dir()
-            .ok()
-            .map(|d| d.join("resources").join(".env.example"))
-            .unwrap_or_default(),
-    ];
-    for cand in candidates {
-        if cand.exists() {
-            match std::fs::copy(&cand, &env_path) {
-                Ok(_) => {
-                    eprintln!("[NovaTTS] created {}", env_path.display());
-                    return;
-                }
-                Err(e) => eprintln!("[NovaTTS] copy .env.example failed: {e}"),
-            }
+#[cfg(target_os = "linux")]
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let to = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &to)?;
+        } else if !to.exists() {
+            std::fs::copy(entry.path(), &to)?;
         }
     }
-    let fallback = format!(
-        "NOVATTS_HOST=127.0.0.1\nNOVATTS_PORT=8765\nNOVATTS_QWEN_URL=http://127.0.0.1:8080\nNOVATTS_QWEN_AUTOSTART=1\nNOVATTS_QWEN_AUTO_IMPORT_SAMPLES=1\n"
-    );
-    let _ = std::fs::write(&env_path, fallback);
-    eprintln!("[NovaTTS] wrote minimal {}", env_path.display());
+    Ok(())
 }
+
+fn ensure_env(handle: &tauri::AppHandle) {
+    let base = state_base_dir(handle);
+    let _ = std::fs::create_dir_all(&base);
+    let env_path = base.join(".env");
+
+    // Never overwrite an existing .env. The installer and the Settings panel
+    // write the real paths there (tts-server, model, samples dir); recreating
+    // it from .env.example on every GUI start wiped those settings and sent
+    // Qwen back to the compiled-in defaults.
+    if !env_path.exists() {
+        let candidates = [
+            base.join("resources").join(".env.example"),
+            base.join(".env.example"),
+            handle
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|d| d.join(".env.example"))
+                .unwrap_or_default(),
+            handle
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|d| d.join("resources").join(".env.example"))
+                .unwrap_or_default(),
+        ];
+        let mut created = false;
+        for cand in candidates {
+            if cand.exists() {
+                match std::fs::copy(&cand, &env_path) {
+                    Ok(_) => {
+                        eprintln!("[NovaTTS] created {}", env_path.display());
+                        created = true;
+                        break;
+                    }
+                    Err(e) => eprintln!("[NovaTTS] copy .env.example failed: {e}"),
+                }
+            }
+        }
+        if !created {
+            let fallback = "NOVATTS_HOST=127.0.0.1\nNOVATTS_PORT=8765\nNOVATTS_QWEN_URL=http://127.0.0.1:8080\nNOVATTS_QWEN_AUTOSTART=1\nNOVATTS_QWEN_AUTO_IMPORT_SAMPLES=1\n";
+            let _ = std::fs::write(&env_path, fallback);
+            eprintln!("[NovaTTS] wrote minimal {}", env_path.display());
+        }
+    }
+
+    // Add only keys that are missing; existing values and comments stay
+    // untouched, so a user-configured port or path is never reset.
+    let content = std::fs::read_to_string(&env_path).unwrap_or_default();
+    let mut additions = String::new();
+    for (key, value) in [
+        ("NOVATTS_HOST", "127.0.0.1"),
+        ("NOVATTS_PORT", "8765"),
+        ("NOVATTS_QWEN_URL", "http://127.0.0.1:8080"),
+        ("NOVATTS_QWEN_AUTOSTART", "1"),
+        ("NOVATTS_QWEN_AUTO_IMPORT_SAMPLES", "1"),
+    ] {
+        let present = content.lines().any(|line| {
+            let line = line.trim_start();
+            match line.strip_prefix(key) {
+                Some(rest) => {
+                    let trimmed = rest.trim_start();
+                    trimmed.starts_with('=') || rest.starts_with(' ')
+                }
+                None => false,
+            }
+        });
+        if !present {
+            additions.push_str(&format!("{key}={value}\n"));
+        }
+    }
+    if !additions.is_empty() {
+        let mut out = content;
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&additions);
+        match std::fs::write(&env_path, out) {
+            Ok(_) => eprintln!("[NovaTTS] added missing keys to {}", env_path.display()),
+            Err(e) => eprintln!("[NovaTTS] could not add defaults to {}: {e}", env_path.display()),
+        }
+    }
+}
+
+/// Platform-specific backend binary name.
+const BACKEND_BIN: &str = if cfg!(windows) {
+    "novatts-backend.exe"
+} else {
+    "novatts-backend"
+};
 
 fn resource_backend_path(handle: &tauri::AppHandle) -> Option<PathBuf> {
     let candidates = [
@@ -96,19 +211,19 @@ fn resource_backend_path(handle: &tauri::AppHandle) -> Option<PathBuf> {
             .path()
             .resource_dir()
             .ok()
-            .map(|d| d.join("novatts-backend.exe")),
+            .map(|d| d.join(BACKEND_BIN)),
         handle
             .path()
             .resource_dir()
             .ok()
-            .map(|d| d.join("resources").join("novatts-backend.exe")),
+            .map(|d| d.join("resources").join(BACKEND_BIN)),
         handle
             .path()
             .resource_dir()
             .ok()
-            .map(|d| d.join("bin").join("novatts-backend.exe")),
-        Some(app_base_dir(handle).join("resources").join("novatts-backend.exe")),
-        Some(app_base_dir(handle).join("novatts-backend.exe")),
+            .map(|d| d.join("bin").join(BACKEND_BIN)),
+        Some(app_base_dir(handle).join("resources").join(BACKEND_BIN)),
+        Some(app_base_dir(handle).join(BACKEND_BIN)),
     ];
     for c in candidates.into_iter().flatten() {
         if c.exists() {
@@ -119,11 +234,12 @@ fn resource_backend_path(handle: &tauri::AppHandle) -> Option<PathBuf> {
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
     if let Some(dir) = exe_dir {
-        for rel in [
-            "resources/novatts-backend.exe",
-            "novatts-backend.exe",
-            "../resources/novatts-backend.exe",
-        ] {
+        let rel_candidates = [
+            format!("resources/{BACKEND_BIN}"),
+            BACKEND_BIN.to_string(),
+            format!("../resources/{BACKEND_BIN}"),
+        ];
+        for rel in &rel_candidates {
             let p = dir.join(rel);
             if p.exists() {
                 return Some(p);
@@ -141,7 +257,7 @@ fn dev_backend_path() -> Option<PathBuf> {
             .join("..")
             .join("..")
             .join("resources")
-            .join("novatts-backend.exe"),
+            .join(BACKEND_BIN),
         // Dev: alleen aanwezig na `npm run backend:exe` (PyInstaller). Ontbreekt
         // hij, dan is dat geen fout: start_all.cmd draait de backend al uit de
         // venv en spawn_backend skipt als :8765 al gezond antwoordt.
@@ -150,7 +266,7 @@ fn dev_backend_path() -> Option<PathBuf> {
             .join("..")
             .join("backend")
             .join("dist")
-            .join("novatts-backend.exe"),
+            .join(BACKEND_BIN),
     ];
     for c in candidates {
         if c.exists() {
@@ -222,9 +338,17 @@ fn ensure_frontend(handle: &tauri::AppHandle, state: BackendHandle) {
             gui_dir.display()
         );
 
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C");
-        cmd.arg("npm run dev");
+        let mut cmd = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.arg("/C");
+            c.arg("npm run dev");
+            c
+        } else {
+            let mut c = Command::new("sh");
+            c.arg("-c");
+            c.arg("npm run dev");
+            c
+        };
         cmd.current_dir(&gui_dir);
         // A release build has no console of its own (see main.rs), so a plain
         // `cmd` here pops a stray CMD window next to the GUI. Suppress it —
@@ -287,9 +411,17 @@ fn spawn_backend(handle: &tauri::AppHandle, state: BackendHandle) {
         eprintln!("[NovaTTS] backend already running on :8765 — skip spawn");
         return;
     }
-    let bin = resource_backend_path(handle).or_else(dev_backend_path);
+    // In dev, `target/debug/resources` can hold a sidecar copied by an older
+    // build. Prefer the freshly built backend/dist binary there, so
+    // `npm run dev:tauri` never silently serves an ancient backend. Release
+    // builds always use the bundled resource.
+    let bin = if cfg!(debug_assertions) {
+        dev_backend_path().or_else(|| resource_backend_path(handle))
+    } else {
+        resource_backend_path(handle).or_else(dev_backend_path)
+    };
     let Some(bin) = bin else {
-        eprintln!("[NovaTTS] novatts-backend.exe not found (resources/ + dev fallback) — run dev via start_all.cmd or build backend");
+        eprintln!("[NovaTTS] {BACKEND_BIN} not found (resources/ + dev fallback) — run dev via start_all or build backend");
         return;
     };
     if !bin.exists() {
@@ -303,6 +435,15 @@ fn spawn_backend(handle: &tauri::AppHandle, state: BackendHandle) {
             .and_then(|p| p.parent())
             .unwrap_or(bin.parent().unwrap()),
     );
+    // Installed Linux builds keep user state outside the read-only bundle.
+    // Tell the bundled backend where that is, so it does not fall back to
+    // `/usr/lib/NovaTTS/data` (deb) or the AppImage mount.
+    #[cfg(target_os = "linux")]
+    if let Some(base) = linux_state_dir(handle) {
+        seed_data_dir(handle, &base);
+        let _ = std::fs::create_dir_all(&base);
+        cmd.env("NOVATTS_BASE_DIR", &base);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -331,32 +472,80 @@ fn shutdown_backend() -> Result<(), String> {
         .map_err(|e| format!("shutdown request failed: {e}"))
 }
 
-/// Kill a PID and its whole child tree (taskkill /T /F). PyInstaller onefile
-/// runs the real code in a child process, so killing just the parent PID can
-/// leave the listening process behind.
-fn taskkill_tree(pid: u32) -> bool {
-    std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+/// Kill a PID and its whole child tree. On Windows this uses `taskkill /T /F`;
+/// on Unix it sends SIGTERM to the process group (negative PID). PyInstaller
+/// onefile runs the real code in a child process, so killing just the parent
+/// PID can leave the listening process behind.
+fn kill_tree(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(unix)]
+    {
+        // Try the negative-PID kill (process group) first; if that fails, fall
+        // back to killing just the PID.
+        let pgid_ok = std::process::Command::new("kill")
+            .args(["-TERM", &format!("-{pid}")])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if pgid_ok {
+            return true;
+        }
+        std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
 }
 
 /// PID of the process currently listening on 127.0.0.1:8765, if any.
 fn backend_listener_pid() -> Option<u32> {
-    let out = std::process::Command::new("netstat")
-        .args(["-ano", "-p", "tcp"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    for line in text.lines() {
-        if line.contains("127.0.0.1:8765") && line.contains("LISTENING") {
-            if let Some(pid) = line.split_whitespace().last().and_then(|s| s.parse::<u32>().ok()) {
-                return Some(pid);
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("netstat")
+            .args(["-ano", "-p", "tcp"])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            if line.contains("127.0.0.1:8765") && line.contains("LISTENING") {
+                if let Some(pid) = line.split_whitespace().last().and_then(|s| s.parse::<u32>().ok()) {
+                    return Some(pid);
+                }
             }
         }
+        None
     }
-    None
+    #[cfg(unix)]
+    {
+        // `ss -ltnp` is available on modern Linux distros. Output format:
+        //   LISTEN  0  128  127.0.0.1:8765  ...  users:(("novatts-backend",pid=1234,fd=5))
+        let out = std::process::Command::new("ss")
+            .args(["-ltnp"])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            if line.contains("127.0.0.1:8765") || line.contains("*:8765") {
+                // Extract pid=NNNNN from the users:(...) field.
+                if let Some(pos) = line.find("pid=") {
+                    let rest = &line[pos + 4..];
+                    let num: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if let Ok(pid) = num.parse::<u32>() {
+                        return Some(pid);
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 fn kill_managed(state: &BackendHandle) {
@@ -379,7 +568,7 @@ fn kill_managed(state: &BackendHandle) {
                     std::thread::sleep(Duration::from_millis(100));
                 }
                 _ => {
-                    let _ = taskkill_tree(child.id());
+                    let _ = kill_tree(child.id());
                     let _ = child.wait();
                     break;
                 }
@@ -392,7 +581,7 @@ fn kill_managed(state: &BackendHandle) {
     for _ in 0..3 {
         match backend_listener_pid() {
             Some(pid) => {
-                let _ = taskkill_tree(pid);
+                let _ = kill_tree(pid);
                 std::thread::sleep(Duration::from_millis(300));
                 if backend_listener_pid() == Some(pid) {
                     break; // could not force it down; don't loop forever
@@ -403,12 +592,12 @@ fn kill_managed(state: &BackendHandle) {
     }
 }
 
-/// Kill the Vite dev server this app started itself (cmd /C npm run dev →
-/// node) when it was launched standalone via `cargo run`. It must not
+/// Kill the Vite dev server this app started itself (sh -c / cmd /C npm run
+/// dev → node) when it was launched standalone via `cargo run`. It must not
 /// survive the app, otherwise node/vite linger after closing the window.
 fn kill_frontend(state: &BackendHandle) {
     if let Some(mut child) = state.lock().unwrap().take() {
-        let _ = taskkill_tree(child.id());
+        let _ = kill_tree(child.id());
         let _ = child.wait();
     }
 }
@@ -471,6 +660,21 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Linux: the native <select> popup is a GTK menu, so it ignores
+            // the dark page CSS and follows the GTK theme. Prefer the theme's
+            // dark variant for this process only (no system-wide change).
+            #[cfg(target_os = "linux")]
+            {
+                use gtk::prelude::*;
+                if let Some(settings) = gtk::Settings::default() {
+                    settings.set_gtk_application_prefer_dark_theme(true);
+                    eprintln!(
+                        "[NovaTTS] GTK dark variant: {}",
+                        settings.is_gtk_application_prefer_dark_theme()
+                    );
+                }
+            }
+
             // Perfect Cut hides on X instead of being destroyed (see
             // perfect_cut::arm_hide_on_close): reopening is then always
             // show()+focus() on the same live webview, never a rebuilt
@@ -483,7 +687,12 @@ pub fn run() {
             let backend_handle = handle.clone();
             let state = backend_state_setup.clone();
             std::thread::spawn(move || spawn_backend(&backend_handle, state));
-            ensure_frontend(&handle, frontend_state_setup);
+            // Only dev builds load from the Vite server. In a release bundle
+            // the frontend is embedded; probing/starting `npm run dev` there
+            // just delays startup and can spawn node on a dev machine.
+            if cfg!(debug_assertions) {
+                ensure_frontend(&handle, frontend_state_setup);
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

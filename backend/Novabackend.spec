@@ -1,10 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
-import os
 from pathlib import Path
 
-import PyInstaller.config
-
-BACKEND_DIR = Path(os.path.abspath(SPEC)).parent.resolve()
+# Analysis/PYZ/EXE are injected into the spec namespace by PyInstaller.
+# SPECPATH is the directory of this spec file (backend/), provided by PyInstaller.
+BACKEND_DIR = Path(SPECPATH).resolve()
 ROOT_DIR = BACKEND_DIR.parent
 
 # Only the shared defaults belong in the bundle. Anything describing the local

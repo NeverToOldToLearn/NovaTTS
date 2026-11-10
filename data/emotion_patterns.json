@@ -25,76 +25,84 @@
         "speak": true
     },
     {
-        "pattern": "\\*gag(?:ing|e)?s?\\*",
+        "pattern": "\\*?\\bgag(?:s|ged|ging)?\\b\\*?",
         "tag": "gag"
     },
     {
-        "pattern": "\\*kiss(?:ing|d)?s?\\*",
+        "pattern": "\\*kiss(?:es|ed|ing)?\\*",
         "tag": "kiss"
     },
     {
-        "pattern": "\\*chuckl(?:ing|e)?s?\\*",
+        "pattern": "\\*?\\bchuckl(?:e|es|ed|ing)\\b\\*?",
         "tag": "chuckles"
     },
     {
-        "pattern": "\\*laugh(?:ing|e)?s?\\*",
+        "pattern": "\\*?\\blaugh(?:s|ed|ing)?\\b\\*?",
         "tag": "laugh"
     },
     {
-        "pattern": "\\*giggl(?:ing|e)?es?\\*",
+        "pattern": "\\*?\\bgiggl(?:e|es|ed|ing)\\b\\*?",
         "tag": "giggle"
     },
     {
-        "pattern": "\\*sigh(?:ing|ed)?s?\\*",
+        "pattern": "\\*?\\bsigh(?:s|ed|ing)?\\b\\*?",
         "tag": "sigh"
     },
     {
-        "pattern": "\\*groan(?:ing|ed)?s?\\*",
+        "pattern": "\\*?\\bgroan(?:s|ed|ing)?\\b\\*?",
         "tag": "groan"
     },
     {
-        "pattern": "\\bgroan(?:ing|s)?\\b",
-        "tag": "groan"
-    },
-    {
-        "pattern": "\\*gasp(?:ing|ed)?s?\\*",
+        "pattern": "\\*?\\bgasp(?:s|ed|ing)?\\b\\*?",
         "tag": "gasp"
     },
     {
-        "pattern": "\\*yawn(?:ing|e)?s?\\*",
+        "pattern": "\\*?\\byawn(?:s|ed|ing)?\\b\\*?",
         "tag": "yawn"
     },
     {
-        "pattern": "\\byawn(?:ing|s)?\\b",
-        "tag": "yawn"
-    },
-    {
-        "pattern": "\\*moan(?:ing|ed)?s?\\*",
+        "pattern": "\\*?\\bmoan(?:s|ed|ing)?\\b\\*?",
         "tag": "moan"
     },
     {
-        "pattern": "\\*cough(?:ing|s)?\\*",
+        "pattern": "\\*?\\bcough(?:s|ed|ing)?\\b\\*?",
         "tag": "cough"
     },
     {
-        "pattern": "\\*pant(?:ing|e)?s?\\*",
-        "tag": "pants"
+        "pattern": "\\*?\\bpant(?:ing|ed)\\b\\*?",
+        "tag": "panting"
     },
     {
-        "pattern": "\\*slurp(?:ing|s)?\\*",
+        "pattern": "\\*\\bpants?\\*",
+        "tag": "panting"
+    },
+    {
+        "pattern": "\\*?\\bslurp(?:s|ed|ing)?\\b\\*?",
         "tag": "slurp"
     },
     {
-        "pattern": "\\*knock(?:ing|ed)?s?\\*",
+        "pattern": "\\*?\\bknock(?:s|ed|ing)?\\b\\*?",
         "tag": "knock"
     },
     {
-        "pattern": "\\*sniffl(?:ing|e)?es?\\*",
+        "pattern": "\\*?\\bsniff(?:s|ed|ing)?\\b\\*?",
         "tag": "sniffle"
     },
     {
-        "pattern": "\\bsigh(?:ing|ed)?s?\\b",
-        "tag": "sigh"
+        "pattern": "\\*?\\bsniffl(?:e|es|ing|ings)\\b\\*?",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\*?\\bsob(?:s|bed|bing)?\\b\\*?",
+        "tag": "sniffle"
+    },
+    {
+        "pattern": "\\*?\\bhic(?:s|cup(?:s|ped|ping|ed|ing)?)?\\b\\*?",
+        "tag": "hic"
+    },
+    {
+        "pattern": "\\*?\\bdoorbells?\\b\\*?",
+        "tag": "doorbell"
     },
     {
         "pattern": "\\bmmm+\\b",
@@ -125,7 +133,7 @@
         "speak": true
     },
     {
-        "pattern": "\\*gulp(?:ing|ed)?s?\\*",
+        "pattern": "\\*?\\bgulp(?:s|ed|ing)?\\b\\*?",
         "tag": "gulp"
     },
     {
@@ -139,11 +147,6 @@
     {
         "pattern": "\\*huh\\*",
         "tag": "huh",
-        "speak": true
-    },
-    {
-        "pattern": "\\*hic\\*",
-        "tag": "hic",
         "speak": true
     },
     {
@@ -167,7 +170,7 @@
         "speak": true
     },
     {
-        "pattern": "\\*suck(?:ing|ed)?s?\\*",
+        "pattern": "\\*suck(?:s|ed|ing)?\\*",
         "tag": "suck"
     },
     {
@@ -203,14 +206,12 @@
         "speak": true
     },
     {
-        "pattern": "\\*sh+\\*",
-        "tag": "shhh",
-        "speak": true
+        "pattern": "\\*?\\bsh{1,}\\b\\*?",
+        "tag": "shhh"
     },
     {
-        "pattern": "\\bsh+\\b",
-        "tag": "shhh",
-        "speak": true
+        "pattern": "\\*?\\bwhistl(?:e|es|ed|ing)\\b\\*?",
+        "tag": "wistle"
     },
     {
         "pattern": "\\bhmpf\\b",
@@ -223,53 +224,9 @@
         "speak": true
     },
     {
-        "pattern": "\\bsobs\\b",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\*sobs\\*",
-        "tag": "sniffle"
-    },
-    {
         "pattern": "\\bargh\\b",
         "tag": "argh",
         "speak": true
-    },
-    {
-        "pattern": "\\bsniffs\\b",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\*sniffle\\*",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\bsniff\\b",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\*sniff\\*",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\*sniffs\\*",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\bsniffle\\b",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\bsniffles\\b",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\bsniffling\\b",
-        "tag": "sniffle"
-    },
-    {
-        "pattern": "\\bsnifflings\\b",
-        "tag": "sniffle"
     },
     {
         "pattern": "\\b[mn]{3,}[aouh][mngh]+\\b",

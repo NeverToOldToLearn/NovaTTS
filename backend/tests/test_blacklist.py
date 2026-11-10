@@ -64,6 +64,30 @@ def test_raw_mode_presets_do_not_eat_a_longer_entry(bl):
     assert "auto forward" not in out.lower()
 
 
+def test_digits_preset_strips_every_digit(bl):
+    bl.set(custom_words=[], enabled_presets=["Digits (0-9)"])
+    # One preset covers the whole range, not just a few sample numbers.
+    assert bl.filter_text("Room 237", preserve_prefix=False) == "Room"
+    assert bl.filter_text("I have 0 apples.", preserve_prefix=False) == "I have apples."
+    for digit in "0123456789":
+        assert bl.filter_text(f"Value {digit}", preserve_prefix=False) == "Value", digit
+
+
+def test_digits_preset_keeps_numbers_with_their_separators(bl):
+    bl.set(custom_words=[], enabled_presets=["Digits (0-9)"])
+    # Separators belong to the number: leaving "," or "." behind would send
+    # stranded punctuation to the TTS model.
+    assert bl.filter_text("You owe 1,000 coins.", preserve_prefix=False) == "You owe coins."
+    assert bl.filter_text("It is 3.14 exactly.", preserve_prefix=False) == "It is exactly."
+    assert bl.filter_text("HP 100/100 left.", preserve_prefix=False) == "HP left."
+
+
+def test_digits_preset_drops_a_digits_only_line(bl):
+    bl.set(custom_words=[], enabled_presets=["Digits (0-9)"])
+    assert bl.filter_text("250", preserve_prefix=False) == ""
+    assert bl.is_blacklisted("12:45")
+
+
 # -- spoken-body mode (unchanged behaviour) ----------------------------------
 
 

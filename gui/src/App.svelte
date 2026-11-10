@@ -3,29 +3,30 @@
   import Dashboard from "./lib/components/Dashboard.svelte";
   import SpeakersPanel from "./lib/components/SpeakersPanel.svelte";
   import BlacklistPanel from "./lib/components/BlacklistPanel.svelte";
-  import EmotionsPanel from "./lib/components/EmotionsPanel.svelte";
   import SettingsPanel from "./lib/components/SettingsPanel.svelte";
   import VoiceDesignPanel from "./lib/components/VoiceDesignPanel.svelte";
+  import SetupWizard from "./lib/components/SetupWizard.svelte";
   import { api } from "./lib/api";
+  import type { SettingsResponse } from "./lib/types";
 
-  let tab: "dashboard" | "speakers" | "blacklist" | "emotions" | "voicedesign" | "settings" = $state("dashboard");
+  let tab: "dashboard" | "speakers" | "blacklist" | "voicedesign" | "settings" = $state("dashboard");
   // Opt-in: sidebar-item alleen zichtbaar als voice-design aan staat (default uit).
   let voiceDesignEnabled = $state(false);
+  // First-run setup: only when the engine paths do not resolve on this machine.
+  let showSetup = $state(false);
 
-  // The Tauri side spawns the backend on launch and the PyInstaller boot takes
-  // several seconds, so the first settings fetch almost always loses that race.
-  // This gate is one-shot: a single failed fetch would hide the tab for the
-  // whole session. Poll until the backend answers.
-  async function loadVoiceDesignGate(attempt = 0) {
+  const pathsMissing = (s: SettingsResponse) =>
+    (["qwen_bin", "qwen_model", "qwen_codec"] as const).some((k) => !s.path_status?.[k]?.exists);
+
+  onMount(async () => {
     try {
       const s = await api.settings();
       voiceDesignEnabled = (s.settings as { voice_design_enabled?: boolean }).voice_design_enabled === true;
+      showSetup = pathsMissing(s);
     } catch {
-      if (attempt < 15) setTimeout(() => void loadVoiceDesignGate(attempt + 1), 2000);
+      voiceDesignEnabled = false;
     }
-  }
-
-  onMount(() => void loadVoiceDesignGate());
+  });
 </script>
 
 <main class="app">
@@ -43,9 +44,6 @@
       </button>
       <button class:active={tab === "blacklist"} onclick={() => (tab = "blacklist")}>
         <span class="ico">⊘</span> Blacklist
-      </button>
-      <button class:active={tab === "emotions"} onclick={() => (tab = "emotions")}>
-        <span class="ico">♪</span> Emotions
       </button>
       {#if voiceDesignEnabled}
       <button class:active={tab === "voicedesign"} onclick={() => (tab = "voicedesign")}>
@@ -66,31 +64,22 @@
       <SpeakersPanel />
     {:else if tab === "blacklist"}
       <BlacklistPanel />
-    {:else if tab === "emotions"}
-      <EmotionsPanel />
     {:else if tab === "voicedesign"}
       <VoiceDesignPanel />
     {:else}
-      <SettingsPanel />
+      <SettingsPanel onrunsetup={() => (showSetup = true)} />
     {/if}
   </section>
 </main>
 
+{#if showSetup}
+  <SetupWizard onclose={() => (showSetup = false)} />
+{/if}
+
 <style>
-  :global(:root) {
-    --background: #14151a;
-    --foreground: #e8e8ec;
-    --muted-foreground: #8b8e9a;
-    --card: #1e2027;
-    --border: #2a2d36;
-    --accent: #3b4b8f;
-  }
   .app {
     display: flex;
     height: 100vh;
-    background: #14151a;
-    color: #e8e8ec;
-    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
   .sidebar {
     width: 230px;
@@ -99,8 +88,8 @@
     display: flex;
     flex-direction: column;
     gap: 1.1rem;
-    background: #1b1d24;
-    border-right: 1px solid #2a2d36;
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
   }
   .brand h1 {
     font-size: 1.2rem;

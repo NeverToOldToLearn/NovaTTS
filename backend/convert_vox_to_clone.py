@@ -1,26 +1,41 @@
-"""Convert voxceleb raw (16k) -> Samples_Clone (24k mono pcm16) for Qwen.
+"""Convert voxceleb raw (16k) -> NovaTTS samples (24k mono pcm16) for Qwen.
 
-Writes to D:\\!!Scripts!!\\Samples_Clone\\idXXXXX.wav (+ .txt if present).
-Skips existing unless --force. Picks 1 best wav per id (median size, 50k-5M).
+Writes to the configured samples folder (``NOVATTS_QWEN_SAMPLES_DIR``, else
+``data/samples``), or whatever ``--out`` points at. Skips existing unless
+``--force``. Picks 1 best wav per id (median size, 50k-5M).
 
 Run:
-  .\\.venv\\Scripts\\python.exe convert_vox_to_clone.py --dry-run
-  .\\.venv\\Scripts\\python.exe convert_vox_to_clone.py --limit 50
-  .\\.venv\\Scripts\\python.exe convert_vox_to_clone.py
+  .\\.venv\\Scripts\\python.exe convert_vox_to_clone.py --in "D:\\voxceleb\\wav" --dry-run
+  .\\.venv\\Scripts\\python.exe convert_vox_to_clone.py --in "D:\\voxceleb\\wav" --limit 50
+  .\\.venv\\Scripts\\python.exe convert_vox_to_clone.py --in "D:\\voxceleb\\wav" --out "D:\\voices"
   .\\.venv\\Scripts\\python.exe convert_vox_to_clone.py --force
-Requires ffmpeg on PATH.
+Requires ffmpeg on PATH (or set FFMPEG).
 """
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-IN_DIR = Path(r"D:\Temp\voxceleb\wav")
-OUT_DIR = Path(r"D:\!!Scripts!!\Samples_Clone")
-FFMPEG = shutil.which("ffmpeg") or r"C:\Users\BoBo\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe"
+
+def _default_out() -> Path:
+    """Configured samples folder, else <repo>/data/samples."""
+    try:
+        from novatts.config import settings
+
+        if settings.qwen_samples_dir:
+            return Path(settings.qwen_samples_dir)
+    except Exception:
+        pass
+    return Path(__file__).resolve().parent.parent / "data" / "samples"
+
+
+IN_DIR = Path.cwd() / "voxceleb" / "wav"
+OUT_DIR = _default_out()
+FFMPEG = shutil.which("ffmpeg") or os.environ.get("FFMPEG", "")
 
 def pick_best(id_dir: Path) -> Path | None:
     wavs = [p for p in id_dir.rglob("*.wav") if p.is_file() and p.name != "output_quick_test.wav"]
@@ -40,9 +55,9 @@ def convert(src: Path, dst: Path) -> bool:
     return True
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="voxceleb -> Samples_Clone normalize 24k mono")
-    p.add_argument("--in", dest="indir", default=str(IN_DIR))
-    p.add_argument("--out", dest="outdir", default=str(OUT_DIR))
+    p = argparse.ArgumentParser(description="voxceleb -> NovaTTS samples, normalize 24k mono")
+    p.add_argument("--in", dest="indir", default=str(IN_DIR), help="voxceleb wav root (contains idXXXXX/ folders)")
+    p.add_argument("--out", dest="outdir", default=str(OUT_DIR), help="samples folder (default: configured samples dir)")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--force", action="store_true")
     p.add_argument("--dry-run", action="store_true")
@@ -50,8 +65,8 @@ def main() -> int:
     in_dir, out_dir = Path(args.indir), Path(args.outdir)
     if not in_dir.exists():
         print(f"in not found: {in_dir}", file=sys.stderr); return 2
-    if not Path(FFMPEG).exists() and not shutil.which("ffmpeg"):
-        print("ffmpeg not found", file=sys.stderr); return 2
+    if not FFMPEG or not Path(FFMPEG).is_file():
+        print("ffmpeg not found (install it or set FFMPEG)", file=sys.stderr); return 2
     ids = sorted([d for d in in_dir.iterdir() if d.is_dir() and d.name.startswith("id")], key=lambda p: p.name)
     if args.limit: ids = ids[:args.limit]
     todo: list[tuple[Path, Path]] = []
@@ -80,7 +95,7 @@ def main() -> int:
             if ok % 100 == 0: print(f"  ... {ok}/{len(todo)}")
         else:
             fail += 1
-    print(f"Done: ok={ok} fail={fail} skipped={len(ids)-len(todo)}  Samples_Clone now has {len(list(out_dir.glob('*.wav')))} wav")
+    print(f"Done: ok={ok} fail={fail} skipped={len(ids)-len(todo)}  samples folder now has {len(list(out_dir.glob('*.wav')))} wav")
     return 1 if fail else 0
 
 if __name__ == "__main__":

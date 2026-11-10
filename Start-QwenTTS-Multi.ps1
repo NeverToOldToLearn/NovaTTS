@@ -9,15 +9,36 @@
 # ============================================================
 
 param(
-    [string]$TtsExe     = "D:\Projects\qwentts.cpp\build\Release\tts-server.exe",
-    [string]$Model      = "E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf",
-    [string]$Codec      = "E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf",
+    [string]$TtsExe     = "",
+    [string]$Model      = "",
+    [string]$Codec      = "",
     [string]$HostIp     = "127.0.0.1",
     [int]   $Port       = 8081,
     [string]$Alias      = "qwen3-tts",
-    [string]$VoiceDir   = "D:\!!Scripts!!\!!VisualNove-TTS",
+    [string]$VoiceDir   = "",
     [int]   $MaxWaitSec = 45
 )
+
+# Resolve engine/model/sample paths from the environment or the NovaTTS .env
+# instead of hardcoding a developer machine.
+function Get-NovaEnv([string]$Name, [string]$Default = "") {
+    $v = [Environment]::GetEnvironmentVariable($Name)
+    if ($v) { return $v }
+    foreach ($f in @((Join-Path $PSScriptRoot '.env'), (Join-Path $env:LOCALAPPDATA 'NovaTTS\.env'), (Join-Path $env:LOCALAPPDATA 'NovaTTS\backend\.env'))) {
+        if (Test-Path -LiteralPath $f) {
+            $line = Get-Content -LiteralPath $f -Encoding UTF8 |
+                Where-Object { $_ -match ('^\s*' + [regex]::Escape($Name) + '\s*=') } |
+                Select-Object -First 1
+            if ($line) { return ($line -replace '^\s*[^=]+\s*=\s*', '').Trim().Trim('"') }
+        }
+    }
+    return $Default
+}
+
+if (-not $TtsExe)   { $TtsExe   = Get-NovaEnv 'NOVATTS_QWEN_BIN' }
+if (-not $Model)    { $Model    = Get-NovaEnv 'NOVATTS_QWEN_MODEL' }
+if (-not $Codec)    { $Codec    = Get-NovaEnv 'NOVATTS_QWEN_CODEC' }
+if (-not $VoiceDir) { $VoiceDir = Get-NovaEnv 'NOVATTS_QWEN_SAMPLES_DIR' (Join-Path $PSScriptRoot 'data\samples') }
 
 $ErrorActionPreference = "Stop"
 

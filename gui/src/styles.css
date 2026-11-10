@@ -1,0 +1,242 @@
+/* ---------------------------------------------------------------------------
+   NovaTTS global styles.
+
+   One place for the tokens and the classes that every panel shares. Components
+   keep only their own layout/size overrides; anything that looks the same on
+   two pages belongs here.
+
+   Imported once from main.ts, so both the main window and the Perfect Cut
+   window get it. Component <style> blocks are still scoped by Svelte and win
+   over these rules where they deliberately override something.
+--------------------------------------------------------------------------- */
+
+:root {
+  /* Tell WebKit the page is dark so built-in widgets (scrollbars, select
+     popup chrome, form controls) render dark instead of default white. */
+  color-scheme: dark;
+
+  /* Palette */
+  --background: #14151a;
+  --foreground: #e8e8ec;
+  --muted-foreground: #8b8e9a;
+  --card: #1e2027;
+  --border: #2a2d36;
+  --accent: #3b4b8f;
+
+  /* Derived tokens for controls and states */
+  --accent-hover: #4458aa;
+  --accent-active: #35468a;
+  --accent-border: #4a5aa8;
+  --accent-ring: rgba(59, 75, 143, 0.25);
+  --control-bg: #14151a;
+  --control-border: #343842;
+  --ghost-bg: #232634;
+  --ghost-hover: #2a2e40;
+  --sidebar: #1b1d24;
+
+  --danger: #e5484d;
+  --danger-fg: #ffb4b4;
+  --danger-bg: #2a1f24;
+  --danger-border: #3a2a2e;
+
+  --ok: #30a46c;
+  --ok-fg: #8fe0ac;
+  --ok-bg: #1f2a22;
+  --ok-border: #2a3a2e;
+
+  --info-fg: #a8b8e6;
+  --info-bg: #1c2330;
+  --info-border: #2a3550;
+
+  --warn-fg: #e5c76b;
+
+  --radius-control: 9px;
+  --radius-card: 12px;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* --- Base controls -------------------------------------------------------- */
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 0.52rem 1rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 550;
+  line-height: 1;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button:active:not(:disabled) {
+  background: var(--accent-active);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+input,
+select,
+textarea {
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  color: var(--foreground);
+  border-radius: var(--radius-control);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+/* The option list is painted by WebKitGTK outside the component scope and
+   otherwise falls back to white with the light text colour from the select. */
+select option {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* --- Shared classes ------------------------------------------------------- */
+
+.page-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.page-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 0.2rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+}
+
+.section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.section h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.field {
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  color: var(--foreground);
+  border-radius: var(--radius-control);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+button.ghost,
+a.ghost,
+a.btn.ghost {
+  background: var(--ghost-bg);
+  color: var(--foreground);
+  text-decoration: none;
+  display: inline-block;
+}
+
+a.ghost,
+a.btn.ghost {
+  border-radius: var(--radius-control);
+  padding: 0.52rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 550;
+  line-height: 1;
+}
+
+button.ghost:hover:not(:disabled),
+a.ghost:hover,
+a.btn.ghost:hover {
+  background: var(--ghost-hover);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.callout {
+  margin: 0;
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.callout.error {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-fg);
+}
+
+.callout.info {
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  color: var(--info-fg);
+}

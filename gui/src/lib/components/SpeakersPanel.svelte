@@ -8,6 +8,7 @@
   let stale: { speaker: string; voice: string }[] = $state([]);
   let voiceUsed: Record<string, string[]> = $state({});
   let qwenOnline = $state(false);
+  let samplesDir = $state("");
   let fallback: string = $state("Narrator");
   let newName = $state("");
   let err = $state("");
@@ -31,6 +32,12 @@
     voiceUsed = (st as unknown as { voice_used_by?: Record<string, string[]> }).voice_used_by ?? {};
     qwenOnline = vs.qwen_online ?? st.qwen ?? false;
     fallback = (sp as unknown as SpeakersResponse).fallback ?? "Narrator";
+    try {
+      const cfg = await api.settings();
+      samplesDir = cfg.settings.qwen_samples_dir ?? "";
+    } catch {
+      samplesDir = "";
+    }
   };
   const isStale = (name: string, voice: string) => stale.some((s) => s.speaker === name && s.voice === voice);
 
@@ -141,7 +148,7 @@
     <summary>Advanced — import voices</summary>
     {#if showAdvanced}
       <div class="adv-body">
-        <p class="muted small">Voices are cloned samples. Auto-imported from <code>D:\!!Scripts!!\Samples_Clone</code> on Qwen start; use below for extras.</p>
+        <p class="muted small">Voices are cloned samples. Auto-imported from <code>{samplesDir || "the samples folder"}</code> on Qwen start; use below for extras.</p>
         <input class="field" bind:value={refTextFallback} placeholder="Fallback ref_text if no .txt sibling" />
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -171,23 +178,16 @@
 
 <style>
   .panel{ display:flex; flex-direction:column; gap:0.85rem; max-width:920px; }
-  .page-head{ display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:flex-start; }
-  .page-head h2{ margin:0; font-size:1.25rem; letter-spacing:-0.02em; } .subtitle{ margin:0.2rem 0 0; color:#8b8e9a; font-size:0.82rem; }
-  .pill{ align-self:center; background:#1e2027; border:1px solid #2a2d36; border-radius:999px; padding:0.35rem 0.75rem; font-size:0.78rem; color:#8b8e9a; white-space:nowrap; }
+  .pill{ align-self:center; font-size:0.78rem; }
   .banner{ background:#2a2430; border:1px solid #3a2a2e; color:#ffb4b4; border-radius:10px; padding:0.6rem 0.8rem; font-size:0.85rem; }
-  .callout{ margin:0; border-radius:10px; padding:0.6rem 0.8rem; font-size:0.85rem; word-break:break-word; }
-  .callout.error{ background:#2a1f24; border:1px solid #3a2a2e; color:#ffb4b4; } .callout.info{ background:#1c2330; border:1px solid #2a3550; color:#a8b8e6; }
   .add-row{ display:flex; gap:0.5rem; align-items:center; }
   .add-row .field{ flex:1; min-width:160px; }
-  input,select{ background:#14151a; border:1px solid #343842; color:#e8e8ec; border-radius:7px; padding:0.32rem 0.5rem; font-size:0.8rem; line-height:1.2; }
+  input,select{ border-radius:7px; padding:0.32rem 0.5rem; font-size:0.8rem; }
   .field{ flex:1; } .field.sm{ flex:0 1 160px; max-width:200px; }
-  input:focus,select:focus{ outline:none; border-color:#4a5aa8; box-shadow:0 0 0 3px rgba(59,75,143,0.25); }
-  button{ background:#3b4b8f; color:#fff; border:none; border-radius:7px; padding:0.32rem 0.6rem; cursor:pointer; font-size:0.8rem; font-weight:550; line-height:1.2; white-space:nowrap; }
-  button:hover:not(:disabled){ background:#4458aa; } button:active:not(:disabled){ background:#35468a; }
-  button:disabled{ opacity:0.5; cursor:default; }
+  button{ border-radius:7px; padding:0.32rem 0.6rem; font-size:0.8rem; line-height:1.2; white-space:nowrap; }
   button.del{ background:transparent; color:#e5484d; padding:0.35rem 0.55rem; border-radius:8px; } button.del:hover{ background:#2a1f24; }
-  button.ghost{ background:#232634; color:#e8e8ec; font-size:0.82rem; padding:0.38rem 0.75rem; }
-  button.ghost.small{ font-size:0.78rem; padding:0.3rem 0.6rem; } button.ghost:hover:not(:disabled){ background:#2a2e40; }
+  button.ghost{ font-size:0.82rem; padding:0.38rem 0.75rem; }
+  button.ghost.small{ font-size:0.78rem; padding:0.3rem 0.6rem; }
   button.icon{ background:#232634; padding:0.25rem 0.4rem; font-size:0.78rem; min-width:26px; } button.icon.small{ font-size:0.7rem; padding:0.2rem 0.35rem; min-width:24px; }
   .table-wrap{ overflow:hidden; border-radius:12px; border:1px solid #2a2d36; background:#1e2027; }
   .grid-head, .rows li{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) 36px; gap:0.5rem; align-items:center; padding:0.28rem 0.5rem; }

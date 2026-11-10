@@ -9,12 +9,36 @@
 # ============================================================
 
 param(
-    [string]$SourceDir   = "D:\!!Scripts!!\Samples_Clone",
-    [string]$CodecExe    = "D:\Projects\qwentts.cpp\build\Release\qwen-codec.exe",
-    [string]$CodecModel  = "E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf",
-    [string]$TalkerModel = "E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf",
+    [string]$SourceDir   = "",
+    [string]$CodecExe    = "",
+    [string]$CodecModel  = "",
+    [string]$TalkerModel = "",
     [switch]$Force       # Overwrite existing .spk/.rvq
 )
+
+# Read a value from the environment or the NovaTTS .env, so no machine-specific
+# path is baked into this script. Falls back to a repo-relative default.
+function Get-NovaEnv([string]$Name, [string]$Default = "") {
+    $v = [Environment]::GetEnvironmentVariable($Name)
+    if ($v) { return $v }
+    foreach ($f in @((Join-Path $PSScriptRoot '.env'), (Join-Path $env:LOCALAPPDATA 'NovaTTS\.env'), (Join-Path $env:LOCALAPPDATA 'NovaTTS\backend\.env'))) {
+        if (Test-Path -LiteralPath $f) {
+            $line = Get-Content -LiteralPath $f -Encoding UTF8 |
+                Where-Object { $_ -match ('^\s*' + [regex]::Escape($Name) + '\s*=') } |
+                Select-Object -First 1
+            if ($line) { return ($line -replace '^\s*[^=]+\s*=\s*', '').Trim().Trim('"') }
+        }
+    }
+    return $Default
+}
+
+if (-not $SourceDir)   { $SourceDir   = Get-NovaEnv 'NOVATTS_QWEN_SAMPLES_DIR' (Join-Path $PSScriptRoot 'data\samples') }
+if (-not $CodecExe)    { $CodecExe    = Get-NovaEnv 'NOVATTS_QWEN_CODEC_BIN' }
+if (-not $CodecModel)  { $CodecModel  = Get-NovaEnv 'NOVATTS_QWEN_CODEC' }
+if (-not $TalkerModel) { $TalkerModel = Get-NovaEnv 'NOVATTS_QWEN_MODEL' }
+if (-not $CodecExe -and (Get-NovaEnv 'NOVATTS_QWEN_BIN')) {
+    $CodecExe = Join-Path (Split-Path (Get-NovaEnv 'NOVATTS_QWEN_BIN')) 'qwen-codec.exe'
+}
 
 $ErrorActionPreference = "Stop"
 

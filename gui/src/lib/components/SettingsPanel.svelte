@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api } from "../api";
+  import { api, type AutoForwardStatus } from "../api";
   import { openCutter } from "../cutter/tauri";
   import type { PathStatus, SettingsData, SettingsResponse } from "../types";
+  import PathField from "./PathField.svelte";
+
+  let { onrunsetup = () => {} }: { onrunsetup?: () => void } = $props();
 
   let data: SettingsResponse | null = $state(null);
   let form: Partial<SettingsData> = $state({});
@@ -13,6 +16,89 @@
   let testing = $state(false);
   let converting = $state(false);
   let convertForce = $state(false);
+
+  let af: AutoForwardStatus | null = $state(null);
+  let afWindows: string[] = $state([]);
+  let afBusy = $state(false);
+  let afMsg = $state("");
+
+  const loadAutoForward = async () => {
+    try {
+      af = await api.autoForwardStatus();
+    } catch (e) {
+      afMsg = `Auto-forward status unavailable: ${(e as Error).message}`;
+    }
+  };
+
+  const saveAutoForward = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      af = await api.setAutoForward({
+        target: (form.auto_forward_target ?? "").toString(),
+        delay: Number(form.auto_forward_delay ?? 1),
+        enabled: form.auto_forward_enabled === true,
+      });
+      afMsg = af.enabled ? "Auto-forward enabled." : "Auto-forward saved (off).";
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const toggleAutoForward = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      af = await api.toggleAutoForward();
+      form.auto_forward_enabled = af.enabled;
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const captureAutoForwardTarget = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      const r = await api.captureAutoForwardTarget();
+      af = r;
+      if (r.title) {
+        form.auto_forward_target = r.title;
+        afMsg = `Target captured: ${r.title}`;
+      } else {
+        afMsg = "No foreground X11 window could be captured. Click the game first, or pick a window below.";
+      }
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const listAutoForwardWindows = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      const r = await api.autoForwardWindows();
+      afWindows = r.windows;
+      afMsg = r.windows.length
+        ? `${r.windows.length} X11/Xwayland window(s) visible.`
+        : "No X11/Xwayland windows visible. Native Wayland windows cannot be targeted.";
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
+
+  const testAutoForward = async () => {
+    afBusy = true; afMsg = ""; err = "";
+    try {
+      const r = await api.testAutoForward();
+      afMsg = r.ok
+        ? `Test keystroke sent (${r.method}${r.wid ? `, window ${r.wid}` : ""}).`
+        : `Test failed: ${r.reason ?? "unknown error"}`;
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    afBusy = false;
+  };
 
   const load = async () => {
     try {
@@ -109,7 +195,10 @@
 
   const exists = (key: string) => pathStatus[key]?.exists ?? false;
 
-  onMount(load);
+  onMount(() => {
+    load();
+    loadAutoForward();
+  });
 </script>
 
 <section class="panel">
@@ -127,34 +216,34 @@
   <div class="section">
     <h3>Qwen Engine</h3>
     <div class="form-grid">
-      <label class="field-row">
-        <span class="fk">tts-server binary</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_bin} placeholder="path to tts-server.exe" />
-          <span class="dot" class:ok={exists("qwen_bin")}>{exists("qwen_bin") ? "✓" : "✗"}</span>
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">Model (.gguf)</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_model} placeholder="path to model" />
-          <span class="dot" class:ok={exists("qwen_model")}>{exists("qwen_model") ? "✓" : "✗"}</span>
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">Codec (.gguf)</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_codec} placeholder="path to codec" />
-          <span class="dot" class:ok={exists("qwen_codec")}>{exists("qwen_codec") ? "✓" : "✗"}</span>
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">qwen-codec binary</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_codec_bin} placeholder="auto = next to tts-server.exe" />
-          <span class="dot" class:ok={exists("qwen_codec_bin")}>{exists("qwen_codec_bin") ? "✓" : "✗"}</span>
-        </div>
-      </label>
+      <PathField
+        label="tts-server binary"
+        kind="exe"
+        bind:value={form.qwen_bin}
+        placeholder="path to tts-server.exe"
+        status={pathStatus.qwen_bin}
+      />
+      <PathField
+        label="Model (.gguf)"
+        kind="model"
+        bind:value={form.qwen_model}
+        placeholder="path to model"
+        status={pathStatus.qwen_model}
+      />
+      <PathField
+        label="Codec (.gguf)"
+        kind="model"
+        bind:value={form.qwen_codec}
+        placeholder="path to codec"
+        status={pathStatus.qwen_codec}
+      />
+      <PathField
+        label="qwen-codec binary"
+        kind="exe"
+        bind:value={form.qwen_codec_bin}
+        placeholder="auto = next to tts-server.exe"
+        status={pathStatus.qwen_codec_bin}
+      />
       <label class="field-row">
         <span class="fk">Server URL</span>
         <input class="field" bind:value={form.qwen_url} placeholder="http://127.0.0.1:8080" />
@@ -172,30 +261,36 @@
         <input class="field sm" type="number" bind:value={form.qwen_timeout} min="10" max="600" step="10" />
       </label>
     </div>
+    <div class="actions">
+      <button class="ghost" onclick={onrunsetup}>Run setup wizard…</button>
+    </div>
   </div>
 
   <div class="section">
     <h3>Voice Design (experimenteel)</h3>
     <label class="chk"><input type="checkbox" bind:checked={form.voice_design_enabled} /> Inschakelen (opt-in — standaard uit)</label>
     <div class="form-grid">
-      <label class="field-row">
-        <span class="fk">Voicedesign model (.gguf)</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_voicedesign_model} placeholder="qwen-talker-1.7b-voicedesign-Q8_0.gguf" />
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">qwen-tts binary</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_tts_bin} placeholder="auto = naast tts-server.exe" />
-        </div>
-      </label>
-      <label class="field-row">
-        <span class="fk">Output map</span>
-        <div class="fv">
-          <input class="field" bind:value={form.voice_design_dir} placeholder="data/voice_design" />
-        </div>
-      </label>
+      <PathField
+        label="Voicedesign model (.gguf)"
+        kind="model"
+        bind:value={form.qwen_voicedesign_model}
+        placeholder="qwen-talker-1.7b-voicedesign-Q8_0.gguf"
+        status={pathStatus.qwen_voicedesign_model}
+      />
+      <PathField
+        label="qwen-tts binary"
+        kind="exe"
+        bind:value={form.qwen_tts_bin}
+        placeholder="auto = next to tts-server.exe"
+        status={pathStatus.qwen_tts_bin}
+      />
+      <PathField
+        label="Output folder"
+        kind="dir"
+        bind:value={form.voice_design_dir}
+        placeholder="data/voice_design"
+        status={pathStatus.voice_design_dir}
+      />
     </div>
     <p class="muted small">Genereert los van de draaiende engine via <code>qwen-tts.exe --instruct …</code>; de base server blijft ongemoeid.</p>
   </div>
@@ -203,13 +298,13 @@
   <div class="section">
     <h3>Voice Samples</h3>
     <div class="form-grid">
-      <label class="field-row">
-        <span class="fk">Samples directory</span>
-        <div class="fv">
-          <input class="field" bind:value={form.qwen_samples_dir} placeholder="D:\!!Scripts!!\Samples_Clone" />
-          <span class="dot" class:ok={exists("qwen_samples_dir")}>{exists("qwen_samples_dir") ? "✓" : "✗"}</span>
-        </div>
-      </label>
+      <PathField
+        label="Samples directory"
+        kind="dir"
+        bind:value={form.qwen_samples_dir}
+        placeholder="folder with .wav voices"
+        status={pathStatus.qwen_samples_dir}
+      />
       <label class="field-row">
         <span class="fk">Extra dirs (comma-sep)</span>
         <input class="field" bind:value={form.qwen_samples_dirs_extra} placeholder="optional, comma separated" />
@@ -241,6 +336,61 @@
     </div>
   </div>
 
+  <div class="section">
+    <h3>Auto-forward (RenPy)</h3>
+    <p class="muted small">
+      Sends Space to the game window after each clipboard line finishes, so RenPy advances to the next line.
+      Linux uses <code>xdotool</code> and can only reach X11/Xwayland windows — native Wayland games cannot receive synthetic input.
+      Set a target window title; the toggle is applied immediately.
+    </p>
+    {#if af}
+      <p class="muted small">
+        Platform: {af.platform}{af.wayland ? " (Wayland session)" : ""} · xdotool: {af.xdotool ? "found" : "missing"}
+        {#if !af.available} · <strong>{af.reason}</strong>{/if}
+        {#if af.available && af.reason} · {af.reason}{/if}
+      </p>
+    {/if}
+    <label class="chk">
+      <input
+        type="checkbox"
+        bind:checked={form.auto_forward_enabled}
+        onchange={saveAutoForward}
+        disabled={afBusy || !af?.available}
+      />
+      Enable auto-forward
+    </label>
+    <div class="form-grid">
+      <label class="field-row">
+        <span class="fk">Target window title</span>
+        <div class="fv">
+          <input class="field" bind:value={form.auto_forward_target} placeholder="e.g. MyGame — case-insensitive substring" />
+          <button class="ghost" onclick={captureAutoForwardTarget} disabled={afBusy || !af?.can_capture}>Capture</button>
+        </div>
+      </label>
+      {#if afWindows.length}
+        <label class="field-row">
+          <span class="fk">Visible X11/Xwayland windows</span>
+          <select class="field" bind:value={form.auto_forward_target}>
+            <option value="">— pick a window —</option>
+            {#each afWindows as w}
+              <option value={w}>{w}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
+      <label class="field-row">
+        <span class="fk">Delay after line (s)</span>
+        <input class="field sm" type="number" bind:value={form.auto_forward_delay} min="0.1" max="30" step="0.1" />
+      </label>
+    </div>
+    <div class="actions">
+      <button onclick={saveAutoForward} disabled={afBusy}>Apply target &amp; delay</button>
+      <button class="ghost" onclick={listAutoForwardWindows} disabled={afBusy}>List windows</button>
+      <button class="ghost" onclick={testAutoForward} disabled={afBusy || !af?.can_test}>Send test Space</button>
+    </div>
+    {#if afMsg}<p class="muted small">{afMsg}</p>{/if}
+  </div>
+
   <div class="actions">
     <button onclick={save} disabled={saving}>{saving ? "Saving…" : "Save to .env"}</button>
     <button class="ghost" onclick={testTts} disabled={testing}>{testing ? "Testing…" : "Test TTS"}</button>
@@ -267,29 +417,17 @@
 
 <style>
   .panel{ display:flex; flex-direction:column; gap:1rem; max-width:860px; }
-  .page-head{ display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:flex-start; }
-  .page-head h2{ margin:0; font-size:1.25rem; letter-spacing:-0.02em; } .subtitle{ margin:0.2rem 0 0; color:#8b8e9a; font-size:0.82rem; }
-  .pill{ align-self:center; background:#1e2027; border:1px solid #2a2d36; border-radius:999px; padding:0.35rem 0.75rem; font-size:0.72rem; font-family:ui-monospace,monospace; color:#8b8e9a; white-space:nowrap; max-width:340px; overflow:hidden; text-overflow:ellipsis; }
-  .callout{ margin:0; border-radius:10px; padding:0.6rem 0.8rem; font-size:0.85rem; word-break:break-word; }
-  .callout.error{ background:#2a1f24; border:1px solid #3a2a2e; color:#ffb4b4; } .callout.info{ background:#1c2330; border:1px solid #2a3550; color:#a8b8e6; }
+  .pill{ align-self:center; font-family:ui-monospace,monospace; max-width:340px; overflow:hidden; text-overflow:ellipsis; }
   .muted{ color:#8b8e9a; } .small{ font-size:0.8rem; }
   .chk{ display:flex; align-items:center; gap:0.4rem; font-size:0.82rem; color:#8b8e9a; cursor:pointer; }
   .chk input{ accent-color:#3b4b8f; }
-  .section{ background:#1e2027; border:1px solid #2a2d36; border-radius:12px; padding:1rem 1.1rem; display:flex; flex-direction:column; gap:0.75rem; }
-  .section h3{ margin:0; font-size:0.95rem; letter-spacing:-0.01em; color:#e8e8ec; }
   .form-grid{ display:flex; flex-direction:column; gap:0.65rem; }
-  .field-row{ display:flex; flex-direction:column; gap:0.2rem; cursor:default; }
   .fk{ font-size:0.78rem; color:#8b8e9a; font-weight:550; text-transform:uppercase; letter-spacing:0.04em; }
   .fv{ display:flex; gap:0.5rem; align-items:center; }
   .fv .field{ flex:1; }
-  .field{ background:#14151a; border:1px solid #343842; color:#e8e8ec; border-radius:9px; padding:0.5rem 0.7rem; font-size:0.88rem; line-height:1.2; width:100%; font-family:ui-monospace,monospace; }
+  .field{ width:100%; font-family:ui-monospace,monospace; }
   .field.sm{ max-width:100px; width:auto; flex:0 1 100px; }
-  input.field:focus{ outline:none; border-color:#4a5aa8; box-shadow:0 0 0 3px rgba(59,75,143,0.25); }
   .dot{ font-size:0.8rem; font-weight:700; color:#e5484d; min-width:1.2rem; text-align:center; }
   .dot.ok{ color:#30a46c; }
   .actions{ display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
-  button{ background:#3b4b8f; color:#fff; border:none; border-radius:9px; padding:0.52rem 1rem; cursor:pointer; font-size:0.88rem; font-weight:550; line-height:1; }
-  button:hover:not(:disabled){ background:#4458aa; } button:active:not(:disabled){ background:#35468a; }
-  button.ghost{ background:#232634; color:#e8e8ec; } button.ghost:hover:not(:disabled){ background:#2a2e40; }
-  button:disabled{ opacity:0.5; cursor:default; }
 </style>

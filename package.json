@@ -12,6 +12,7 @@
     "installer": "powershell -NoProfile -ExecutionPolicy Bypass -File ./installer/Build-Installer.ps1",
     "installer:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File ./installer/Build-Installer.ps1 -ZipOnly",
     "installer:exe": "powershell -NoProfile -ExecutionPolicy Bypass -File ./installer/Build-Installer.ps1 -NoZip",
+    "setup:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File ./.dev/Build-2.5.0d.ps1 -Rebuild",
     "dev": "npm run dev --workspace=gui",
     "dev:tauri": "npm run tauri --workspace=gui -- dev",
     "build": "npm run build --workspace=gui",

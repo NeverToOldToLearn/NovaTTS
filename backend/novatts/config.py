@@ -8,6 +8,31 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Windows installs keep the Qwen engine + models under the per-user AI-Tools
+# build (<LOCALAPPDATA>\NovaTTS\AI-Tools). Derive those defaults from the
+# environment instead of hardcoding a developer machine; on Linux the paths
+# stay empty, which the rest of the code already treats as "not set / auto".
+_WIN = sys.platform.startswith("win32")
+
+
+def _dir_is_writable(path: Path) -> bool:
+    """True when we can create files in ``path`` (creates it if needed)."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".novatts-write-test"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _user_data_dir() -> Path:
+    """XDG data dir used by installed Linux builds."""
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    root = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return root / "novatts"
+
 
 def _base_dir() -> Path:
     # Explicit override (launcher/diagnostics).
@@ -31,14 +56,21 @@ def _base_dir() -> Path:
                 break
             cur = parent
         # Installed-layout fallbacks (no repo root around).
+        installed: list[Path] = []
         if exe_dir.name.lower() == "resources":
-            return exe_dir.parent
+            installed.append(exe_dir.parent)
         if (exe_dir / "data").exists() or (exe_dir / "backend").exists():
-            return exe_dir
-        parent = exe_dir.parent
-        if (parent / "data").exists():
-            return parent
-        return exe_dir
+            installed.append(exe_dir)
+        if (exe_dir.parent / "data").exists():
+            installed.append(exe_dir.parent)
+        for cand in installed:
+            if _dir_is_writable(cand):
+                return cand
+        # A deb installs to /usr/lib and an AppImage is a read-only squashfs.
+        # Writing speakers/cache there fails, so keep user state in XDG_DATA_HOME.
+        if sys.platform.startswith("linux"):
+            return _user_data_dir()
+        return installed[0] if installed else exe_dir
     # Source layout (python run.py in backend/): repo root.
     return Path(__file__).resolve().parent.parent.parent
 
@@ -56,6 +88,16 @@ def _backend_dir() -> Path:
 BASE_DIR = _base_dir()
 DATA_DIR = BASE_DIR / "data"
 BACKEND_DIR = _backend_dir()
+
+
+def _ai_tools_qwen(*parts: str) -> str:
+    """Default path inside <LOCALAPPDATA>\\NovaTTS\\AI-Tools\\qwentts.cpp."""
+    if not _WIN:
+        return ""
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if not local:
+        return ""
+    return str(Path(local) / "NovaTTS" / "AI-Tools" / "qwentts.cpp" / Path(*parts))
 
 
 class Settings(BaseSettings):
@@ -81,13 +123,13 @@ class Settings(BaseSettings):
     # to force every unassigned speaker onto one registered clone.
     qwen_default_voice: str = ""
     # Local tts-server binary + models for one-click / auto-start.
-    qwen_bin: str = r"D:\Projects\qwentts.cpp\build\Release\tts-server.exe"
-    qwen_model: str = r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-base-Q8_0.gguf"
-    qwen_codec: str = r"E:\LLM's\Qwen3TTS\qwen-tokenizer-12hz-Q8_0.gguf"
+    qwen_bin: str = _ai_tools_qwen("build", "Release", "tts-server.exe")
+    qwen_model: str = _ai_tools_qwen("models", "qwen-talker-1.7b-base-Q8_0.gguf")
+    qwen_codec: str = _ai_tools_qwen("models", "qwen-tokenizer-12hz-Q8_0.gguf")
     qwen_autostart: bool = True
     qwen_extra_args: str = "--alias qwen3-tts"
     qwen_auto_import_samples: bool = True
-    qwen_samples_dir: str = r"D:\!!Scripts!!\Samples_Clone"
+    qwen_samples_dir: str = str(DATA_DIR / "samples")
     qwen_samples_dirs_extra: str = r""
     # --- Streaming (pcm direct van tts-server, zonder WAV-omweg) ---
     # Clipboard-regels gaan per chunk naar de luidspreker zodra de engine ze
@@ -131,7 +173,7 @@ class Settings(BaseSettings):
     # byte-identical). It only fixes the RNG stream, nothing more.
     qwen_seed: int = 1234
     qwen_temperature: float = 0.9
-    qwen_top_p: float = 0.9
+    qwen_top_p: float = 1.0
     qwen_top_k: int = 50
     qwen_repetition_penalty: float = 1.05
     # Hard bound on one request, 1024 tokens = 82s at the codec's 12.5Hz.
@@ -149,7 +191,7 @@ class Settings(BaseSettings):
     qwen_codec_bin: str = ""
     # Voice-design (experimenteel): apart 1.7B voicedesign-model + qwen-tts CLI.
     # qwen_tts_bin leeg = auto-detect als sibling van NOVATTS_QWEN_BIN (qwen-tts.exe).
-    qwen_voicedesign_model: str = r"E:\LLM's\Qwen3TTS\qwen-talker-1.7b-voicedesign-Q8_0.gguf"
+    qwen_voicedesign_model: str = _ai_tools_qwen("models", "qwen-talker-1.7b-voicedesign-Q8_0.gguf")
     qwen_tts_bin: str = ""
     voice_design_dir: Path = DATA_DIR / "voice_design"
     # Opt-in voor eindgebruik: uit = geen Voice Design-tab, generate/promote
@@ -164,6 +206,16 @@ class Settings(BaseSettings):
     # regex/filter tuning can copy the exact source texts.
     log_raw_clipboard: bool = True
     clipboard_raw_log: Path = DATA_DIR / "logs" / "clipboard_raw.log"
+
+    # --- Auto-forward (RenPy) ---
+    # When a clipboard line finishes playing, send Space to the game window
+    # after this delay so the visual novel advances. On Linux this needs
+    # xdotool and only reaches X11/Xwayland windows; the target is a window
+    # title substring (capture it from the GUI). No global hotkey on Linux.
+    auto_forward_enabled: bool = False
+    auto_forward_target: str = ""
+    auto_forward_delay: float = 1.0
+    auto_forward_hotkey: str = "F12"
 
     # --- Audio ---
     audio_sample_rate: int = 22050
@@ -196,7 +248,7 @@ class Settings(BaseSettings):
     speakers_file: Path = DATA_DIR / "speakers.json"
     games_dir: Path = DATA_DIR / "games"
     emotion_patterns_file: Path = DATA_DIR / "emotion_patterns.json"
-    emotion_sounds_dir: str = r"C:\Piper\emotion_sounds"
+    emotion_sounds_dir: str = str(DATA_DIR / "emotion_sounds")
     emotion_sound_map_file: Path = DATA_DIR / "emotion_sound_map.json"
     emotion_aliases_file: Path = DATA_DIR / "emotion_aliases.json"
     # Perfect Cut tool (separate window) — batch dirs + external binaries.
