@@ -1,14 +1,11 @@
 # `data/` — runtime-config
 
-All of this is plain config, no audio. **NovaTTS ships no sound fragments of
-its own** — the emotion sounds are yours to supply, because the audio comes
-from wherever you got it and that is a copyright question for you, not for
-this project.
-
-Point the app at a folder of your own files under **Instellingen → Emotion
-sounds** (or `NOVATTS_EMOTION_SOUNDS_DIR` in `backend/.env`). `.wav`,
-`.ogg`, `.opus` and `.mp3` are picked up; the filename without extension
-becomes the tag.
+`data/emotion_sounds/` holds the 13 built-in clips that ship with the app
+(`cough`, `doorbell`, `gasp`, `gulp`, `hic`, `kiss`, `knock`, `panting`,
+`shhh`, `sigh`, `sniff_sob`, `wistle`, `yawn`). You can point the app at a
+folder of your own files under **Instellingen → Emotion sounds** (or
+`NOVATTS_EMOTION_SOUNDS_DIR` in `backend/.env`). `.wav`, `.ogg`, `.opus` and
+`.mp3` are picked up; the filename without extension becomes the tag.
 
 ## Which files are tracked and which are not
 
@@ -43,7 +40,7 @@ data/emotion_aliases.json.example     ->  data/emotion_aliases.json
 `"tag": "filename"`, both relative to your sounds folder. You normally never
 need this file: the folder is scanned on startup and on **Reload from disk**,
 and this file is rewritten to match. It is worth editing only to give a sound a
-second name, which is how the `chuckle` → `chuckles.wav` example above works.
+second name, which is how the `sniff` → `sniff_sob.wav` example above works.
 Entries pointing at a file that no longer exists are dropped on the next reload.
 
 ### `emotion_aliases.json`
@@ -56,8 +53,9 @@ so the example resolves end to end.
 
 ### `emotion_patterns.json`
 
-A list of `{"pattern": "<regex>", "tag": "<tag>"}` and is used two ways: tags
-drive the emotion overlay, and the bare patterns are used by the text cleaner
-to strip the leftovers. `"tag": null` means "match but play nothing", which is
-how sound-effect words get removed from the text without noise. The default
-set is a reasonable starting point for Dutch and English.
+A list of `{"pattern": "<regex>", "tag": "<tag>"}`. A tagged pattern only runs
+when its tag resolves to a file in the sounds folder; a word whose tag has no
+clip (for example `mmm`) is left in the text and reaches Qwen. `"tag": null`
+marks a cleanup rule (`*stage direction*`) or a `"speak": true` vocalization.
+Bare `knock` is never matched; only `*knock*` and its starred forms are, because
+the word is too common in ordinary sentences.

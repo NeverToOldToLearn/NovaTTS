@@ -33,9 +33,10 @@ def test_aint_survives_extract():
     assert emo == []
 
 
-def test_real_moans_still_stripped():
-    assert clean_emotion_text("aaah eenn") == ""
-    assert clean_emotion_text("Well aaah, yes.") == "Well, yes."
+def test_non_clip_moans_pass_through():
+    # No moan clip ships, so these words must reach Qwen as text.
+    assert clean_emotion_text("aaah eenn") == "aaah eenn"
+    assert clean_emotion_text("Well aaah, yes.") == "Well aaah, yes."
     es = EmotionSounds(player=None)
     cleaned, emo = es.extract("*sighs* Well, yes.")
     assert "*" not in cleaned
@@ -48,9 +49,9 @@ def test_short_vocalizations_are_spoken():
     assert clean_emotion_text("*Aah!* Come here.") == "Aah! Come here."
 
 
-def test_real_words_survive_moan_pattern():
-    # een/aan (NL), ion/Ian/eon/ain/aim/oom: matched by the generic moan
-    # pattern, now excluded via lookahead. Moans still go.
+def test_real_words_and_non_clip_moans_survive():
+    # een/aan (NL), ion/Ian/eon/ain/aim/oom and stretched moans have no
+    # clip, so they all reach Qwen as text.
     for w in ["een", "aan", "ion", "Ian", "eon", "ain", "aim", "oom"]:
         assert clean_emotion_text(f"zeg {w} maar") == f"zeg {w} maar", w
     es = EmotionSounds(player=None)
@@ -59,7 +60,7 @@ def test_real_words_survive_moan_pattern():
         assert w in cleaned, w
         assert emo == []
     for moan in ["aaah", "aam", "mmm", "eenn"]:
-        assert moan not in clean_emotion_text(f"zeg {moan} maar").split(), moan
+        assert moan in clean_emotion_text(f"zeg {moan} maar").split(), moan
     for vocal in ["ooh", "aah"]:
         assert vocal in clean_emotion_text(f"zeg {vocal} maar").split(), vocal
 

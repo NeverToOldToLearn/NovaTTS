@@ -51,6 +51,48 @@ _TAG_SYNONYMS: dict[str, str] = {
 }
 
 
+def resolve_tag(
+    tag: str, sound_map: dict[str, str], slug_index: dict[str, str]
+) -> str:
+    """Normalize a tag against a sound map.
+
+    Returns the best key in `sound_map`, or a slug when nothing matches. Shared
+    by the runtime class and the text cleaner so both routes agree on whether
+    a tag has a real clip.
+    """
+    raw = tag.lower().strip()
+    if not raw:
+        return ""
+    if raw in sound_map:
+        return raw
+    synonym = _TAG_SYNONYMS.get(raw)
+    if synonym and synonym in sound_map:
+        return synonym
+    base = _slug(raw)
+    if not base:
+        return ""
+    if base in sound_map:
+        return base
+    synonym = _TAG_SYNONYMS.get(base)
+    if synonym and synonym in sound_map:
+        return synonym
+    if base in slug_index:
+        return slug_index[base]
+    for cand in [
+        re.sub(r"(.)\1{2,}", r"\1\1", base),
+        base.rstrip("m"),
+        base.rstrip("s"),
+        base.rstrip("ms"),
+    ]:
+        hit = slug_index.get(cand) if cand else None
+        if hit:
+            return hit
+    for slug in sorted(slug_index, key=len, reverse=True):
+        if slug and base.startswith(slug):
+            return slug_index[slug]
+    return base
+
+
 class EmotionSounds:
     def __init__(self, player: object | None = None, speak_words: bool = False) -> None:
         """``speak_words`` (see ``settings.emotion_speak_words``) keeps emotion
@@ -170,6 +212,12 @@ class EmotionSounds:
                 self.aliases = {}
         except Exception:
             self.aliases = {}
+        # A phrase whose target has no clip cannot play anything. Keeping it
+        # would silently drop the word from the text, so the alias is ignored
+        # and the word reaches Qwen instead.
+        self.aliases = {
+            k: v for k, v in self.aliases.items() if self.resolve_path(v) is not None
+        }
         self.compiled = []
         for item in self.pattern_defs:
             if not isinstance(item, dict):
@@ -180,6 +228,10 @@ class EmotionSounds:
             tag = str(tag_obj) if isinstance(tag_obj, str) else None
             if not pat:
                 continue
+            # Same rule for patterns: a tagged pattern without a clip must not
+            # remove the word. Tag-less rules (stage directions) still run.
+            if tag is not None and self.resolve_path(tag) is None:
+                continue
             try:
                 self.compiled.append((re.compile(pat, re.I), tag))
             except re.error:
@@ -187,34 +239,13 @@ class EmotionSounds:
 
     def reload(self) -> None:
         self._reload()
+        # The /speak route keeps its own compiled copies of the same file.
+        from .text_clean import reload_patterns
+
+        reload_patterns()
 
     def normalize_tag(self, tag: str) -> str:
-        raw = tag.lower().strip()
-        if not raw:
-            return ""
-        if raw in self.sound_map:
-            return raw
-        synonym = _TAG_SYNONYMS.get(raw)
-        if synonym and synonym in self.sound_map:
-            return synonym
-        base = _slug(raw)
-        if not base:
-            return ""
-        if base in self.sound_map:
-            return base
-        synonym = _TAG_SYNONYMS.get(base)
-        if synonym and synonym in self.sound_map:
-            return synonym
-        if base in self._slug_index:
-            return self._slug_index[base]
-        for cand in [re.sub(r"(.)\1{2,}", r"\1\1", base), base.rstrip("m"), base.rstrip("s"), base.rstrip("ms")]:
-            hit = self._slug_index.get(cand) if cand else None
-            if hit:
-                return hit
-        for slug in sorted(self._slug_index, key=len, reverse=True):
-            if slug and base.startswith(slug):
-                return self._slug_index[slug]
-        return base
+        return resolve_tag(tag, self.sound_map, self._slug_index)
 
     def extract(self, text: str) -> tuple[str, list[tuple[int, str]]]:
         from .text_clean import (

@@ -1,10 +1,7 @@
 {
-    "hahaha": "giggle",
-    "haha": "haha",
-    "heehee": "chuckle",
-    "hihi": "giggle",
-    "pfff": "pfft",
-    "*sigh*": "sigh",
-    "snuift": "sniffle",
-    "hijgend": "breathing"
+    "snuift": "sniff_sob",
+    "hijgend": "panting",
+    "klop": "knock",
+    "geeuw": "yawn",
+    "hoest": "cough"
 }

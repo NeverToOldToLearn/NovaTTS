@@ -59,8 +59,9 @@ def test_dutch_hesitations_and_disgust_flow():
         cleaned, emo = es.extract(f"zeg {word} maar")
         assert word in cleaned, word
         assert emo == []
+    # No clip backs the stretched forms, so they pass through as text.
     for stretched in ["ewww", "baaaah", "eughhh"]:
-        assert stretched not in clean_emotion_text(f"zeg {stretched} maar").split()
+        assert stretched in clean_emotion_text(f"zeg {stretched} maar").split(), stretched
 
 
 def test_labels_are_not_speak_spans():
@@ -82,8 +83,10 @@ def test_vocalizations_stay_on_both_routes():
 
 def test_labels_still_clip_or_drop():
     es = EmotionSounds(player=None)
-    _, emo = es.extract("*Laughs* Oh no.")
-    assert [tag for _, tag in emo] == ["laugh"]
+    # "laugh" has no clip; the stage direction drops without a sound.
+    cleaned, emo = es.extract("*Laughs* Oh no.")
+    assert emo == []
+    assert cleaned.strip() == "Oh no."
     _, emo = es.extract("*sighs* Well.")
     assert [tag for _, tag in emo] == ["sigh"]
     assert clean_emotion_text("*sighs* Well.") == "Well."

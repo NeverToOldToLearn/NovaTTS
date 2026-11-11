@@ -24,16 +24,16 @@ def test_normalize_leaves_others_alone():
 
 def test_extract_finds_padded_emotion():
     es = EmotionSounds(player=None)
-    cleaned, emo = es.extract("*Giggles * No, um... I knew a bit.")
-    assert [tag for _, tag in emo] == ["giggle"]
+    cleaned, emo = es.extract("*Sighs * No, um... I knew a bit.")
+    assert [tag for _, tag in emo] == ["sigh"]
     assert "*" not in cleaned
     assert "No, um" in cleaned
 
 
 def test_padded_matches_tight_form():
     es = EmotionSounds(player=None)
-    tight = es.extract("*Laughs* H-How is my French?")
-    padded = es.extract("*Laughs * H-How is my French?")
+    tight = es.extract("*Sighs* H-How is my French?")
+    padded = es.extract("*Sighs * H-How is my French?")
     assert [tag for _, tag in padded[1]] == [tag for _, tag in tight[1]]
     assert "*" not in padded[0]
 

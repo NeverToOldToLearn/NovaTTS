@@ -35,8 +35,8 @@ class _Stub(EmotionSounds):
 
 def _stub() -> _Stub:
     return _Stub(
-        patterns=[{"pattern": r"\baaah\b", "tag": "moanc"}],
-        aliases={"aah": "moang", "mmmm": "mmmm", "mm-hm": "aha"},
+        patterns=[{"pattern": r"\baaah\b", "tag": "sigh"}],
+        aliases={"aah": "sigh", "mmmm": "sigh", "mm-hm": "gasp"},
     )
 
 
@@ -148,11 +148,11 @@ REPO_DATA = Path(__file__).resolve().parents[2] / "data"
 REAL_PATTERNS = REPO_DATA / "emotion_patterns.json"
 
 
-def _real() -> EmotionSounds:
-    """EmotionSounds reading the shipped emotion_patterns.json."""
+def _real(tmp_path: Path) -> EmotionSounds:
+    """EmotionSounds reading the shipped patterns and the 13 shipped clips."""
     es = EmotionSounds.__new__(EmotionSounds)
-    es.dir = REPO_DATA
-    es.map_file = REPO_DATA / "__nonexistent_map__.json"
+    es.dir = REPO_DATA / "emotion_sounds"
+    es.map_file = tmp_path / "emotion_sound_map.json"
     es.patterns_file = REAL_PATTERNS
     es.aliases_file = REPO_DATA / "__nonexistent_aliases__.json"
     es._on_disk = {}
@@ -175,76 +175,76 @@ REAL_WORDS = [
     "Megan and Anna hummed.", "Anne is human.",
 ]
 
-# Words the shipped patterns themselves own. Names like "moan" or "gasp" are
-# only matched in their starred form (*moan*), and the spelled-out runs like
-# "aaaaaaaah" live in the user's alias file, so neither belongs in this list.
-# haha, hmpf and argh are speakable vocalizations now: they reach Qwen as
-# text instead of a clip (see test_speak_markers.py).
-REAL_SOUNDS = ["sigh", "aaannh", "hnnng"]
+# Bare forms of the shipped clips. Starred-only families (kiss, knock) are
+# covered separately below. Anything else has no clip and must pass through.
+REAL_SOUNDS = [
+    "sigh", "gasp", "yawn", "cough", "gulp", "hic", "doorbell",
+    "shh", "whistle", "panting", "sniff", "sob",
+]
 
 
-def test_shipped_patterns_do_not_eat_real_words() -> None:
-    es = _real()
+def test_shipped_patterns_do_not_eat_real_words(tmp_path: Path) -> None:
+    es = _real(tmp_path)
     bad = [(line, tags) for line in REAL_WORDS for _, tags in [es.extract(line)] if tags]
     assert not bad, f"woorden die als emotie werden afgespeeld: {bad}"
 
 
-def test_shipped_patterns_still_catch_real_emotions() -> None:
-    es = _real()
+def test_shipped_patterns_still_catch_real_emotions(tmp_path: Path) -> None:
+    es = _real(tmp_path)
     missed = [w for w in REAL_SOUNDS if not es.extract(w)[1]]
     assert not missed, f"emoties die niet meer herkend worden: {missed}"
 
 
-def test_shipped_patterns_keep_every_pattern_compilable() -> None:
+def test_shipped_patterns_keep_every_pattern_compilable(tmp_path: Path) -> None:
     """The GUI edits this file, so a broken regex must fail loudly, not at runtime."""
-    es = _real()
+    es = _real(tmp_path)
     assert es.pattern_defs, "emotion_patterns.json leverde geen patronen op"
     for item in es.pattern_defs:
         assert item.get("pattern"), f"patroon zonder regex: {item}"
 
 
-def test_three_letters_in_a_row_is_always_an_emotion() -> None:
-    """Any letter, not just [mnh]: no English or Dutch word has xxx in it."""
-    es = _real()
+def test_words_without_a_clip_pass_through(tmp_path: Path) -> None:
+    """Stretched sounds have no clip, so they must reach Qwen as text."""
+    es = _real(tmp_path)
     for word in ("harrrraaahrrreee", "haaaaaa", "ohhh", "eeeit", "tzzzz"):
         cleaned, positions = es.extract(word)
-        assert word not in cleaned, f"{word!r} bereikte Qwen: {cleaned!r}"
-    # and it must not fire on anything pronounceable
+        assert not positions, f"{word!r} speelde een emotie"
+        assert word in cleaned, f"{word!r} werd onterecht verwijderd: {cleaned!r}"
     for word in ("assess", "coffee", "committee", "bookkeeper", "successful", "mamma"):
         cleaned, _ = es.extract(word)
         assert word in cleaned, f"{word!r} werd onterecht verwijderd"
 
 
-def test_short_names_are_never_moan_patterns() -> None:
-    """The moan class needs two nasals after a vowel run; a name cannot supply both."""
-    es = _real()
+def test_short_names_are_never_emotions(tmp_path: Path) -> None:
+    """Names like Anna/Emma must never be played as a moan clip."""
+    es = _real(tmp_path)
     for name in ("Anna", "Emma", "Hannah", "Nina", "Megan", "Anne", "Ines", "Emanuela"):
         assert not es.extract(name)[1], f"{name!r} speelde een emotie"
 
 
-def test_sniff_family_all_reach_the_sniffle_sound() -> None:
+def test_sniff_family_all_reach_the_sniffle_sound(tmp_path: Path) -> None:
     """"sniff" is common in AVN text but is not always a sniffle."""
-    es = _real()
+    es = _real(tmp_path)
     for word in ("sniff", "sniffs", "sniffle", "sniffles", "sniffling", "snifflings"):
         cleaned, positions = es.extract(word)
         assert [t for _, t in positions] == ["sniffle"], f"{word!r} -> {positions}"
         assert not cleaned.strip(), f"{word!r} bereikte ook nog Qwen: {cleaned!r}"
 
 
-def test_sniff_family_does_not_swallow_ordinary_verbs() -> None:
+def test_sniff_family_does_not_swallow_ordinary_verbs(tmp_path: Path) -> None:
     """"sniffled" and "sniffily" are real words; only the -le/-ling forms go."""
-    es = _real()
+    es = _real(tmp_path)
     for word in ("sniffled", "sniffily", "sniffl"):
         assert not es.extract(word)[1], f"{word!r} speelde een emotie"
 
 
-def test_sobs_still_reaches_the_sniffle_sound() -> None:
-    es = _real()
+def test_sobs_still_reaches_the_sniffle_sound(tmp_path: Path) -> None:
+    es = _real(tmp_path)
     assert [t for _, t in es.extract("sobs")[1]] == ["sniffle"]
 
 
-def test_cough_family_is_starred_and_bare() -> None:
-    es = _real()
+def test_cough_family_is_starred_and_bare(tmp_path: Path) -> None:
+    es = _real(tmp_path)
     for word in ("cough", "coughs", "coughed", "coughing",
                  "*cough*", "*coughs*", "*coughing*"):
         cleaned, positions = es.extract(word)
@@ -286,7 +286,7 @@ def test_shh_and_whistle_families_reach_their_clips() -> None:
     assert es.resolve_path("whistle") == es.dir / "wistle.ogg"
 
 
-ALIASES = {"slurp": "slurp", "hiccup": "hic", "splurt": "moanb"}
+ALIASES = {"sigh": "sigh", "hiccup": "hic", "gasp": "gasp"}
 
 
 def test_speak_route_honours_the_users_aliases() -> None:
@@ -300,14 +300,14 @@ def test_speak_route_without_aliases_still_strips_sound_words() -> None:
     """The default must keep working for callers that pass no mapping."""
     assert clean_emotion_text("*sighs* Come here.") == "Come here."
     # Bare sound words are filtered too, not only their starred form.
-    assert clean_emotion_text("Zij zei slurp.") == "Zij zei."
+    assert clean_emotion_text("Zij zei cough.") == "Zij zei."
 
 
 def test_speak_route_never_hands_qwen_stranded_punctuation() -> None:
     """A removed emotion can leave ",." or a leading "!" behind."""
-    assert clean_emotion_text("I love it, aah.", {"aah": "moang"}) == "I love it."
-    assert clean_emotion_text("Aah! Yes...", {"aah": "moang"}) == "Yes..."
-    assert clean_emotion_text("Zij zei slurp.", ALIASES) == "Zij zei."
+    assert clean_emotion_text("I love it, aah.", {"aah": "sigh"}) == "I love it."
+    assert clean_emotion_text("Aah! Yes...", {"aah": "sigh"}) == "Yes..."
+    assert clean_emotion_text("Zij zei cough.", ALIASES) == "Zij zei."
     assert not has_speakable_text(clean_emotion_text("Sigh.", {"sigh": "sigh"}))
 
 
@@ -330,13 +330,13 @@ def test_ellipsis_glued_to_a_word_survives() -> None:
 def test_ellipsis_on_its_own_is_dropped() -> None:
     """A line of nothing but dots has nothing to say, so nothing is spoken."""
     for line in ("...", "…", ".....", "  ...  ", "Aah! ...", "aah ...", "aah, ..."):
-        assert not has_speakable_text(clean_emotion_text(line, {"aah": "moang"})), line
+        assert not has_speakable_text(clean_emotion_text(line, {"aah": "sigh"})), line
     assert clean_emotion_text("...") == ""
 
 
 def test_trailing_ellipsis_next_to_text_is_demoted_not_eaten() -> None:
     """A pause glued to the last word stays; a detached one is dropped."""
-    assert clean_emotion_text("Yes... aah.", {"aah": "moang"}) == "Yes..."
+    assert clean_emotion_text("Yes... aah.", {"aah": "sigh"}) == "Yes..."
     assert clean_emotion_text("Yes... ...") == "Yes..."
     # "Mm-hm" is not an emotion pattern here, so it stays real text and only
     # the detached ellipsis after it goes.
@@ -344,8 +344,8 @@ def test_trailing_ellipsis_next_to_text_is_demoted_not_eaten() -> None:
 
 
 def test_stranded_mark_between_two_marks_is_dropped() -> None:
-    assert clean_emotion_text("I love it, aah.", {"aah": "moang"}) == "I love it."
-    assert clean_emotion_text("I love it,. aah", {"aah": "moang"}) == "I love it."
+    assert clean_emotion_text("I love it, aah.", {"aah": "sigh"}) == "I love it."
+    assert clean_emotion_text("I love it,. aah", {"aah": "sigh"}) == "I love it."
 
 
 def test_deliberate_punctuation_survives() -> None:
@@ -377,6 +377,100 @@ def test_old_loose_patterns_are_gone() -> None:
     """Guards the specific regression: the character-class pattern is removed."""
     patterns = [p["pattern"] for p in json.loads(REAL_PATTERNS.read_text(encoding="utf-8"))]
     assert not [p for p in patterns if "[mnhaeou]" in p], "de losse-klasse-patronen zijn terug"
+
+
+SHIPPED_CLIPS = {
+    "cough.wav", "doorbell.ogg", "gasp.ogg", "gulp.ogg", "hic.wav",
+    "kiss.ogg", "knock.ogg", "panting.wav", "shhh.ogg", "sigh.wav",
+    "sniff_sob.wav", "wistle.ogg", "yawn.wav",
+}
+
+
+def test_only_the_thirteen_shipped_clips_are_used(tmp_path: Path) -> None:
+    """Every tagged pattern must point at one of the 13 files on disk."""
+    folder = REPO_DATA / "emotion_sounds"
+    assert {p.name for p in folder.iterdir() if p.is_file()} == SHIPPED_CLIPS
+    es = _real(tmp_path)
+    assert set(es.sound_map.values()) == SHIPPED_CLIPS
+    for item in es.pattern_defs:
+        tag = item.get("tag")
+        if tag is None:
+            continue
+        resolved = es.resolve_path(str(tag))
+        assert resolved is not None, f"{tag!r} heeft geen clip"
+        assert resolved.name in SHIPPED_CLIPS, f"{tag!r} -> {resolved}"
+
+
+def test_knock_only_matches_inside_asterisks(tmp_path: Path) -> None:
+    es = _real(tmp_path)
+    for bare in ("knock", "knocks", "knocked", "knocking",
+                 "I knock on the door.", "She knocked twice."):
+        cleaned, positions = es.extract(bare)
+        assert not positions, f"{bare!r} speelde een clip"
+        assert "knock" in cleaned.lower(), f"{bare!r} werd gedropt: {cleaned!r}"
+    for starred in ("*knock*", "*knocks*", "*knocked*", "*knocking*"):
+        cleaned, positions = es.extract(starred)
+        assert [t for _, t in positions] == ["knock"], f"{starred!r} -> {positions}"
+        assert not cleaned.strip(), f"{starred!r} bereikte ook Qwen: {cleaned!r}"
+    # /speak route: bare stays, starred drops (no clip playback there).
+    assert clean_emotion_text("I knock on the door.") == "I knock on the door."
+    assert clean_emotion_text("*knock*") == ""
+
+
+def test_mmm_passes_through_on_both_routes(tmp_path: Path) -> None:
+    es = _real(tmp_path)
+    for raw in ("mmm", "*mmm*"):
+        cleaned, positions = es.extract(raw)
+        assert positions == [], f"{raw!r} speelde een clip"
+        assert cleaned == "mmm", f"{raw!r} -> {cleaned!r}"
+        assert clean_emotion_text(raw) == "mmm", raw
+
+
+def test_alias_without_a_clip_is_ignored(tmp_path: Path) -> None:
+    # /speak route: the alias target has no clip, so the word stays.
+    assert clean_emotion_text("Zij zei splurt.", {"splurt": "moanb"}) == "Zij zei splurt."
+    # Clipboard route: the same alias is dropped while loading.
+    aliases = tmp_path / "emotion_aliases.json"
+    aliases.write_text(json.dumps({"splurt": "moanb"}), encoding="utf-8")
+    es = _real(tmp_path)
+    es.aliases_file = aliases
+    es.reload()
+    assert es.aliases == {}
+    cleaned, positions = es.extract("Zij zei splurt.")
+    assert positions == []
+    assert "splurt" in cleaned
+
+
+def test_pattern_without_a_clip_is_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patterns = tmp_path / "emotion_patterns.json"
+    patterns.write_text(
+        json.dumps([
+            {"pattern": r"\bmoan\b", "tag": "moan"},
+            {"pattern": r"\bcough\b", "tag": "cough"},
+        ]),
+        encoding="utf-8",
+    )
+    # Clipboard route: only the clip-backed pattern is compiled.
+    es = _real(tmp_path)
+    es.patterns_file = patterns
+    es.reload()
+    cleaned, positions = es.extract("moan cough")
+    assert [t for _, t in positions] == ["cough"]
+    assert cleaned.strip() == "moan"
+
+    # /speak route: the same file is read through settings.
+    from novatts.config import settings
+    from novatts.text_clean import reload_patterns
+
+    try:
+        monkeypatch.setattr(settings, "emotion_patterns_file", patterns)
+        reload_patterns()
+        assert clean_emotion_text("moan cough") == "moan"
+    finally:
+        monkeypatch.undo()
+        reload_patterns()
 
 
 if __name__ == "__main__":

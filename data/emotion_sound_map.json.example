@@ -1,9 +1,15 @@
 {
-    "breathing": "breathing_heavily.wav",
-    "chuckle": "chuckles.wav",
-    "giggle": "giggle.ogg",
-    "haha": "haha.wav",
-    "pfft": "pfft.wav",
+    "cough": "cough.wav",
+    "doorbell": "doorbell.ogg",
+    "gasp": "gasp.ogg",
+    "gulp": "gulp.ogg",
+    "hic": "hic.wav",
+    "kiss": "kiss.ogg",
+    "knock": "knock.ogg",
+    "panting": "panting.wav",
+    "shhh": "shhh.ogg",
     "sigh": "sigh.wav",
-    "sniffle": "sniffle.wav"
+    "sniff_sob": "sniff_sob.wav",
+    "wistle": "wistle.ogg",
+    "yawn": "yawn.wav"
 }

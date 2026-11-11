@@ -16,8 +16,10 @@ def test_clean_keeps_words_in_speak_mode():
 
 
 def test_clean_strips_by_default():
-    assert "haaa" not in clean_emotion_text("haaa, really?")
+    assert clean_emotion_text("cough, really?") == "really?"
     assert clean_emotion_text("*laughs* Oh no.") == "Oh no."
+    # "haaa" has no clip, so it reaches Qwen as text.
+    assert clean_emotion_text("haaa, really?") == "haaa, really?"
 
 
 def test_extract_returns_no_sounds_in_speak_mode():
@@ -40,5 +42,5 @@ def test_speak_mode_drops_stage_directions():
 
 def test_extract_default_still_finds_sounds():
     es = EmotionSounds(player=None)
-    _, emo = es.extract("*Laughs* Oh no.")
-    assert [tag for _, tag in emo] == ["laugh"]
+    _, emo = es.extract("*sighs* Oh no.")
+    assert [tag for _, tag in emo] == ["sigh"]

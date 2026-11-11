@@ -14,9 +14,12 @@ Rule of thumb from notes:
 - Catches leftover ``*word*`` blocks via fallback ``\\*[^*]+\\*``.
 
 Patterns are loaded from ``data/emotion_patterns.json`` when present
-(so the GUI can edit them later); otherwise a compact builtin set
-derived from VN_Suite.py is used. Patterns whose ``tag`` is ``None``
-or not ``None`` are both stripped — NovaTTS does not play emotion sounds.
+(so the GUI can edit them later); otherwise a compact builtin set of the
+shipped clips is used. A pattern is only allowed to remove a word when its
+tag resolves to a real file in the sounds folder. Words without a clip
+(``mmm``, ``hnnng``, bare ``knock``) pass through to the TTS model as text;
+only ``tag: null`` rules (stage directions) and ``speak: true``
+vocalizations are allowed to match without a clip.
 """
 
 from __future__ import annotations
@@ -25,34 +28,30 @@ import json
 import re
 from pathlib import Path
 
+# Fallback patterns only: every entry is backed by one of the clips that
+# ships in data/emotion_sounds. Anything without a clip is deliberately not
+# filtered -- those words must reach the TTS model as text. The JSON file is
+# the source of truth; this list keeps a fresh install working if it is gone.
 _BUILTIN = [
-    r"\b(ha){3,}\b",
-    r"\bhaha\b",
-    r"\b(he){3,}\b",
-    r"\bhehe\b",
-    r"\bhe-he\b",
-    r"\ba+h+\b",
-    r"\baah+\b",
-    r"\bahh+\b",
-    r"\bahem\b",
-    r"\bmmm+\b",
-    r"\bhmm\b",
-    r"\bha\b",
-    r"\bsh+\b",
-    r"\bhmpf\b",
-    r"\bphew\b",
-    r"\bargh\b",
-    r"\bsigh(?:ing|ed)?s?\b",
-    r"\bgroan(?:ing|s)?\b",
-    r"\byawn(?:ing|s)?\b",
-    r"\bsniff(?:le|s)?\b",
-    r"\bsobs\b",
-    r"\b([a-zA-Z])\1{2,}\b",
-    r"\b[mnhaeou]+[mngh][mnhaeou]{2,}\b",
-    r"\b([mngh]){3,}([aouh]{1}[mngh]*)+\b",
-    r"\b[mn]{3,}[aouh][mngh]+\b",
-    r"\b([mnh])\1{2,}[ao]+[mgh]+\b",
+    r"\*kiss(?:es|ed|ing)?\*",
+    r"\*?\bsigh(?:s|ed|ing)?\b\*?",
+    r"\*?\bgasp(?:s|ed|ing)?\b\*?",
+    r"\*?\byawn(?:s|ed|ing)?\b\*?",
+    r"\*?\bcough(?:s|ed|ing)?\b\*?",
+    r"\*?\bpant(?:ing|ed)\b\*?",
+    r"\*\bpants?\*",
+    r"\*knock(?:s|ed|ing)?\*",
+    r"\*?\bsniff(?:s|ed|ing)?\b\*?",
+    r"\*?\bsniffl(?:e|es|ing|ings)\b\*?",
+    r"\*?\bsob(?:s|bed|bing)?\b\*?",
+    r"\*?\bhic(?:s|cup(?:s|ped|ping|ed|ing)?)?\b\*?",
+    r"\*?\bdoorbells?\b\*?",
+    r"\*?\bgulp(?:s|ed|ing)?\b\*?",
+    r"\*?\bsh{1,}\b\*?",
+    r"\*?\bwhistl(?:e|es|ed|ing)\b\*?",
 ]
+
+_AUDIO_SUFFIXES = (".wav", ".ogg", ".opus", ".mp3")
 
 _ASTERISK_TOKEN_RE = re.compile(r"\*([^*]{1,80})\*")
 _ASTERISK_PAD_RE = re.compile(r"\*([^*]+?)\s*\*")
@@ -71,6 +70,53 @@ _SPEAKABLE_RE = re.compile(r"[^\W_]", re.UNICODE)
 _LEADING_PUNCT_RE = re.compile(r"^[\s\W_]+", re.UNICODE)
 
 _compiled: list[re.Pattern[str]] | None = None
+
+
+def _clip_tags() -> set[str]:
+    """Lowercase stems of the playable files in the configured sounds folder."""
+    from .config import settings
+
+    folder = Path(settings.emotion_sounds_dir)
+    if not folder.is_dir():
+        return set()
+    tags: set[str] = set()
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return set()
+    for p in entries:
+        if not p.is_file() or p.suffix.lower() not in _AUDIO_SUFFIXES:
+            continue
+        try:
+            if p.stat().st_size > 0:
+                tags.add(p.stem.lower())
+        except OSError:
+            continue
+    return tags
+
+
+def _tag_has_clip(tag: str | None) -> bool:
+    """True when `tag` resolves to a real clip, or when it is a tag-less rule.
+
+    A pattern whose tag has no clip must not remove the word: the word has to
+    reach Qwen instead of being dropped silently. ``None`` means the rule is a
+    cleanup rule (``*stage direction*``) or a speak-through vocalization, so it
+    is allowed to run.
+    """
+    if tag is None:
+        return True
+    stems = _clip_tags()
+    if not stems:
+        return False
+    from .emotions import _slug, resolve_tag
+
+    sound_map = {stem: stem for stem in stems}
+    slug_index: dict[str, str] = {}
+    for stem in stems:
+        slug = _slug(stem)
+        if slug and slug not in slug_index:
+            slug_index[slug] = stem
+    return resolve_tag(tag, sound_map, slug_index) in sound_map
 
 
 def has_speakable_text(text: str) -> bool:
@@ -238,7 +284,9 @@ def _load_patterns() -> list[re.Pattern[str]]:
     if _compiled is not None:
         return _compiled
     raw: list[str] = list(_BUILTIN)
-    cand = Path(__file__).resolve().parent.parent.parent / "data" / "emotion_patterns.json"
+    from .config import settings
+
+    cand = Path(settings.emotion_patterns_file)
     if cand.exists():
         try:
             data = json.loads(cand.read_text(encoding="utf-8"))
@@ -246,6 +294,10 @@ def _load_patterns() -> list[re.Pattern[str]]:
                 extra: list[str] = []
                 for item in data:
                     if not isinstance(item, dict):
+                        continue
+                    tag_obj = item.get("tag")
+                    tag = str(tag_obj) if isinstance(tag_obj, str) else None
+                    if not _tag_has_clip(tag):
                         continue
                     pat = item.get("pattern")
                     if isinstance(pat, str) and pat and pat != r"\*[^*]+\*":
@@ -278,7 +330,9 @@ def _load_speak_patterns() -> list[re.Pattern[str]]:
     if _speak_compiled is not None:
         return _speak_compiled
     out: list[re.Pattern[str]] = []
-    cand = Path(__file__).resolve().parent.parent.parent / "data" / "emotion_patterns.json"
+    from .config import settings
+
+    cand = Path(settings.emotion_patterns_file)
     if cand.exists():
         try:
             data = json.loads(cand.read_text(encoding="utf-8"))
@@ -319,7 +373,11 @@ def _alias_patterns(aliases: dict[str, str] | None) -> list[re.Pattern[str]]:
     if not aliases:
         return []
     out: list[re.Pattern[str]] = []
-    for expr in aliases:
+    for expr, target in aliases.items():
+        # A phrase mapped to a tag without a clip must not be stripped: the
+        # word has no sound to replace it, so it has to reach Qwen as text.
+        if not _tag_has_clip(target):
+            continue
         esc = re.escape(expr.strip("*"))
         if not esc:
             continue
@@ -376,5 +434,6 @@ def clean_emotion_text(
 
 
 def reload_patterns() -> None:
-    global _compiled
+    global _compiled, _speak_compiled
     _compiled = None
+    _speak_compiled = None
