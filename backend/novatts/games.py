@@ -12,6 +12,10 @@ log = logging.getLogger(__name__)
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
+# Per-game auto-forward state (currently the target window title), stored in
+# the same folder as the game's speakers.json so it is deleted with the game.
+AUTO_FORWARD_FILE = "autoforward.json"
+
 def _sanitize(name: str) -> str:
     name = name.strip()
     if not name:
@@ -116,6 +120,18 @@ class GameManager:
                 pass
         if not target.exists():
             self._write_default_speakers(target)
+
+        # The window title captured for this game travels with it too, so a
+        # fresh install/relink keeps the auto-forward target.
+        legacy_af = self.games_dir / name / AUTO_FORWARD_FILE
+        target_af = target.parent / AUTO_FORWARD_FILE
+        if not target_af.exists() and legacy_af.exists():
+            try:
+                target_af.parent.mkdir(parents=True, exist_ok=True)
+                legacy_af.replace(target_af)
+            except OSError:
+                pass
+
         return {
             "game": name,
             "folder": str(root),
@@ -176,6 +192,50 @@ class GameManager:
 
             return speakers_path_for(linked)
         return self.games_dir / g / "speakers.json"
+
+    # -- per-game auto-forward state ---------------------------------
+
+    def autoforward_path(self, game: str | None = None) -> Path | None:
+        """Where a game keeps its auto-forward state (window title).
+
+        Sits beside that game's ``speakers.json``: in the game folder's
+        ``novatts/`` directory when linked, otherwise in our data dir. None
+        when no game is active; the global ``.env`` target applies then.
+        """
+        g = _sanitize(game) if game is not None else self._active
+        if not g:
+            return None
+        return self.speakers_path(g).parent / AUTO_FORWARD_FILE
+
+    def auto_forward_window(self, game: str | None = None) -> str | None:
+        """Saved target window for a game, or None when there is none."""
+        path = self.autoforward_path(game)
+        if path is None or not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        window = str(data.get("window", "")).strip()
+        return window or None
+
+    def set_auto_forward_window(self, window: str, game: str | None = None) -> Path | None:
+        """Persist a game's target window. Returns None when no game is active."""
+        path = self.autoforward_path(game)
+        if path is None:
+            return None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"window": window.strip().lower()}, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError:
+            log.exception("Could not save auto-forward window to %s", path)
+            return None
+        return path
 
     def ensure_game(self, name: str) -> str:
         s = _sanitize(name)

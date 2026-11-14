@@ -88,6 +88,29 @@ def test_digits_preset_drops_a_digits_only_line(bl):
     assert bl.is_blacklisted("12:45")
 
 
+def test_date_preset_is_not_destroyed_by_the_digits_preset(bl):
+    # Both presets match "DAY 1". Removing the digit first used to leave a
+    # "DAY" that then parsed as a speaker; the union of both matches wins.
+    bl.set(custom_words=[], enabled_presets=["Digits (0-9)", "Date Formats"])
+    assert bl.filter_text("DAY 1: Gallery", preserve_prefix=False) == "Gallery"
+
+
+def test_days_preset_removes_a_day_counter(bl):
+    bl.set(custom_words=[], enabled_presets=["Digits (0-9)", "Days of Week"])
+    assert bl.filter_text("DAY 1: Gallery", preserve_prefix=False) == "Gallery"
+
+
+def test_filtered_hud_prefix_leaves_the_real_speaker(bl):
+    bl.set(custom_words=[], enabled_presets=["Digits (0-9)", "Days of Week", "Time of Day"])
+    raw = "0: 45: DAY 1: Tuesday 14 - Morning: 0: CAS: Look for strange behaviors."
+    assert bl.filter_text(raw, preserve_prefix=False) == "CAS: Look for strange behaviors."
+
+
+def test_common_ui_drops_a_return_button(bl):
+    bl.set(custom_words=[], enabled_presets=["Common UI"])
+    assert bl.filter_text("Return", preserve_prefix=False) == ""
+
+
 # -- spoken-body mode (unchanged behaviour) ----------------------------------
 
 

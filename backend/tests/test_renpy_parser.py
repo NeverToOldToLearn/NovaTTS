@@ -172,11 +172,22 @@ def test_registered_speaker_wins_over_skipped_prefix():
 
 
 def test_junk_prefix_skip_is_bounded():
-    d = parser.parse("1: 2: 3: 4: Rick: Deep.")
+    d = parser.parse("1: 2: 3: 4: 5: 6: 7: 8: 9: Rick: Deep.")
     # Stops after a few skips and keeps the line as narration rather than
     # recursing forever through an arbitrary colon chain.
     assert d.speaker is None
-    assert d.text == "1: 2: 3: 4: Rick: Deep."
+    assert d.text == "1: 2: 3: 4: 5: 6: 7: 8: 9: Rick: Deep."
+
+
+def test_long_hud_prefix_still_finds_the_speaker():
+    # Real capture from a VN that keeps day/time HUD on the clipboard.
+    raw = (
+        "0: 45: DAY 1: Tuesday 14 - Morning: 0: CAS: "
+        "Look for strange behaviors. Listen to gossip."
+    )
+    d = parser.parse(raw)
+    assert d.speaker == "CAS"
+    assert d.text == "Look for strange behaviors. Listen to gossip."
 
 
 # -- has_known_speaker_prefix -----------------------------------------------

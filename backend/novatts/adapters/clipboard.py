@@ -7,6 +7,12 @@ Gate order matters: the blacklist runs on the RAW clipboard string, before
 the parser picks a speaker. A game that keeps its HUD visible pushes lines
 like ``250 $: Rick: Hi``; filtering the raw line removes the HUD value and
 leaves the real speaker, instead of handing the leftover to the narrator.
+
+The exception is a raw line the parser can already resolve by itself: its
+junk prefix is skipped segment by segment, so rewriting the text first is
+both redundant and risky (deleting a digit from ``DAY 1:`` manufactures a
+``DAY`` speaker). Those captures go to the parser untouched and the body
+pass in ``main.on_dialogue`` still strips blacklisted words from the line.
 """
 
 from __future__ import annotations
@@ -127,6 +133,17 @@ class ClipboardAdapter(InputAdapter):
         """Blacklist a raw capture, returning the text to parse ("" = drop)."""
         if self.blacklist is None:
             return raw
+        # A line the parser can already resolve needs no raw rewrite: the
+        # junk prefix is skipped segment by segment, so the spoken body is
+        # already clean and the body pass (main.on_dialogue) still filters
+        # blacklisted words out of it. Rewriting first is not just redundant
+        # but harmful: deleting a digit turns ``DAY 1:`` into ``DAY :``, which
+        # suddenly passes as a speaker and swallows the real line.
+        try:
+            if self.parser.parse(raw, source=self.name).speaker is not None:
+                return raw
+        except Exception:
+            log.exception("Blacklist pre-parse failed (swallowed)")
         try:
             preserve = self.parser.has_known_speaker_prefix(raw)
             filtered = self.blacklist.filter_text(raw, preserve_prefix=preserve)

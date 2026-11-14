@@ -108,6 +108,7 @@ export interface SettingsData {
   auto_forward_target: string;
   auto_forward_delay: number;
   auto_forward_hotkey: string;
+  auto_forward_capture_hotkey: string;
 }
 
 export interface SettingsResponse {

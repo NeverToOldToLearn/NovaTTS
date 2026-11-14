@@ -105,6 +105,7 @@ class SettingsBody(BaseModel):
     auto_forward_target: str | None = None
     auto_forward_delay: float | None = None
     auto_forward_hotkey: str | None = None
+    auto_forward_capture_hotkey: str | None = None
 
 
 class OpenAISpeechBody(BaseModel):
@@ -161,8 +162,10 @@ class NovaApp:
         self.blacklist = Blacklist()
         self.auto_forward = AutoForward(
             hotkey=settings.auto_forward_hotkey,
+            capture_hotkey=settings.auto_forward_capture_hotkey,
             delay=settings.auto_forward_delay,
             target=settings.auto_forward_target,
+            on_capture=self._on_auto_forward_capture,
         )
         # With the cache off, every line is a throwaway file that outlives its
         # own playback by exactly nothing: drop it here, once the player is
@@ -191,6 +194,7 @@ class NovaApp:
         except Exception as exc:
             log.warning("Qwen autostart failed (non-fatal): %s", exc)
         self.player.start()
+        self.auto_forward.target = self.effective_auto_forward_target()
         self.auto_forward.start()
         self.auto_forward.set_enabled(settings.auto_forward_enabled)
 
@@ -231,6 +235,36 @@ class NovaApp:
             if self.clipboard:
                 self.clipboard.raw_log.clear()
         self.registry.maybe_autosave()
+
+    def _on_auto_forward_capture(self, _title: str) -> None:
+        """Persist a target captured with the global capture hotkey."""
+        self.store_auto_forward_target()
+
+    def effective_auto_forward_target(self) -> str:
+        """Target for the active game, falling back to the global setting.
+
+        A game's captured window wins over ``auto_forward_target`` from
+        ``.env`` so switching games restores the right window, while the
+        global value still serves as the default for games without one.
+        """
+        if self.games.active():
+            saved = self.games.auto_forward_window()
+            if saved:
+                return saved.strip().lower()
+        return (settings.auto_forward_target or "").strip().lower()
+
+    def store_auto_forward_target(self) -> None:
+        """Persist the current target: with the active game, else globally.
+
+        Linked games keep it beside their speakers.json inside the game
+        folder, so the capture survives restarts and game switches.
+        """
+        if self.games.active():
+            path = self.games.set_auto_forward_window(self.auto_forward.target)
+            if path is not None:
+                log.info("auto-forward: target saved with game %r (%s)", self.games.active(), path)
+                return
+        _persist_settings({"auto_forward_target": self.auto_forward.target})
 
     def _on_playback_finished(self, path: Path) -> None:
         """Player callback: release the clip and detect "line finished".
@@ -316,6 +350,10 @@ class NovaApp:
             try:
                 paths = self._synth_emotion_aware(dialogue)
                 if not paths:
+                    # Nothing playable (a stage direction stripped to empty,
+                    # every clip missing, synthesis down): there is no
+                    # playback to finish, so advance after the silent pause.
+                    self._notify_silent_line(seq)
                     continue
             except Exception as exc:
                 log.error("Synthesis failed: %s", exc)
@@ -340,6 +378,21 @@ class NovaApp:
         with self._pending_lock:
             return seq != self._pending_seq
 
+    def _notify_silent_line(self, seq: int) -> None:
+        """Advance the game for a line that produced no audio at all.
+
+        Auto-forward is driven by playback finishing: the last file of a line
+        (or a drained stream) is what tells Ren'Py to take the next line. A
+        line that strips to nothing -- a stage direction in asterisks
+        ("*laughs*", "*she looks away*"), a bare "..." -- plays nothing, so
+        no callback ever runs and the game sits waiting for a click. Treat
+        such a line as finished once it is accepted, after the silent-line
+        delay so the pause the line was written for still happens.
+        """
+        if self._is_stale(seq):
+            return
+        self.auto_forward.notify_silent()
+
     def _play_streaming(self, dialogue: Dialogue, seq: int) -> None:
         """Play a clipboard line straight from the pcm stream (no WAV file).
 
@@ -353,6 +406,9 @@ class NovaApp:
         cleaned, emotions = self.emotions.extract(dialogue.text)
         plan = self.emotions.plan(cleaned, emotions)
         if not plan:
+            # A line that strips to nothing ("*laughs*", "...") never reaches
+            # the stream, so nothing fires the auto-forward callback. Advance.
+            self._notify_silent_line(seq)
             return
         session = self.player.begin_stream(
             prebuffer_sec=settings.stream_prebuffer_sec,
@@ -410,7 +466,9 @@ class NovaApp:
                 return
             if not fed_any:
                 # Nothing playable (same as the file path's empty plan).
+                # No audio means no stream-drain callback, so advance here.
                 self.player.abort_stream(session)
+                self._notify_silent_line(seq)
                 return
             self.player.finish_stream(session)
             self.auto_forward.notify_after_stream(session)
@@ -509,6 +567,9 @@ class NovaApp:
         self.voices.registry = self.registry
         if self.clipboard:
             self.clipboard.set_known_speakers(self.registry.names())
+        # Every game can remember its own game window; without a saved one the
+        # global target stays in effect.
+        self.auto_forward.target = self.effective_auto_forward_target()
         self._emit(Event("game_switched", {"game": safe, "speakers": len(self.registry.names())}))
         return {"game": safe, "speakers": self.registry.to_dict(), "path": str(new_path)}
 
@@ -1263,6 +1324,7 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "auto_forward_target": "NOVATTS_AUTO_FORWARD_TARGET",
     "auto_forward_delay": "NOVATTS_AUTO_FORWARD_DELAY",
     "auto_forward_hotkey": "NOVATTS_AUTO_FORWARD_HOTKEY",
+    "auto_forward_capture_hotkey": "NOVATTS_AUTO_FORWARD_CAPTURE_HOTKEY",
 }
 
 
@@ -1305,6 +1367,7 @@ def _settings_snapshot() -> dict[str, Any]:
         "auto_forward_target": settings.auto_forward_target,
         "auto_forward_delay": settings.auto_forward_delay,
         "auto_forward_hotkey": settings.auto_forward_hotkey,
+        "auto_forward_capture_hotkey": settings.auto_forward_capture_hotkey,
     }
 
 
@@ -1382,9 +1445,10 @@ def _apply_auto_forward_settings() -> None:
     if _runtime is None:
         return
     af = _runtime.auto_forward
-    af.target = (settings.auto_forward_target or "").strip().lower()
+    af.target = _runtime.effective_auto_forward_target()
     af.delay = max(0.1, float(settings.auto_forward_delay))
     af.set_hotkey(settings.auto_forward_hotkey)
+    af.set_capture_hotkey(settings.auto_forward_capture_hotkey)
     af.set_enabled(bool(settings.auto_forward_enabled))
 
 
@@ -1439,16 +1503,25 @@ class AutoForwardBody(BaseModel):
     target: str | None = None
     delay: float | None = Field(default=None, ge=0.1, le=30.0)
     hotkey: str | None = None
+    capture_hotkey: str | None = None
 
 
 def _auto_forward_status() -> dict[str, Any]:
     """Status payload shared by every auto-forward endpoint.
 
     ``hotkey_options`` is kept for older GUI builds that rendered a hotkey
-    picker from this response.
+    picker from this response. Both binding pickers (toggle and capture) use
+    the same list of supported keys.
     """
-    data = get_runtime().auto_forward.status()
+    rt = get_runtime()
+    data = rt.auto_forward.status()
     data["hotkey_options"] = list(HOTKEY_OPTIONS)
+    data["capture_hotkey_options"] = list(HOTKEY_OPTIONS)
+    # Where the shown target is persisted: with the active game or globally.
+    data["target_game"] = rt.games.active()
+    data["target_saved_for_game"] = bool(
+        rt.games.active() and rt.games.auto_forward_window() is not None
+    )
     return data
 
 
@@ -1466,9 +1539,10 @@ async def set_auto_forward(body: AutoForwardBody) -> dict[str, Any]:
     rt = get_runtime()
     af = rt.auto_forward
     updates: dict[str, Any] = {}
+    target_changed = False
     if body.target is not None:
         af.target = body.target.strip().lower()
-        updates["auto_forward_target"] = af.target
+        target_changed = True
     if body.delay is not None:
         af.delay = max(0.1, float(body.delay))
         updates["auto_forward_delay"] = af.delay
@@ -1479,8 +1553,14 @@ async def set_auto_forward(body: AutoForwardBody) -> dict[str, Any]:
         hotkey = body.hotkey.upper().strip()
         if af.set_hotkey(hotkey):
             updates["auto_forward_hotkey"] = hotkey
+    if body.capture_hotkey is not None:
+        hotkey = body.capture_hotkey.upper().strip()
+        if af.set_capture_hotkey(hotkey):
+            updates["auto_forward_capture_hotkey"] = hotkey
     if updates:
         _persist_settings(updates)
+    if target_changed:
+        rt.store_auto_forward_target()
     return _auto_forward_status()
 
 
@@ -1497,7 +1577,7 @@ async def capture_auto_forward_target() -> dict[str, Any]:
     rt = get_runtime()
     title = rt.auto_forward.capture_foreground()
     if title:
-        _persist_settings({"auto_forward_target": rt.auto_forward.target})
+        rt.store_auto_forward_target()
     return {"title": title, **_auto_forward_status()}
 
 

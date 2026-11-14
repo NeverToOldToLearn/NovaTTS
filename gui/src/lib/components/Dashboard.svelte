@@ -51,13 +51,16 @@
   let af: AutoForwardStatus | null = $state(null);
   let afBusy = $state(false);
   let afMsg = $state("");
-  let afForm = $state({ enabled: false, target: "", delay: 0.3, hotkey: "INSERT" });
+  let afForm = $state({ enabled: false, target: "", delay: 0.3, hotkey: "INSERT", capture_hotkey: "F11" });
   // Last values the backend reported; used to avoid overwriting a field while
   // the user is typing (hotkeys can change the state outside the GUI).
-  const afSeen = { enabled: false, target: "", delay: 0.3, hotkey: "INSERT" };
+  const afSeen = { enabled: false, target: "", delay: 0.3, hotkey: "INSERT", capture_hotkey: "F11" };
 
   const hotkeyOptions = () =>
     af?.hotkey_options?.length ? af.hotkey_options : FALLBACK_HOTKEYS;
+
+  const captureHotkeyOptions = () =>
+    af?.capture_hotkey_options?.length ? af.capture_hotkey_options : hotkeyOptions();
 
   const syncAutoForward = (s: AutoForwardStatus) => {
     af = s;
@@ -65,6 +68,7 @@
     if (s.enabled !== afSeen.enabled) { afForm.enabled = s.enabled; afSeen.enabled = s.enabled; }
     if (s.delay !== afSeen.delay) { afForm.delay = s.delay; afSeen.delay = s.delay; }
     if (s.hotkey !== afSeen.hotkey) { afForm.hotkey = s.hotkey; afSeen.hotkey = s.hotkey; }
+    if (s.capture_hotkey !== afSeen.capture_hotkey) { afForm.capture_hotkey = s.capture_hotkey; afSeen.capture_hotkey = s.capture_hotkey; }
   };
 
   const saveAutoForward = async () => {
@@ -75,6 +79,7 @@
         target: afForm.target.trim(),
         delay: Number(afForm.delay) || 0.3,
         hotkey: afForm.hotkey,
+        capture_hotkey: afForm.capture_hotkey,
       });
       syncAutoForward(s);
       afMsg = s.enabled ? "Auto-forward enabled." : "Auto-forward saved (off).";
@@ -89,9 +94,25 @@
     try {
       const s = await api.setAutoForward({ hotkey: afForm.hotkey });
       syncAutoForward(s);
-      afMsg = `Toggle hotkey set to ${s.hotkey}.`;
+      afMsg = s.capture_hotkey_conflict
+        ? `Toggle hotkey set to ${s.hotkey}; pick a different capture key.`
+        : `Toggle hotkey set to ${s.hotkey}.`;
     } catch (e) {
       afMsg = `Hotkey failed: ${(e as Error).message}`;
+    }
+    afBusy = false;
+  };
+
+  const saveCaptureHotkey = async () => {
+    afBusy = true; afMsg = "";
+    try {
+      const s = await api.setAutoForward({ capture_hotkey: afForm.capture_hotkey });
+      syncAutoForward(s);
+      afMsg = s.capture_hotkey_conflict
+        ? `Capture hotkey ${s.capture_hotkey} is already used to toggle — pick another key.`
+        : `Capture hotkey set to ${s.capture_hotkey}.`;
+    } catch (e) {
+      afMsg = `Capture hotkey failed: ${(e as Error).message}`;
     }
     afBusy = false;
   };
@@ -248,7 +269,7 @@
           {#if af && !af.available}<p class="err">{af.reason || "Auto-forward is not available on this platform."}</p>{/if}
           <div class="af-row">
             <input class="field grow" bind:value={afForm.target} placeholder="Game window title (case-insensitive)" />
-            <button class="ghost" title="Capture the foreground window after 5 seconds" onclick={captureAutoForwardTarget} disabled={afBusy || !af?.can_capture}>{afBusy ? "…" : "Capture"}</button>
+            <button class="ghost" title="Capture the foreground window after 5 seconds — saved with the active game" onclick={captureAutoForwardTarget} disabled={afBusy || !af?.can_capture}>{afBusy ? "…" : "Capture"}</button>
             <label class="af-inline">
               <span class="k">Delay</span>
               <input class="field xs" type="number" bind:value={afForm.delay} min="0.1" max="30" step="0.1" />
@@ -259,7 +280,21 @@
                 {#each hotkeyOptions() as h}<option value={h}>{h}</option>{/each}
               </select>
             </label>
+            <label class="af-inline" title="Global hotkey: retarget auto-forward at the window in front">
+              <span class="k">Capture key</span>
+              <select class="field sm" bind:value={afForm.capture_hotkey} onchange={saveCaptureHotkey} disabled={afBusy}>
+                {#each captureHotkeyOptions() as h}<option value={h}>{h}</option>{/each}
+              </select>
+            </label>
+            {#if af?.capture_hotkey_conflict}<span class="hint">Capture key equals the toggle key — capture is off.</span>{/if}
           </div>
+          {#if af?.target_game}
+            <span class="hint">
+              {af.target_saved_for_game
+                ? `Window for ${af.target_game} is saved beside its speakers.`
+                : `New captures are saved with ${af.target_game}.`}
+            </span>
+          {/if}
           <div class="row">
             <label class="toggle" title="Send Space to the game window after each clipboard line finishes">
               <input type="checkbox" bind:checked={afForm.enabled} onchange={saveAutoForward} disabled={afBusy || !af?.available} />

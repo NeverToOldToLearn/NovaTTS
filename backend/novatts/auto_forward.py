@@ -7,9 +7,10 @@ has auto-forward disabled: the voice becomes the metronome.
 Platform notes:
 
 Windows
-  The hotkey is registered globally (Win32 RegisterHotKey); the spacebar
-  is posted to the game window's HWND via PostMessage, so it never reaches
-  other applications and never fires on clipboard copies.
+  Two hotkeys are registered globally (Win32 RegisterHotKey): one toggles
+  auto-forward, the other captures the focused window as the target. The
+  spacebar is posted to the game window's HWND via PostMessage, so it never
+  reaches other applications and never fires on clipboard copies.
 
 Linux (X11)
   ``xdotool`` is used for both window search and keystroke injection. Works
@@ -34,6 +35,11 @@ from collections.abc import Callable
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+# A line that speaks nothing ("...", "*laughs*") still carries a pause in the
+# script. Give it a beat before advancing, so the game does not skip straight
+# past the moment the line was written for.
+SILENT_LINE_DELAY = 2.5
 
 WM_HOTKEY = 0x0312
 WM_KEYDOWN = 0x0100
@@ -82,19 +88,33 @@ class AutoForward:
         self,
         *,
         hotkey: str = "F12",
+        capture_hotkey: str = "F11",
         delay: float = 1.0,
+        silent_delay: float = SILENT_LINE_DELAY,
         target: str = "",
         on_toggle: Callable[[bool], None] | None = None,
+        on_capture: Callable[[str], None] | None = None,
     ) -> None:
         self.enabled = False
         self.delay = max(0.1, float(delay))
+        self.silent_delay = max(0.1, float(silent_delay))
         self.target = (target or "").strip().lower()
         self.on_toggle = on_toggle
-        self._hotkey_name = hotkey.upper().strip() or "F9"
+        self.on_capture = on_capture
+        self._hotkey_name = hotkey.upper().strip()
+        if self._hotkey_name not in _HOTKEY_VK:
+            self._hotkey_name = "F12"
         self._hotkey_id = 0x4E56  # "NV"
-        self._vk = _HOTKEY_VK.get(self._hotkey_name, 0x78)
+        self._vk = _HOTKEY_VK[self._hotkey_name]
+        self._capture_hotkey_name = capture_hotkey.upper().strip()
+        if self._capture_hotkey_name not in _HOTKEY_VK:
+            self._capture_hotkey_name = "F11"
+        self._capture_hotkey_id = 0x4E57  # "NW"
+        self._capture_vk = _HOTKEY_VK[self._capture_hotkey_name]
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
+        self._hotkey_lock = threading.Lock()
+        self._hotkey_ready = threading.Event()
         self._thread: threading.Thread | None = None
         self._running = False
 
@@ -133,8 +153,7 @@ class AutoForward:
                 self._timer = None
         # Post a quit message to break GetMessage (Windows only).
         if _IS_WINDOWS:
-            with contextlib.suppress(Exception):
-                _USER32.PostThreadMessageW(self._thread.ident if self._thread else 0, 0x0012, 0, 0)  # WM_QUIT
+            self._stop_hotkey_loop()
 
     # -- toggle ------------------------------------------------------
 
@@ -164,32 +183,82 @@ class AutoForward:
             return False
         if name == self._hotkey_name:
             return True
-        # Unregister current if registered.
-        was_running = self._running
-        if was_running:
-            self._running = False
-            with contextlib.suppress(Exception):
-                _USER32.UnregisterHotKey(None, self._hotkey_id)
         self._hotkey_name = name
         self._vk = _HOTKEY_VK[name]
-        if was_running:
-            self._running = True
-            # Re-register in a fresh thread.
-            self._thread = threading.Thread(target=self._hotkey_loop, name="auto-forward-hotkey", daemon=True)
-            self._thread.start()
+        self._restart_hotkey_loop()
         log.info("auto-forward: hotkey changed to %s", name)
         return True
+
+    def set_capture_hotkey(self, name: str) -> bool:
+        """Rebind the global hotkey that captures the focused window."""
+        name = (name or "").upper().strip()
+        if name not in _HOTKEY_VK:
+            return False
+        if name == self._capture_hotkey_name:
+            return True
+        self._capture_hotkey_name = name
+        self._capture_vk = _HOTKEY_VK[name]
+        self._restart_hotkey_loop()
+        log.info("auto-forward: capture hotkey changed to %s", name)
+        return True
+
+    def _restart_hotkey_loop(self) -> None:
+        """Rebind the global hotkeys on a fresh thread.
+
+        RegisterHotKey binds a hotkey to the thread that registered it, so a
+        changed binding needs the old loop gone before the new one registers;
+        otherwise the second RegisterHotKey call fails with "already
+        registered".
+        """
+        if not (_IS_WINDOWS and self._running):
+            return
+        with self._hotkey_lock:
+            self._stop_hotkey_loop_locked()
+            if not self._running:
+                return
+            self._thread = threading.Thread(
+                target=self._hotkey_loop, name="auto-forward-hotkey", daemon=True
+            )
+            self._thread.start()
+
+    def _stop_hotkey_loop(self) -> None:
+        with self._hotkey_lock:
+            self._stop_hotkey_loop_locked()
+
+    def _stop_hotkey_loop_locked(self) -> None:
+        thread = self._thread
+        self._thread = None
+        if thread is not None and thread.is_alive():
+            # PostThreadMessage is lost when the loop has not created its
+            # message queue yet, so wait until the registrations are done.
+            self._hotkey_ready.wait(timeout=1.0)
+            with contextlib.suppress(Exception):
+                _USER32.PostThreadMessageW(thread.ident or 0, 0x0012, 0, 0)  # WM_QUIT
+            thread.join(timeout=1.0)
+        self._hotkey_ready.clear()
 
     # -- spoken notification ----------------------------------------
 
     def notify_spoken(self) -> None:
         """Called when a TTS line finished playing naturally."""
+        self._schedule(self.delay)
+
+    def notify_silent(self) -> None:
+        """Advance for a line that produced no audio at all.
+
+        Nothing was spoken, so the line's written pause ("...", "*sighs*")
+        is the only cue the player gets. Wait the silent-line delay -- never
+        less than the normal one -- before sending the keystroke.
+        """
+        self._schedule(max(self.delay, self.silent_delay))
+
+    def _schedule(self, wait: float) -> None:
         if not self.enabled:
             return
         with self._lock:
             if self._timer is not None:
                 self._timer.cancel()
-            timer = threading.Timer(self.delay, self._advance)
+            timer = threading.Timer(wait, self._advance)
             timer.daemon = True
             self._timer = timer
             timer.start()
@@ -243,6 +312,19 @@ class AutoForward:
             except Exception:
                 log.exception("auto-forward: xdotool capture failed")
         return ""
+
+    def _handle_capture_hotkey(self) -> None:
+        """Global hotkey handler: retarget auto-forward at the focused window."""
+        title = self.capture_foreground()
+        if not title:
+            log.info("auto-forward: capture hotkey found no foreground window")
+            return
+        log.info("auto-forward: capture hotkey set target %r", title)
+        if self.on_capture is not None:
+            try:
+                self.on_capture(title)
+            except Exception:
+                log.exception("on_capture callback failed")
 
     def _advance(self) -> None:
         if not self.enabled:
@@ -377,6 +459,8 @@ class AutoForward:
             "target": self.target,
             "delay": self.delay,
             "hotkey": self._hotkey_name,
+            "capture_hotkey": self._capture_hotkey_name,
+            "capture_hotkey_conflict": self._capture_hotkey_name == self._hotkey_name,
             "platform": "windows" if _IS_WINDOWS else "linux" if _IS_LINUX else sys.platform,
             "wayland": _IS_WAYLAND,
             "xdotool": _HAS_XDOTOOL,
@@ -565,18 +649,38 @@ class AutoForward:
     def _hotkey_loop(self) -> None:
         if not _IS_WINDOWS:
             return
-        if not _USER32.RegisterHotKey(None, self._hotkey_id, 0, self._vk):
-            log.warning("auto-forward: RegisterHotKey failed for %s", self._hotkey_name)
-            return
-        log.info("auto-forward: hotkey %s registered", self._hotkey_name)
+        bindings = [(self._hotkey_id, self._vk, self._hotkey_name, "toggle")]
+        if self._capture_hotkey_name != self._hotkey_name:
+            bindings.append(
+                (self._capture_hotkey_id, self._capture_vk, self._capture_hotkey_name, "capture")
+            )
+        else:
+            log.warning(
+                "auto-forward: capture hotkey %s matches the toggle hotkey; capture hotkey disabled",
+                self._capture_hotkey_name,
+            )
+        registered: list[int] = []
+        for hotkey_id, vk, name, role in bindings:
+            if _USER32.RegisterHotKey(None, hotkey_id, 0, vk):
+                registered.append(hotkey_id)
+                log.info("auto-forward: %s hotkey %s registered", role, name)
+            else:
+                log.warning("auto-forward: RegisterHotKey failed for %s hotkey %s", role, name)
+        self._hotkey_ready.set()
         msg = wt.MSG()
         while self._running:
             ret = _USER32.GetMessageW(ctypes.byref(msg), None, 0, 0)
             if ret == 0 or ret == -1:
                 break
-            if msg.message == WM_HOTKEY and msg.wParam == self._hotkey_id:
-                self.toggle()
+            if msg.message == WM_HOTKEY:
+                if msg.wParam == self._hotkey_id:
+                    self.toggle()
+                elif msg.wParam == self._capture_hotkey_id:
+                    self._handle_capture_hotkey()
             _USER32.TranslateMessage(ctypes.byref(msg))
             _USER32.DispatchMessageW(ctypes.byref(msg))
-        _USER32.UnregisterHotKey(None, self._hotkey_id)
-        log.info("auto-forward: hotkey unregistered")
+        self._hotkey_ready.clear()
+        for hotkey_id in registered:
+            with contextlib.suppress(Exception):
+                _USER32.UnregisterHotKey(None, hotkey_id)
+        log.info("auto-forward: hotkeys unregistered")

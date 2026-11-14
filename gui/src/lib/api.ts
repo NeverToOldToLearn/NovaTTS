@@ -37,8 +37,18 @@ export type AutoForwardStatus = {
   target: string;
   delay: number;
   hotkey: string;
+  /** Global hotkey that captures the focused window as the target. */
+  capture_hotkey: string;
+  /** True when both hotkeys are bound to the same key (capture is inert). */
+  capture_hotkey_conflict?: boolean;
   /** Selectable toggle hotkeys reported by the backend. */
   hotkey_options?: string[];
+  /** Selectable capture hotkeys reported by the backend. */
+  capture_hotkey_options?: string[];
+  /** Active game whose folder stores the captured window, or "" for global. */
+  target_game?: string;
+  /** True when the current target was loaded from that game's own file. */
+  target_saved_for_game?: boolean;
   platform: string;
   wayland: boolean;
   xdotool: boolean;
@@ -142,7 +152,7 @@ export const api = {
     }),
 
   autoForwardStatus: () => req<AutoForwardStatus>("/auto-forward"),
-  setAutoForward: (body: { enabled?: boolean; target?: string; delay?: number; hotkey?: string }) =>
+  setAutoForward: (body: { enabled?: boolean; target?: string; delay?: number; hotkey?: string; capture_hotkey?: string }) =>
     req<AutoForwardStatus>("/auto-forward", { method: "POST", body: JSON.stringify(body) }),
   toggleAutoForward: () => req<AutoForwardStatus>("/auto-forward/toggle", { method: "POST" }),
   captureAutoForwardTarget: () =>

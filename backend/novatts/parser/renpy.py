@@ -47,7 +47,10 @@ _MAX_SPEAKER_WORDS = 2
 _NAME_DECORATION = re.compile(r"^[/\\|>#~•\-–—]+|[\-–—_]+$")
 
 # How many junk prefixes ("250 $:", "Menu:") to skip before giving up.
-_MAX_PREFIX_SKIP = 3
+# A game that keeps a HUD on its clipboard can prepend several: the capture
+# "0: 45: DAY 1: Tuesday 14 - Morning: 0: CAS: ..." needs five skips before
+# the real speaker, so the bound has to be generous while still finite.
+_MAX_PREFIX_SKIP = 8
 
 # Common English sentence-starters that must never become speakers.
 _NARRATION_STOPLIST = frozenset(

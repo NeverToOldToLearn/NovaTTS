@@ -7,13 +7,13 @@ from pathlib import Path
 from .config import settings
 
 PRESETS: dict[str, list[str]] = {
-    "Days of Week": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    "Days of Week": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", r"\bDay\s*\d+\b"],
     "Months": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
     "Time of Day": ["Morning", "Afternoon", "Evening", "Night", "Midnight", "Noon", "Dawn", "Dusk", "Sunrise", "Sunset"],
     "Hours (12h)": [f"{h} AM" for h in range(1, 13)] + [f"{h} PM" for h in range(1, 13)],
     "Hours (24h)": [f"{h:02d}:00" for h in range(24)],
     "Date Formats": [r"\bDay\s+\d+\b", r"\bChapter\s+\d+\b", r"\bLevel\s+\d+\b", r"\b(Save|Load)\s+(slot|\d+)", r"\b(Save|Load)#\d+", r"\bDay\s+#\s*\d+\b", r"\d{1,2}/\d{1,2}/\d{2,4}", r"\d{1,2}-\d{1,2}-\d{2,4}", r"\d{4}-\d{2}-\d{2}"],
-    "Common UI": ["Inventory", "Menu", "Settings", "Options", "Save", "Load", "Quit", "Exit", "Back", "Continue", "Next", "Previous", "Close", "Open", "Auto Forward", "Auto Forward selected"],
+    "Common UI": ["Inventory", "Menu", "Settings", "Options", "Save", "Load", "Quit", "Exit", "Back", "Continue", "Next", "Previous", "Close", "Open", "Return", "Auto Forward", "Auto Forward selected"],
     # Every digit, not a fixed list of numbers. Grouped with their separators
     # so "1,000", "3.14", "10:30" and "100/100" disappear as one token instead
     # of leaving the punctuation behind.
@@ -34,6 +34,30 @@ def is_renpy_exception(text: str) -> bool:
     if any(p.search(text) for p in _RENPY_STRONG):
         return True
     return sum(1 for p in _RENPY_ALL if p.search(text)) >= 2
+
+
+def _drop_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """Delete the union of all match spans from ``text``.
+
+    Patterns must be collected against the *same* string and removed
+    together. Removing them one after another lets an earlier match destroy
+    the context a later one needs -- the digits preset turns the HUD counter
+    ``DAY 1`` into ``DAY`` before the date pattern gets a chance to remove
+    the whole thing, leaving a word that then parses as a speaker.
+    """
+    if not spans:
+        return text
+    spans.sort()
+    parts: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        if end <= cursor:
+            continue
+        if start > cursor:
+            parts.append(text[cursor:start])
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 class Blacklist:
@@ -69,9 +93,10 @@ class Blacklist:
 
     def _rebuild(self) -> None:
         self._word_set = {w.lower() for w in self.custom_words}
-        # Every pass is a deletion, so the longer literal has to go first:
-        # otherwise a short entry ("Auto Forward") eats part of a longer one
-        # ("Auto Forward selected") and the remainder leaks through.
+        # Literal presets compile to regexes; custom words are matched with
+        # word boundaries in filter_text. Matches are removed as one union
+        # (see _drop_spans), so a shorter entry can no longer eat part of a
+        # longer one.
         items: list[str] = []
         for preset in self.enabled_presets:
             items.extend(PRESETS.get(preset, []))
@@ -108,24 +133,24 @@ class Blacklist:
         m = re.match(_PREFIX_PATTERN, text) if preserve_prefix else None
         prefix = m.group(0) if m else ""
         content = text[len(prefix):] if prefix else text
-        filtered = content
+        spans: list[tuple[int, int]] = []
         for word in self._word_set:
-            if " " not in word:
-                filtered = re.compile(r"(?<![A-Za-z])" + re.escape(word) + r"(?![A-Za-z])[:\s]*", re.I).sub("", filtered)
-        for word in self._word_set:
-            if " " in word:
-                filtered = re.compile(r"(?<![A-Za-z])" + re.escape(word) + r"(?![A-Za-z])[:\s]*", re.I).sub("", filtered)
+            pat = re.compile(r"(?<![A-Za-z])" + re.escape(word) + r"(?![A-Za-z])[:\s]*", re.I)
+            spans.extend(m.span() for m in pat.finditer(content))
         for pat in self._patterns:
-            filtered = pat.sub("", filtered)
+            spans.extend(m.span() for m in pat.finditer(content) if m.end() > m.start())
+        filtered = _drop_spans(content, spans)
         if prefix:
             # Speaker already resolved: a colon left dangling mid-text by a
             # blacklisted word is noise, drop it.
             filtered = re.sub(r"\s*:\s*(?=\s|$)", "", filtered)
         else:
             # No speaker protected and the line still has to be parsed: only
-            # orphaned EDGE colons go, an interior "Name:" colon is the
-            # speaker anchor the parser needs.
-            filtered = re.sub(r"^[\s:]+", "", filtered)
+            # orphaned EDGE separators go, an interior "Name:" colon is the
+            # speaker anchor the parser needs. Dashes and colons are what a
+            # filtered HUD chain ("0: 45: DAY 1: ...: CAS: ...") leaves
+            # behind, so the run in front of the real speaker has to go too.
+            filtered = re.sub(r"^[\s:;\-–—•|]+", "", filtered)
             filtered = re.sub(r"\s*:\s*$", "", filtered)
         filtered = re.sub(r"\s+", " ", filtered).strip()
         if not filtered:

@@ -215,7 +215,10 @@ class Settings(BaseSettings):
     auto_forward_enabled: bool = False
     auto_forward_target: str = ""
     auto_forward_delay: float = 1.0
+    # Global hotkey that toggles auto-forward, and a second one that captures
+    # the focused window as the target without leaving the game.
     auto_forward_hotkey: str = "F12"
+    auto_forward_capture_hotkey: str = "F11"
 
     # --- Audio ---
     audio_sample_rate: int = 22050
