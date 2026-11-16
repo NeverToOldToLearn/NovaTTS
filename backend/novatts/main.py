@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .adapters import ClipboardAdapter
+from .adapters import ClipboardAdapter, LunaAdapter
 from .auto_forward import HOTKEY_OPTIONS, AutoForward
 from .blacklist import Blacklist, is_renpy_exception
 from .config import BACKEND_DIR, Settings, settings
@@ -101,6 +102,10 @@ class SettingsBody(BaseModel):
     qwen_autostart: bool | None = None
     qwen_auto_import_samples: bool | None = None
     poll_interval: float | None = None
+    hook_mode: str | None = None
+    luna_ws_url: str | None = None
+    hook_dedup_window: float | None = None
+    actor_names: str | None = None
     auto_forward_enabled: bool | None = None
     auto_forward_target: str | None = None
     auto_forward_delay: float | None = None
@@ -176,7 +181,13 @@ class NovaApp:
         self._line_end_lock = threading.Lock()
         self.player.on_finished = self._on_playback_finished
         self.clipboard: ClipboardAdapter | None = None
+        self.luna: LunaAdapter | None = None
         self._event_history: list[Event] = []
+
+        # In "both" mode Luna and the clipboard can deliver the same line.
+        # Remember the last accepted one (key, source, monotonic time).
+        self._dedup_lock = threading.Lock()
+        self._last_dialogue: tuple[tuple[str, str], str, float] | None = None
 
         self._pending_lock = threading.Lock()
         self._pending_dialogue: Dialogue | None = None
@@ -201,18 +212,18 @@ class NovaApp:
         self._running = True
         self._worker = threading.Thread(target=self._dialogue_worker, name="dialogue-worker", daemon=True)
         self._worker.start()
-        self.clipboard = ClipboardAdapter(
-            on_dialogue=self.on_dialogue,
-            blacklist=self.blacklist,
-            on_filtered=self._on_adapter_filtered,
+        self._sync_adapters()
+        log.info(
+            "NovaTTS started (qwen_online=%s, hook_mode=%s)",
+            self.qwen.is_available(),
+            self._hook_mode(),
         )
-        self.clipboard.set_known_speakers(self.registry.names())
-        self.clipboard.start()
-        log.info("NovaTTS started (qwen_online=%s)", self.qwen.is_available())
 
     def stop(self) -> None:
         if self.clipboard:
             self.clipboard.stop()
+        if self.luna:
+            self.luna.stop()
         self._running = False
         with suppress(Exception):
             self._wake.set()
@@ -235,6 +246,85 @@ class NovaApp:
             if self.clipboard:
                 self.clipboard.raw_log.clear()
         self.registry.maybe_autosave()
+
+    # -- input adapters -------------------------------------------------
+
+    def _hook_mode(self) -> str:
+        mode = (settings.hook_mode or "").strip().lower()
+        return mode if mode in {"clipboard", "luna", "both"} else "both"
+
+    def _sync_adapters(self) -> None:
+        """Create/start/stop adapters to match ``hook_mode``.
+
+        Runs after start and whenever settings change. Objects are kept
+        around when idle so ``/status`` and the raw clipboard log still
+        work, but only the adapters the mode asks for actually listen.
+        """
+        mode = self._hook_mode()
+        if self.clipboard is None:
+            self.clipboard = ClipboardAdapter(
+                on_dialogue=self.on_dialogue,
+                blacklist=self.blacklist,
+                on_filtered=self._on_adapter_filtered,
+            )
+            self.clipboard.set_known_speakers(self.registry.names())
+        if self.luna is None:
+            self.luna = LunaAdapter(
+                on_dialogue=self.on_dialogue,
+                on_filtered=self._on_adapter_filtered,
+            )
+            self.luna.set_known_speakers(self.registry.names())
+        else:
+            # A changed URL needs a reconnect: stop before swapping it.
+            wanted_url = (settings.luna_ws_url or "").strip()
+            if self.luna.url != wanted_url:
+                if self.luna.is_running():
+                    self.luna.stop()
+                self.luna.set_url(wanted_url)
+
+        # The placeholder mapping is read at parse time on every line, so a
+        # settings change takes effect without a reconnect.
+        self.clipboard.set_name_codes(settings.actor_names)
+        self.luna.set_name_codes(settings.actor_names)
+
+        want_clipboard = mode in {"clipboard", "both"}
+        want_luna = mode in {"luna", "both"}
+        if want_clipboard and not self.clipboard.is_running():
+            self.clipboard.start()
+        elif not want_clipboard and self.clipboard.is_running():
+            self.clipboard.stop()
+        if want_luna and not self.luna.is_running():
+            self.luna.start()
+        elif not want_luna and self.luna.is_running():
+            self.luna.stop()
+
+    def _is_duplicate_dialogue(self, dialogue: Dialogue) -> bool:
+        """True when the other adapter just delivered this exact line.
+
+        Both routes stay enabled in "both" mode, so one hook line can arrive
+        twice (Luna's websocket and the clipboard). Only a match from a
+        *different* source inside ``hook_dedup_window`` counts, so a game
+        that genuinely repeats a line still lets the repeat through.
+        """
+        if self._hook_mode() != "both":
+            return False
+        key = ((dialogue.speaker or ""), " ".join(dialogue.text.split()).casefold())
+        now = time.monotonic()
+        window = max(0.0, settings.hook_dedup_window)
+        with self._dedup_lock:
+            previous = self._last_dialogue
+            duplicate = (
+                previous is not None
+                and previous[0] == key
+                and previous[1] != dialogue.source
+                and (now - previous[2]) <= window
+            )
+            # Only a fresh line becomes the reference: recording the copy we
+            # just dropped would make a real repeat of the same text from the
+            # other adapter look like a duplicate again.
+            if not duplicate:
+                self._last_dialogue = (key, dialogue.source, now)
+        return duplicate
 
     def _on_auto_forward_capture(self, _title: str) -> None:
         """Persist a target captured with the global capture hotkey."""
@@ -503,6 +593,10 @@ class NovaApp:
             dialogue = Dialogue(speaker=dialogue.speaker, text=filtered, source=dialogue.source, instruct=dialogue.instruct)
         if not dialogue.is_voiceable:
             return
+        if self._is_duplicate_dialogue(dialogue):
+            log.debug("Ignoring duplicate %s line from %s", dialogue.source, dialogue.text[:60])
+            self._emit(Event("deduped", {"source": dialogue.source, "text": dialogue.text[:80]}))
+            return
         seen_new = False
         if dialogue.speaker:
             try:
@@ -567,6 +661,8 @@ class NovaApp:
         self.voices.registry = self.registry
         if self.clipboard:
             self.clipboard.set_known_speakers(self.registry.names())
+        if self.luna:
+            self.luna.set_known_speakers(self.registry.names())
         # Every game can remember its own game window; without a saved one the
         # global target stays in effect.
         self.auto_forward.target = self.effective_auto_forward_target()
@@ -597,7 +693,11 @@ class NovaApp:
             "import_status": imp,
             "game": self.games.active(),
             "games": self.games.list_games(),
+            "hook_mode": self._hook_mode(),
             "clipboard": self.clipboard.is_running() if self.clipboard else False,
+            "luna": self.luna.is_running() if self.luna else False,
+            "luna_connected": bool(self.luna and self.luna.connected),
+            "luna_url": settings.luna_ws_url,
             "queue_size": self.player.queue_size(),
             "streaming": self.player.is_streaming(),
             "keep_warm": self.player.keep_warm_active(),
@@ -841,6 +941,8 @@ async def create_speaker(body: SpeakerCreateBody) -> dict[str, Any]:
     rt.registry.save()
     if rt.clipboard:
         rt.clipboard.set_known_speakers(rt.registry.names())
+    if rt.luna:
+        rt.luna.set_known_speakers(rt.registry.names())
     return speaker.to_dict()
 
 
@@ -1320,6 +1422,10 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "qwen_autostart": "NOVATTS_QWEN_AUTOSTART",
     "qwen_auto_import_samples": "NOVATTS_QWEN_AUTO_IMPORT_SAMPLES",
     "poll_interval": "NOVATTS_POLL_INTERVAL",
+    "hook_mode": "NOVATTS_HOOK_MODE",
+    "luna_ws_url": "NOVATTS_LUNA_WS_URL",
+    "hook_dedup_window": "NOVATTS_HOOK_DEDUP_WINDOW",
+    "actor_names": "NOVATTS_ACTOR_NAMES",
     "auto_forward_enabled": "NOVATTS_AUTO_FORWARD_ENABLED",
     "auto_forward_target": "NOVATTS_AUTO_FORWARD_TARGET",
     "auto_forward_delay": "NOVATTS_AUTO_FORWARD_DELAY",
@@ -1332,9 +1438,10 @@ def _as_bool(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-_SETTINGS_FIELD_TYPES: dict[str, type[Any]] = {
+_SETTINGS_FIELD_TYPES: dict[str, Callable[[str], Any]] = {
     "qwen_timeout": float,
     "poll_interval": float,
+    "hook_dedup_window": float,
     "auto_forward_delay": float,
     "auto_forward_enabled": _as_bool,
     "voice_design_enabled": _as_bool,
@@ -1361,6 +1468,10 @@ def _settings_snapshot() -> dict[str, Any]:
         "qwen_timeout": settings.qwen_timeout,
         "qwen_extra_args": settings.qwen_extra_args,
         "poll_interval": settings.poll_interval,
+        "hook_mode": settings.hook_mode,
+        "luna_ws_url": settings.luna_ws_url,
+        "hook_dedup_window": settings.hook_dedup_window,
+        "actor_names": settings.actor_names,
         "qwen_autostart": settings.qwen_autostart,
         "qwen_auto_import_samples": settings.qwen_auto_import_samples,
         "auto_forward_enabled": settings.auto_forward_enabled,
@@ -1437,6 +1548,8 @@ async def update_settings(body: SettingsBody) -> dict[str, Any]:
     _persist_settings(updates)
     if any(k.startswith("auto_forward_") for k in updates):
         _apply_auto_forward_settings()
+    if any(k in {"hook_mode", "luna_ws_url", "actor_names"} for k in updates):
+        _apply_hook_settings()
     return {"status": "saved", "settings": _settings_snapshot(), "path_status": _settings_path_status()}
 
 
@@ -1450,6 +1563,14 @@ def _apply_auto_forward_settings() -> None:
     af.set_hotkey(settings.auto_forward_hotkey)
     af.set_capture_hotkey(settings.auto_forward_capture_hotkey)
     af.set_enabled(bool(settings.auto_forward_enabled))
+
+
+def _apply_hook_settings() -> None:
+    """Restart the input adapters after a hook mode/URL change."""
+    if _runtime is None:
+        return
+    with suppress(Exception):
+        _runtime._sync_adapters()
 
 
 def _persist_settings(updates: dict[str, Any]) -> None:

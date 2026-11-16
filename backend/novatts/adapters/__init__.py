@@ -2,5 +2,6 @@
 
 from .base import InputAdapter
 from .clipboard import ClipboardAdapter
+from .luna import LunaAdapter
 
-__all__ = ["InputAdapter", "ClipboardAdapter"]
+__all__ = ["InputAdapter", "ClipboardAdapter", "LunaAdapter"]

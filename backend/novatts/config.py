@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Windows installs keep the Qwen engine + models under the per-user AI-Tools
@@ -198,6 +199,38 @@ class Settings(BaseSettings):
     # geven een duidelijke melding. Alles buiten voice-design blijft werken.
     voice_design_enabled: bool = False
     blacklist_file: Path = DATA_DIR / "blacklist.json"
+
+    # --- Input adapters ---
+    # "clipboard" = RenPy copy_voice_to_clipboard only (old behavior);
+    # "luna" = LunaTranslator's websocket hook only; "both" = listen to both
+    # and drop the second copy of a line that arrives twice.
+    hook_mode: str = "both"
+    # LunaTranslator's built-in server (networktcpenable) pushes every
+    # post-processed line to /api/ws/text/origin as a plain text frame.
+    # Point this at /api/ws/text/trans for translated text instead.
+    luna_ws_url: str = "ws://127.0.0.1:2333/api/ws/text/origin"
+    # Both routes can deliver the same line within a fraction of a second;
+    # a matching line from the other adapter inside this window is ignored.
+    hook_dedup_window: float = 3.0
+    # RPG Maker stores some names as numeric placeholders: "\n[1]" / "\N[1]"
+    # is actor 1's name, both inside a speaker tag (<\c[14]\n[1]>) and
+    # mid-sentence ("I'm not leaving \n[1]'s side."). The real spelling is
+    # game-specific, so map the codes here: "1=Rick,2=Otsu". Leave empty to
+    # drop the placeholder; a tagged line then falls back to the narrator.
+    actor_names: str = ""
+
+    @field_validator("luna_ws_url", mode="before")
+    @classmethod
+    def _luna_url_default(cls, value: object) -> object:
+        """Treat a blank ``NOVATTS_LUNA_WS_URL=`` as "use the default".
+
+        Older configs (and a cleared GUI field) leave the key empty; that
+        must not silently disable the adapter. Use ``hook_mode=clipboard``
+        to turn Luna off.
+        """
+        if isinstance(value, str) and not value.strip():
+            return "ws://127.0.0.1:2333/api/ws/text/origin"
+        return value
 
     # --- Clipboard adapter ---
     poll_interval: float = 0.25

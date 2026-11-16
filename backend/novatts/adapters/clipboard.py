@@ -26,6 +26,7 @@ import pyperclip
 
 from ..blacklist import Blacklist, is_renpy_exception
 from ..config import settings
+from ..parser.luna import LunaParser, has_hook_markup
 from ..parser.renpy import RenPyParser
 from .base import DialogueCallback, FilteredCallback, InputAdapter
 from .rawclipboard import RawClipboardLogger
@@ -42,6 +43,10 @@ class ClipboardAdapter(InputAdapter):
         self._running = False
         self._last_clipboard: str = ""
         self.parser = RenPyParser()
+        # LunaTranslator can also copy its hook output to the clipboard (it
+        # does by default); those lines carry inline game markup that the
+        # RenPy parser would garble, so they get their own parser.
+        self.luna_parser = LunaParser(name_codes=settings.actor_names)
         self.blacklist = blacklist
         self.raw_log = RawClipboardLogger(
             settings.clipboard_raw_log,
@@ -55,6 +60,11 @@ class ClipboardAdapter(InputAdapter):
     def set_known_speakers(self, names: Iterable[str]) -> None:
         """Sync the parser's registry-backed name set (case-insensitive)."""
         self.parser.set_known_names(names)
+        self.luna_parser.set_known_names(names)
+
+    def set_name_codes(self, value: object) -> None:
+        """Update the game's ``actor_names`` placeholder mapping."""
+        self.luna_parser.set_name_codes(value)
 
     def start(self) -> None:
         if self._running:
@@ -108,6 +118,14 @@ class ClipboardAdapter(InputAdapter):
                 self.notify_filtered("garbage", current)
                 return
 
+            # A Luna/Textractor hook payload is not a "Name: text" line: run
+            # it through the hook parser before the blacklist rewrites (and
+            # garbles) the markup. The body pass in main still applies the
+            # blacklist to the extracted dialogue.
+            if has_hook_markup(current):
+                self._handle_hook_payload(current)
+                return
+
             # Blacklist BEFORE parsing: the whole raw line is filtered, so
             # UI junk in front of a real speaker is removed and only the
             # dialogue is left to pick a voice from. A registered speaker
@@ -128,6 +146,26 @@ class ClipboardAdapter(InputAdapter):
                 self.on_dialogue(dialogue)
             except Exception:
                 log.exception("on_dialogue callback failed (swallowed)")
+
+    def _handle_hook_payload(self, raw: str) -> None:
+        """Parse a Luna/Textractor hook line that reached the clipboard."""
+        try:
+            dialogue = self.luna_parser.parse(raw, source=self.name)
+            valid = dialogue.is_voiceable and len(dialogue.text) >= settings.min_text_length
+        except Exception:
+            log.exception("Luna clipboard parse failed (swallowed)")
+            dialogue, valid = None, False
+        if dialogue is None or not valid:
+            self.raw_log.log_entry(raw, "BLOCKED:garbage")
+            log.debug("Skipping unusable hook clipboard: %r", raw[:60])
+            self.notify_filtered("garbage", raw)
+            return
+        self.raw_log.log_entry(raw, "OK:hook")
+        log.debug("Clipboard hook -> %s: %s", dialogue.speaker, dialogue.text[:60])
+        try:
+            self.on_dialogue(dialogue)
+        except Exception:
+            log.exception("on_dialogue callback failed (swallowed)")
 
     def _apply_blacklist(self, raw: str) -> str:
         """Blacklist a raw capture, returning the text to parse ("" = drop)."""

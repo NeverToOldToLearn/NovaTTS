@@ -3,6 +3,7 @@ uvicorn[standard]>=0.32
 pydantic>=2.9
 pydantic-settings>=2.6
 pyperclip>=1.9
+websockets>=13
 pygame>=2.6
 requests>=2.32
 sounddevice>=0.5
